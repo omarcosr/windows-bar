@@ -16,6 +16,9 @@ const user32 = dlopen("user32.dll", {
   GetWindowRect: { args: ["ptr", "ptr"], returns: "i32" },
   GetCursorPos: { args: ["ptr"], returns: "i32" },
   GetAsyncKeyState: { args: ["i32"], returns: "i16" },
+  GetDC: { args: ["ptr"], returns: "ptr" },
+  ReleaseDC: { args: ["ptr", "ptr"], returns: "i32" },
+  GetClassNameW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
   GetWindowThreadProcessId: { args: ["ptr", "ptr"], returns: "u32" },
   GetForegroundWindow: { args: [], returns: "ptr" },
   SetForegroundWindow: { args: ["ptr"], returns: "i32" },
@@ -45,6 +48,10 @@ const dwmapi = dlopen("dwmapi.dll", {
   DwmUnregisterThumbnail: { args: ["ptr"], returns: "i32" },
   DwmUpdateThumbnailProperties: { args: ["ptr", "ptr"], returns: "i32" },
   DwmQueryThumbnailSourceSize: { args: ["ptr", "ptr"], returns: "i32" },
+});
+
+const gdi32 = dlopen("gdi32.dll", {
+  GetPixel: { args: ["ptr", "i32", "i32"], returns: "u32" },
 });
 
 const shell32 = dlopen("shell32.dll", {
@@ -132,6 +139,23 @@ export function cursorPos(): { x: number; y: number } {
 /** True while the key or mouse button (a virtual-key code) is held down. */
 export function keyDown(vk: number) {
   return (U.GetAsyncKeyState(vk) & 0x8000) !== 0;
+}
+
+export function windowClass(hwnd: HWND): string {
+  const len = U.GetClassNameW(hwnd, textBuf, textBuf.length);
+  return len > 0 ? Buffer.from(textBuf.buffer, 0, len * 2).toString("utf16le") : "";
+}
+
+/** Colours on screen at the given physical points, as [r, g, b]; null where unreadable. */
+export function screenPixels(points: { x: number; y: number }[]): ([number, number, number] | null)[] {
+  const dc = U.GetDC(null);
+  if (!dc) return points.map(() => null);
+  const out = points.map(({ x, y }) => {
+    const c = gdi32.symbols.GetPixel(dc, Math.round(x), Math.round(y));
+    return c === 0xffffffff ? null : ([c & 0xff, (c >> 8) & 0xff, (c >> 16) & 0xff] as [number, number, number]);
+  });
+  U.ReleaseDC(null, dc);
+  return out;
 }
 
 export function isWindowVisible(hwnd: HWND) {

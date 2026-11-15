@@ -115,6 +115,11 @@ export function activateApp(key: string, launchPath?: string) {
   setTimeout(refreshWindows, 120);
 }
 
+/** The last window in front that is not one of the dock's own. */
+export function foregroundApp(): HWND | null {
+  return lastForeground;
+}
+
 export function focusWindow(hwnd: HWND) {
   activateWindow(hwnd);
   setTimeout(refreshWindows, 120);

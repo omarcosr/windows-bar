@@ -9,6 +9,7 @@ import { launch } from "./services/windows";
 import { DockWindow } from "./native/dock-window";
 import { findWindow } from "./native/win32";
 import { taskbarPrefs, watchTaskbarPrefs } from "./services/taskbar-prefs";
+import { appColor, watchAppColor } from "./services/app-color";
 import { disposeWidget, setWidgetApp } from "./widgets/host";
 import { allWidgets } from "./widgets/registry";
 import "./widgets/builtin";
@@ -105,11 +106,17 @@ const nativeOptions = () => ({
   mode: config.mode,
   align: taskbarPrefs.align,
   reserveSpace: config.reserveSpace,
+  stripFill: config.stripFollowsApp,
+  stripOverlap: appColor.color ? 2 : 0,
   hideNativeTaskbar: config.hideNativeTaskbar,
   bottomMargin: config.bottomMargin,
 });
 dockWindow = await DockWindow.attach({ title: DOCK_TITLE, ...nativeOptions() });
 if (pendingSize) dockWindow.setContentSize(...pendingSize);
+watchAppColor(
+  () => DockWindow.handle(),
+  () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,
+);
 await initDockMenu(app);
 await initWindowPreview(app);
 

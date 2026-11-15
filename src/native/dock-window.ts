@@ -31,6 +31,10 @@ export interface DockWindowOptions {
   /** Windows' own taskbar alignment; a floating dock follows it to the left edge. */
   align: "center" | "left";
   reserveSpace: boolean;
+  /** Floating dock with a reserved strip: the window covers the whole strip and paints it. */
+  stripFill: boolean;
+  /** Logical px the painted strip reaches up over the app above, hiding its bottom frame line. */
+  stripOverlap: number;
   hideNativeTaskbar: boolean;
   bottomMargin: number;
 }
@@ -122,16 +126,21 @@ export class DockWindow {
     if (this.#disposed || !this.#size.width) return;
     const scale = dpiOf(this.#hwnd) / 96;
     const full = this.#options.mode === "full";
+    // In strip mode the view itself carries the margins, so the window spans the whole strip.
+    const strip = !full && this.#options.stripFill && this.#options.reserveSpace;
+    const wide = full || strip;
     const { monitor, work } = monitorOf(this.#hwnd);
-    const width = full ? monitor.right - monitor.left : Math.ceil(this.#size.width * scale);
-    const height = Math.ceil(this.#size.height * scale);
-    const margin = full ? 0 : Math.round(this.#options.bottomMargin * scale);
+    const width = wide ? monitor.right - monitor.left : Math.ceil(this.#size.width * scale);
+    const overlap = strip ? Math.ceil(this.#options.stripOverlap * scale) : 0;
+    const height = Math.ceil(this.#size.height * scale) + overlap;
+    const gap = Math.round(this.#options.bottomMargin * scale);
+    const margin = wide ? 0 : gap;
     // Without our own reservation, stay above whatever the taskbar reserves.
     let bottom = this.#taskbar ? monitor.bottom : work.bottom;
 
     if (this.#options.reserveSpace) {
       // Reserve only the dock's base height, so edit-mode badges do not grow the strip.
-      const thickness = Math.ceil(64 * scale) + margin * 2; // 64 = dock height
+      const thickness = Math.ceil(64 * scale) + (full ? 0 : gap * 2); // 64 = dock height
       if (!this.#registered) {
         appBarRegister(this.#hwnd);
         this.#registered = true;
@@ -148,7 +157,7 @@ export class DockWindow {
       if (this.#granted) bottom = this.#granted.bottom;
     }
 
-    const x = full
+    const x = wide
       ? monitor.left
       : this.#options.align === "left"
         ? monitor.left + margin

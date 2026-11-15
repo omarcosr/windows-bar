@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { iconFor } from "../../services/icons";
 import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { hidePreview, hoverApp } from "../../menu/window-preview";
+import { keyDown } from "../../native/win32";
 import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
 import { ui } from "../../theme";
 import { Dot } from "../ui";
@@ -31,6 +32,15 @@ interface Item {
 /** The icon being dragged and the icon under it, while an icon is dragged to a new place. */
 const drag = store({ source: "", over: "" });
 const DRAG_PREFIX = "app:";
+
+// A drag whose end event never came (the dock moved under the pointer, focus changed) must not
+// leave an icon dimmed: once the left button is up, the drag is over.
+setInterval(() => {
+  if (drag.source && !keyDown(0x01)) {
+    drag.source = "";
+    drag.over = "";
+  }
+}, 250);
 
 function AppIcon(props: {
   item: Item;

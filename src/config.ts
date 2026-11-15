@@ -16,6 +16,8 @@ export interface DockConfig {
   widgets: WidgetInstance[];
   /** Reserve a strip at the bottom of the screen so maximized windows stop above the dock. */
   reserveSpace: boolean;
+  /** Floating dock with reserved space: paint the strip in the colour of the app in front. */
+  stripFollowsApp: boolean;
   /** Hide the Windows taskbar while the dock runs (restored on exit). */
   hideNativeTaskbar: boolean;
   /** "floating": a centred pill above the screen edge. "full": a bar across the whole screen, like the Windows taskbar. */
@@ -35,6 +37,7 @@ export const defaultConfig = (): DockConfig => ({
   version: 1,
   reserveSpace: true,
   hideNativeTaskbar: false,
+  stripFollowsApp: true,
   mode: "floating",
   hoverPreview: true,
   opacity: 1,

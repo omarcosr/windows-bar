@@ -3,6 +3,7 @@ import { config, type WidgetInstance } from "../config";
 import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { taskbarPrefs } from "../services/taskbar-prefs";
+import { appColor } from "../services/app-color";
 import { dockUi, removeWidget } from "./state";
 
 export const DOCK_TITLE = "WindowsBar Dock";
@@ -54,6 +55,10 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
 export function DockView(props: { onSize: (width: number, height: number) => void; onContextMenu: () => void }) {
   const editing = dockUi.editing;
   const full = config.mode === "full";
+  // Floating dock over a reserved strip: the window spans the strip and paints it in the colour
+  // of the app in front, so the app seems to continue under the dock.
+  const strip = !full && config.reserveSpace && config.stripFollowsApp;
+  const stripMargin = config.bottomMargin;
   const widgets = config.widgets;
   // Start and Apps form one group, placed like the Windows taskbar's icons: centred or on the
   // left, following Windows' own taskbar alignment. Other widgets keep their side of the group.
@@ -93,32 +98,63 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       // Transparent black, not the theme's white: antialiased edges blend toward this colour.
       style={{ background: "rgba(0,0,0,0)" }}
     >
-      <View style={{ flex: 1, align: "start", justify: "start", direction: "row" }}>
+      <View
+        style={
+          strip
+            ? {
+                // The strip colour fills the whole window, including the few px it overlaps the
+                // app above (to cover that app's bottom frame line); the dock sits at the bottom.
+                flex: 1,
+                direction: "column",
+                justify: "end",
+                align: "stretch",
+                background: appColor.color ?? "rgba(0,0,0,0)",
+                transition: { background: { duration: 220, easing: "easeOut" } },
+              }
+            : { flex: 1, align: "start", justify: "start", direction: "row" }
+        }
+      >
         {/* onSize reports the content box, so the padded box sits inside the measured one. */}
-        <View onSize={({ width, height }) => props.onSize(width, height)} style={full ? { flex: 1 } : { shrink: 0 }}>
+        <View
+          onSize={({ width, height }) => props.onSize(width, height)}
+          style={strip ? { shrink: 0 } : full ? { flex: 1 } : { shrink: 0 }}
+        >
+          {/* onSize reports the content box, so the strip's margins live one level down. */}
           <View
-            style={{
-              shrink: 0,
-              width: full ? "100%" : undefined,
-              padding: { top: editing ? 9 : 0, left: editing && !full ? 9 : 0, right: editing && !full ? 2 : 0 },
-            }}
+            style={
+              strip
+                ? {
+                    direction: "row",
+                    justify: taskbarPrefs.align === "left" ? "start" : "center",
+                    padding: stripMargin,
+                  }
+                : {}
+            }
           >
-            <Pressable
-              onContextMenu={props.onContextMenu}
+            <View
               style={{
-                direction: "row",
-                align: "center",
-                height: ui.dock.height,
-                gap: ui.dock.gap,
-                padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
-                radius: full ? 0 : ui.dock.radius,
-                background: dockBackground(config.opacity),
-                width: full ? "100%" : undefined,
                 shrink: 0,
+                width: full ? "100%" : undefined,
+                padding: { top: editing ? 9 : 0, left: editing && !full ? 9 : 0, right: editing && !full ? 2 : 0 },
               }}
             >
-              {content}
-            </Pressable>
+              <Pressable
+                onContextMenu={props.onContextMenu}
+                style={{
+                  direction: "row",
+                  align: "center",
+                  height: ui.dock.height,
+                  gap: ui.dock.gap,
+                  padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
+                  radius: full ? 0 : ui.dock.radius,
+                  background: dockBackground(config.opacity),
+                  width: full ? "100%" : undefined,
+                  shrink: 0,
+                }}
+              >
+                {content}
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>

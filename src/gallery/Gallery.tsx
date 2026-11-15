@@ -283,6 +283,16 @@ export function GalleryView() {
                 saveConfig();
               }}
             />
+            {config.mode === "floating" && config.reserveSpace ? (
+              <Toggle
+                label="Fundo do espaço segue o app aberto"
+                checked={config.stripFollowsApp}
+                onChange={(v) => {
+                  config.stripFollowsApp = v;
+                  saveConfig();
+                }}
+              />
+            ) : null}
             <Toggle
               label={config.mode === "full" ? "Esconder barra do Windows (sempre na barra inteira)" : "Esconder barra do Windows"}
               checked={config.hideNativeTaskbar || config.mode === "full"}
