@@ -21,6 +21,8 @@ bun run build             # dist/WindowsBar.exe
 | Shared data services, polled only while a widget uses them | `src/services/` (windows, icons, system, media, weather) |
 | Widget system | `src/widgets/types.ts`, `registry.ts`, `host.ts` |
 | Built-in widgets | `src/widgets/builtin/*.tsx` |
+| Taskbar host: tray icons and app badges, forwarded on to Explorer | `src/native/tray-host.ts`, `src/services/taskbar-host.ts`, `src/services/badges.ts` |
+| Network, volume, battery, keyboard layout | `src/native/status.ts`, `src/services/status.ts` |
 | Dock and gallery views | `src/dock/`, `src/gallery/` |
 
 Now Playing and icon extraction run small PowerShell helpers (`scripts/`), because WinRT media sessions and shell icons are not reachable through plain FFI.

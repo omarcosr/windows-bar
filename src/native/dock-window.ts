@@ -6,6 +6,7 @@ import {
   appBarRemove,
   appBarSetPos,
   dpiOf,
+  explorerTray,
   findWindow,
   fullscreenAppActive,
   isWindowVisible,
@@ -14,6 +15,8 @@ import {
   setTaskbarState,
   showWindow,
   stripWindowChrome,
+  setBehind,
+  foregroundWindow,
   SW_HIDE,
   SW_SHOWNA,
   taskbarState,
@@ -53,6 +56,7 @@ export class DockWindow {
   #hiddenForFullscreen = false;
   #timer: ReturnType<typeof setInterval>;
   #ticks = 0;
+  #lostChecks = 0;
   #watchdog = false;
   #disposed = false;
 
@@ -60,7 +64,7 @@ export class DockWindow {
     this.#hwnd = hwnd;
     this.#options = options;
     stripWindowChrome(hwnd);
-    this.#timer = setInterval(() => this.#watch(), 250);
+    this.#timer = setInterval(() => this.#watch(), 100);
     if (DockWindow.#hidesTaskbar(options)) this.#hideTaskbar();
     const cleanup = () => this.dispose();
     process.once("exit", cleanup);
@@ -163,7 +167,7 @@ export class DockWindow {
         ? monitor.left + margin
         : monitor.left + (monitor.right - monitor.left - width) / 2;
     const y = bottom - margin - height;
-    moveWindow(this.#hwnd, x, y, width, height);
+    moveWindow(this.#hwnd, x, y, width, height, this.#hiddenForFullscreen);
   }
 
   #granted: { bottom: number } | null = null;
@@ -177,7 +181,7 @@ export class DockWindow {
 
   #hideTaskbar() {
     if (this.#taskbar) return;
-    const tray = findWindow(null, "Shell_TrayWnd");
+    const tray = explorerTray();
     if (!tray) return;
     this.#taskbar = { hwnd: tray, state: taskbarState() };
     this.#startWatchdog(this.#taskbar.state);
@@ -217,27 +221,48 @@ export class DockWindow {
     this.#taskbar = null;
   }
 
+  /** Steps behind a full-screen window as soon as one takes the screen (checked every 100 ms). */
+  #checkFullscreen() {
+    const fullscreen = fullscreenAppActive(this.#hwnd);
+    if (fullscreen !== this.#hiddenForFullscreen) {
+      this.#hiddenForFullscreen = fullscreen;
+      // Step behind the full-screen window instead of hiding: a hidden AppBar loses its reserved
+      // strip, windows then grow over it, look full-screen themselves and the dock never returns.
+      setBehind(this.#hwnd, fullscreen ? foregroundWindow() : null);
+    }
+    return fullscreen;
+  }
+
   #watch() {
     this.#ticks++;
     // Explorer shows the taskbar again on its own (Start menu, notifications, Explorer restart).
     if (this.#taskbar && !this.#hiddenForFullscreen) {
-      const tray = findWindow(null, "Shell_TrayWnd");
+      const tray = explorerTray();
       if (tray && tray !== this.#taskbar.hwnd) this.#taskbar.hwnd = tray;
       if (tray && isWindowVisible(tray)) {
         setTaskbarState(ABS_AUTOHIDE);
         showWindow(tray, SW_HIDE);
       }
     }
-    if (this.#ticks % 4 !== 0) return;
+    this.#checkFullscreen();
+    if (this.#ticks % 10 !== 0) return;
     stripWindowChrome(this.#hwnd); // the runtime may re-apply its frame attributes
-    const fullscreen = fullscreenAppActive();
-    if (fullscreen !== this.#hiddenForFullscreen) {
-      this.#hiddenForFullscreen = fullscreen;
-      showWindow(this.#hwnd, fullscreen ? SW_HIDE : SW_SHOWNA);
-    }
+
     // The taskbar or another AppBar may have moved our strip; re-reserve only if it changed.
-    if (!fullscreen && this.#registered && this.#granted && this.#size.width) {
-      const { monitor } = monitorOf(this.#hwnd);
+    if (this.#registered && this.#granted && this.#size.width) {
+      const { monitor, work } = monitorOf(this.#hwnd);
+      // Explorer forgets every AppBar when it restarts: the work area then reaches into our strip.
+      // Windows applies a reservation with some delay, so only act once it stays lost a while.
+      const lost = work.bottom > this.#granted.bottom - this.#reservedHeight + 1;
+      this.#lostChecks = lost ? this.#lostChecks + 1 : 0;
+      if (this.#lostChecks >= 5) {
+        this.#lostChecks = 0;
+        appBarRemove(this.#hwnd);
+        this.#registered = false;
+        this.#reservedHeight = -1;
+        this.layout();
+        return;
+      }
       const want = appBarQuery(this.#hwnd, ABE_BOTTOM, {
         left: monitor.left,
         right: monitor.right,

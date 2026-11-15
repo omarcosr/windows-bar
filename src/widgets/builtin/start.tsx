@@ -1,5 +1,6 @@
 import { Pressable, View } from "@tarve/core";
 import { tapKey, VK } from "../../native/win32";
+import { launch } from "../../services/windows";
 import { ui } from "../../theme";
 import { WindowsLogo } from "../ui";
 import { defineWidget } from "../types";
@@ -11,6 +12,16 @@ export default defineWidget({
   category: "apps",
   defaultConfig: {},
   setup: () => ({}),
+  menu() {
+    return [
+      [
+        { label: "Abrir Iniciar", icon: "house", onSelect: () => tapKey(VK.LWIN) },
+        { label: "Configurações", icon: "settings", onSelect: () => launch("ms-settings:") },
+        { label: "Gerenciador de Tarefas", icon: "info", onSelect: () => launch("taskmgr.exe") },
+        { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
+      ],
+    ];
+  },
   View() {
     // Same slot and icon size as the app icons, so it lines up with them.
     return (

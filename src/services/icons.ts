@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { configDir } from "../config";
 import iconScript from "../../scripts/extract-icons.ps1" with { type: "text" };
 
-const cacheDir = join(configDir, "icons");
+// v2: icons from IShellItemImageFactory (sharp, with Store apps); older blurry ones are skipped.
+const cacheDir = join(configDir, "icons-v2");
 mkdirSync(cacheDir, { recursive: true });
 const scriptPath = join(cacheDir, "extract-icons.ps1");
 writeFileSync(scriptPath, iconScript);

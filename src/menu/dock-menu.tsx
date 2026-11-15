@@ -34,6 +34,10 @@ export interface DockMenuItem {
   icon?: IconName | readonly SvgNode[] | { image: string };
   danger?: boolean;
   onSelect: () => void;
+  /** Right-click on the row. */
+  onContextMenu?: () => void;
+  /** Grid menus only: a second click on the same item within a moment. */
+  onDoubleSelect?: () => void;
 }
 
 export interface DockMenuSpec {
@@ -41,6 +45,11 @@ export interface DockMenuSpec {
   subtitle?: string;
   image?: string;
   sections: DockMenuItem[][];
+  /**
+   * Icons only, five per row, no header, like the Windows hidden-icons flyout. Clicks do not
+   * close it; it closes when something else comes to the front, a press lands outside or Esc.
+   */
+  grid?: boolean;
 }
 
 const MENU_TITLE = "WindowsBar Menu";
@@ -92,12 +101,13 @@ export const glyph = {
   ] as readonly SvgNode[],
 };
 
-function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string }) {
+function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string; size?: number }) {
   const { icon } = props;
-  if (!icon) return <View style={{ width: 16, height: 16 }} />;
-  if (typeof icon === "object" && "image" in icon) return <Image src={icon.image} width={16} height={16} fit="contain" />;
-  if (typeof icon === "string") return <Icon name={icon} size={16} color={props.color} strokeWidth={2} />;
-  return <Icon iconNode={icon as readonly SvgNode[]} size={16} color={props.color} strokeWidth={2} />;
+  const size = props.size ?? 16;
+  if (!icon) return <View style={{ width: size, height: size }} />;
+  if (typeof icon === "object" && "image" in icon) return <Image src={icon.image} width={size} height={size} fit="contain" />;
+  if (typeof icon === "string") return <Icon name={icon} size={size} color={props.color} strokeWidth={2} />;
+  return <Icon iconNode={icon as readonly SvgNode[]} size={size} color={props.color} strokeWidth={2} />;
 }
 
 function MenuRow(props: { item: DockMenuItem }) {
@@ -105,10 +115,20 @@ function MenuRow(props: { item: DockMenuItem }) {
   const color = item.danger ? "#ff6961" : ui.text;
   return (
     <Pressable
+      // The action runs before the menu closes: while the menu is in front, this process may
+      // still hand the foreground to the app the action opens.
       onClick={() => {
-        closeDockMenu();
         item.onSelect();
+        closeDockMenu();
       }}
+      onContextMenu={
+        item.onContextMenu
+          ? () => {
+              item.onContextMenu!();
+              closeDockMenu();
+            }
+          : undefined
+      }
       style={{
         direction: "row",
         align: "center",
@@ -126,6 +146,52 @@ function MenuRow(props: { item: DockMenuItem }) {
         {item.label}
       </Text>
     </Pressable>
+  );
+}
+
+let lastGridClick = { item: null as DockMenuItem | null, at: 0 };
+
+function GridCell(props: { item: DockMenuItem }) {
+  const { item } = props;
+  return (
+    <Pressable
+      onClick={() => {
+        const now = Date.now();
+        const double = lastGridClick.item === item && now - lastGridClick.at < 450;
+        lastGridClick = { item: double ? null : item, at: now };
+        if (double && item.onDoubleSelect) item.onDoubleSelect();
+        else item.onSelect();
+      }}
+      onContextMenu={item.onContextMenu}
+      style={{
+        width: 40,
+        height: 40,
+        radius: 8,
+        align: "center",
+        justify: "center",
+        cursor: "pointer",
+        hover: { background: "rgba(255,255,255,0.08)" },
+        active: { background: "rgba(255,255,255,0.12)", transform: "scale(0.94)" },
+      }}
+    >
+      <ItemIcon icon={item.icon} color="#c7c7cc" size={20} />
+    </Pressable>
+  );
+}
+
+function GridPanel(props: { items: DockMenuItem[] }) {
+  const rows: DockMenuItem[][] = [];
+  for (let i = 0; i < props.items.length; i += 5) rows.push(props.items.slice(i, i + 5));
+  return (
+    <Column style={{ padding: 8, gap: 4, radius: 14, background: "#1c1c1f" }}>
+      {rows.map((row, i) => (
+        <Row key={i} style={{ gap: 4 }}>
+          {row.map((item, j) => (
+            <GridCell key={j} item={item} />
+          ))}
+        </Row>
+      ))}
+    </Column>
   );
 }
 
@@ -147,7 +213,9 @@ function MenuView() {
     >
       <View style={{ flex: 1, align: "start", justify: "start" }}>
         <View onSize={({ width, height }) => resize(width, height)} style={{ shrink: 0 }}>
-          {spec ? (
+          {spec?.grid ? (
+            <GridPanel items={spec.sections.flat()} />
+          ) : spec ? (
             <Column
               style={{
                 width: PANEL_WIDTH,

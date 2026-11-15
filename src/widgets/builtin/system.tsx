@@ -1,5 +1,6 @@
 import { Column, Row, Text } from "@tarve/core";
 import { system, systemPoller } from "../../services/system";
+import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Meter, Tile } from "../ui";
 import { defineWidget } from "../types";
@@ -29,6 +30,15 @@ export default defineWidget({
   setup(ctx) {
     ctx.onDispose(systemPoller.acquire());
     return {};
+  },
+  menu() {
+    return [
+      [
+        { label: "Gerenciador de Tarefas", icon: "info", onSelect: () => launch("taskmgr.exe") },
+        { label: "Monitor de Recursos", icon: "search", onSelect: () => launch("resmon.exe") },
+        { label: "Informações do sistema", icon: "settings", onSelect: () => launch("ms-settings:about") },
+      ],
+    ];
   },
   View() {
     return (

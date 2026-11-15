@@ -7,6 +7,7 @@ import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { launch } from "./services/windows";
 import { DockWindow } from "./native/dock-window";
+import { setGalleryOpener } from "./dock/widget-menu";
 import { findWindow } from "./native/win32";
 import { taskbarPrefs, watchTaskbarPrefs } from "./services/taskbar-prefs";
 import { appColor, watchAppColor } from "./services/app-color";
@@ -98,6 +99,7 @@ const app = createApp(
 );
 setWidgetApp(app);
 instance.onSecondInstance(() => openGallery());
+setGalleryOpener(openGallery);
 
 await app.ready;
 

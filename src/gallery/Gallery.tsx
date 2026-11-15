@@ -1,4 +1,5 @@
-import { Column, Icon, Pressable, Row, Scroll, Slider, Text, View, Window, darkTheme, store, type IconName } from "@tarve/core";
+import { Column, Icon, Pressable, Row, Scroll, Slider, Text, TitleBar, View, Window, darkTheme, store, type IconName } from "@tarve/core";
+import { WindowsLogo } from "../widgets/ui";
 import { config, saveConfig } from "../config";
 import { addWidget, moveWidget, removeWidget } from "../dock/state";
 import { numeric, ui } from "../theme";
@@ -176,6 +177,20 @@ export function GalleryView() {
   const shown = gallery.category === "all" ? categories : [gallery.category];
   return (
     <Window title={GALLERY_TITLE} width={980} height={660} minWidth={720} minHeight={480} theme={darkTheme} backdrop="mica">
+      {/* Tarve's own title bar: native drag, snap and resize, drawn in the app's style. */}
+      <TitleBar
+        title="WindowsBar"
+        height={40}
+        leading={
+          <View
+            style={{ width: 18, height: 18, radius: 5, background: "#2a2a30", align: "center", justify: "center", margin: { left: 12 } }}
+          >
+            <WindowsLogo size={9} />
+          </View>
+        }
+        style={{ background: "rgba(20,20,22,0.72)" }}
+        buttonStyle={{ hover: { background: "rgba(255,255,255,0.08)" } }}
+      />
       <Row style={{ flex: 1, minHeight: 0, align: "stretch", background: "rgba(20,20,22,0.72)" }}>
         <Column
           style={{

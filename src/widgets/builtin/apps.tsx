@@ -1,12 +1,13 @@
 import { Image, Pressable, Row, Text, View, store } from "@tarve/core";
 import { existsSync } from "node:fs";
+import { acquireBadges, badgeFor } from "../../services/badges";
 import { iconFor } from "../../services/icons";
 import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { hidePreview, hoverApp } from "../../menu/window-preview";
 import { keyDown } from "../../native/win32";
 import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
 import { ui } from "../../theme";
-import { Dot } from "../ui";
+import { taskbarPrefs } from "../../services/taskbar-prefs";
 import { defineWidget } from "../types";
 
 const env = process.env;
@@ -41,6 +42,39 @@ setInterval(() => {
     drag.over = "";
   }
 }, 250);
+
+/** Unread count (or the app's own overlay picture) on the icon's top-right corner. */
+function AppBadge(props: { exe: string }) {
+  const badge = badgeFor(props.exe);
+  if (!badge) return null;
+  if (badge.image && !badge.text) {
+    return <Image src={badge.image} width={16} height={16} fit="contain" style={{ position: "absolute", top: 4, right: 2 }} />;
+  }
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: 3,
+        right: badge.text.length > 1 ? 0 : 3,
+        minWidth: badge.text ? 16 : 9,
+        height: badge.text ? 16 : 9,
+        padding: badge.text ? { left: 4, right: 4 } : 0,
+        radius: 8,
+        background: ui.red,
+        borderWidth: 1.5,
+        borderColor: ui.dock.background,
+        align: "center",
+        justify: "center",
+      }}
+    >
+      {badge.text ? (
+        <Text size={10} weight={700} color="#fff" style={{ lineHeight: 1 }}>
+          {badge.text}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 function AppIcon(props: {
   item: Item;
@@ -102,45 +136,57 @@ function AppIcon(props: {
         active: { transform: "scale(0.9)" },
       }}
     >
+      {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar. */}
+      {item.active && item.running ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 5,
+            left: 2,
+            width: 40,
+            height: 42,
+            radius: 8,
+            background: `${taskbarPrefs.accent}2e`,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.06)",
+          }}
+        />
+      ) : null}
       {dropHere ? (
         <View style={{ position: "absolute", top: 8, bottom: 8, width: 3, radius: 2, background: ui.blue, [markerSide]: -2 }} />
       ) : null}
-      <View style={{ position: "relative" }}>
-        {icon ? (
-          <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" />
-        ) : (
-          <View style={{ width: ui.app.icon, height: ui.app.icon, radius: 8, background: "#3a3a40", align: "center", justify: "center" }}>
-            <Text size={14} weight={700} color="#fff">
-              {item.name.charAt(0)}
-            </Text>
-          </View>
-        )}
-        {item.windows > 1 ? (
-          <View
-            style={{
-              position: "absolute",
-              top: -4,
-              right: -6,
-              minWidth: 15,
-              height: 15,
-              radius: 8,
-              padding: { left: 4, right: 4 },
-              background: "#2c2c31",
-              borderWidth: 1.5,
-              borderColor: ui.dock.background,
-              align: "center",
-              justify: "center",
-            }}
-          >
-            <Text size={9} weight={700} color="#fff" style={{ fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-              {String(item.windows)}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+      {/* Two or more windows: a faded copy of the icon sits just behind it, as Windows does. */}
+      {item.windows > 1 && icon ? (
+        <Image
+          src={icon}
+          width={ui.app.icon}
+          height={ui.app.icon}
+          fit="contain"
+          style={{ position: "absolute", top: 7, left: 9, opacity: 0.4 }}
+        />
+      ) : null}
+      {icon ? (
+        <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" />
+      ) : (
+        <View style={{ width: ui.app.icon, height: ui.app.icon, radius: 8, background: "#3a3a40", align: "center", justify: "center" }}>
+          <Text size={14} weight={700} color="#fff">
+            {item.name.charAt(0)}
+          </Text>
+        </View>
+      )}
+      <AppBadge exe={item.exe} />
       {/* Out of the flow, so the icon stays centred like the Start button. */}
-      <View style={{ position: "absolute", bottom: 3, left: 0, right: 0, align: "center" }}>
-        <Dot color={item.running ? ui.blue : "transparent"} width={item.active ? 12 : 4} />
+      {/* Running: a short grey pill; in front: a longer one in the accent colour. */}
+      <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center" }}>
+        <View
+          style={{
+            width: item.active ? 16 : 6,
+            height: 3,
+            radius: 2,
+            background: !item.running ? "transparent" : item.active ? taskbarPrefs.accent : "rgba(255,255,255,0.55)",
+            transition: { width: { duration: 180, easing: "easeOut" } },
+          }}
+        />
       </View>
     </Pressable>
   );
@@ -151,10 +197,26 @@ export default defineWidget({
   name: "Apps",
   description: "Apps fixados e abertos. Arraste para reordenar; clique direito abre o menu do app.",
   category: "apps",
-  defaultConfig: { pinned: candidates.filter((p) => existsSync(p)).slice(0, 5) as string[] },
+  defaultConfig: { pinned: candidates.filter((p) => existsSync(p)).slice(0, 5) as string[], showUnpinned: true },
   setup(ctx) {
     ctx.onDispose(windowsPoller.acquire());
+    ctx.onDispose(acquireBadges());
     return {};
+  },
+  menu({ ctx }) {
+    return [
+      [
+        {
+          label: ctx.config.showUnpinned === false ? "Mostrar apps abertos não fixados" : "Mostrar só apps fixados",
+          icon: glyph.eye,
+          onSelect: () => {
+            ctx.config.showUnpinned = ctx.config.showUnpinned === false;
+            ctx.save();
+          },
+        },
+        { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
+      ],
+    ];
   },
   View({ ctx }) {
     const pinned = ctx.config.pinned;
@@ -172,6 +234,7 @@ export default defineWidget({
       };
     });
     for (const app of desktop.apps) {
+      if (ctx.config.showUnpinned === false) break;
       if (items.some((i) => i.key === app.key)) continue;
       items.push({
         key: app.key,

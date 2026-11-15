@@ -71,6 +71,9 @@ export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, p
     }
     if (paused()) return;
     const { work } = monitorOf(hwnd);
+    // Without a reserved strip the rows above it are the dock itself: nothing to read. (The
+    // painted strip reaches a few px over the work area on purpose; more means no reservation.)
+    if (windowRect(hwnd).top < work.bottom - 8) return;
     const edge = appEdge(work);
     const next = edge ?? screenEdge(work);
     const touching = !!edge;

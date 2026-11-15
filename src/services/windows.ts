@@ -1,6 +1,15 @@
 import { store } from "@tarve/core";
 import { basename, dirname } from "node:path";
-import { windowPid, activateWindow, foregroundWindow, listTaskbarWindows, minimizeWindow, closeWindow, type HWND } from "../native/win32";
+import {
+  storeAppId,
+  windowPid,
+  activateWindow,
+  foregroundWindow,
+  listTaskbarWindows,
+  minimizeWindow,
+  closeWindow,
+  type HWND,
+} from "../native/win32";
 import { createPoller } from "./poller";
 
 export interface AppWindow {
@@ -34,6 +43,19 @@ let signature = "";
 const firstSeen = new Map<HWND, number>();
 let seenCounter = 0;
 
+/** Store apps run inside ApplicationFrameHost.exe; each is told apart by its AppUserModelID. */
+const appIdCache = new Map<HWND, string>();
+function appPathOf(hwnd: HWND, exe: string) {
+  if (!/\\ApplicationFrameHost\.exe$/i.test(exe)) return exe;
+  // A minimized Store app has no app window inside its frame yet: retry until one shows up.
+  let id = appIdCache.get(hwnd);
+  if (!id) {
+    id = storeAppId(hwnd);
+    if (id) appIdCache.set(hwnd, id);
+  }
+  return id ? `shell:AppsFolder\\${id}` : exe;
+}
+
 export const prettyName = (exe: string) => {
   const raw = basename(exe).replace(/\.(exe|lnk)$/i, "");
   return raw.charAt(0).toUpperCase() + raw.slice(1);
@@ -46,10 +68,11 @@ export function refreshWindows() {
   let activeKey = desktop.activeKey;
   for (const w of windows) {
     if (!w.exe) continue;
+    w.exe = appPathOf(w.hwnd, w.exe);
     const key = w.exe.toLowerCase();
     let group = groups.get(key);
     if (!group) {
-      group = { key, exe: w.exe, name: prettyName(w.exe), windows: [], recent: [] };
+      group = { key, exe: w.exe, name: w.exe.startsWith("shell:") ? w.title : prettyName(w.exe), windows: [], recent: [] };
       groups.set(key, group);
     }
     if (!firstSeen.has(w.hwnd)) firstSeen.set(w.hwnd, seenCounter++);
@@ -59,6 +82,7 @@ export function refreshWindows() {
   }
   const alive = new Set(windows.map((w) => w.hwnd));
   for (const hwnd of firstSeen.keys()) if (!alive.has(hwnd)) firstSeen.delete(hwnd);
+  for (const hwnd of appIdCache.keys()) if (!alive.has(hwnd)) appIdCache.delete(hwnd);
   for (const group of groups.values()) group.windows.sort((a, b) => firstSeen.get(a.hwnd)! - firstSeen.get(b.hwnd)!);
   appOrder = appOrder.filter((key) => groups.has(key));
   for (const key of groups.keys()) if (!appOrder.includes(key)) appOrder.push(key);

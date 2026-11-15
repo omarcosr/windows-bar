@@ -4,11 +4,13 @@ import { CFunction, dlopen, JSCallback, ptr, type Pointer } from "bun:ffi";
 
 const user32 = dlopen("user32.dll", {
   FindWindowW: { args: ["ptr", "ptr"], returns: "ptr" },
+  FindWindowExW: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
   GetDpiForWindow: { args: ["ptr"], returns: "u32" },
   SetWindowPos: { args: ["ptr", "i64", "i32", "i32", "i32", "i32", "u32"], returns: "i32" },
   EnumWindows: { args: ["function", "ptr"], returns: "i32" },
   IsWindowVisible: { args: ["ptr"], returns: "i32" },
   IsIconic: { args: ["ptr"], returns: "i32" },
+  IsZoomed: { args: ["ptr"], returns: "i32" },
   GetWindowTextLengthW: { args: ["ptr"], returns: "i32" },
   GetWindowTextW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
   GetWindow: { args: ["ptr", "u32"], returns: "ptr" },
@@ -39,6 +41,7 @@ const kernel32 = dlopen("kernel32.dll", {
   GetSystemPowerStatus: { args: ["ptr"], returns: "i32" },
   LoadLibraryW: { args: ["ptr"], returns: "ptr" },
   GetProcAddress: { args: ["ptr", "u64"], returns: "ptr" },
+  GetApplicationUserModelId: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
 });
 
 const dwmapi = dlopen("dwmapi.dll", {
@@ -73,8 +76,31 @@ export interface Rect {
 
 const wide = (s: string) => Buffer.from(s + "\0", "utf16le");
 
+/**
+ * Explorer's taskbar window. FindWindow("Shell_TrayWnd") is not enough: the dock's own tray
+ * host registers a window of that class on top, so it would be found first.
+ */
+export function explorerTray(): HWND | null {
+  const cls = wide("Shell_TrayWnd");
+  let h: HWND | null = null;
+  while ((h = U.FindWindowExW(null, h, cls, null) as HWND | null)) {
+    U.GetWindowThreadProcessId(h, pidBuf);
+    if (pidBuf[0] !== process.pid) return h;
+  }
+  return null;
+}
+
 export function findWindow(title: string | null, className?: string): HWND | null {
-  return U.FindWindowW(className ? wide(className) : null, title === null ? null : wide(title)) as HWND | null;
+  if (!className) return U.FindWindowW(null, title === null ? null : wide(title)) as HWND | null;
+  // By class, skip this process's windows: the tray host owns a Shell_TrayWnd of its own.
+  const cls = wide(className);
+  const name = title === null ? null : wide(title);
+  let hwnd: HWND | null = null;
+  while ((hwnd = U.FindWindowExW(null, hwnd, cls, name) as HWND | null)) {
+    U.GetWindowThreadProcessId(hwnd, pidBuf);
+    if (pidBuf[0] !== process.pid) return hwnd;
+  }
+  return null;
 }
 
 export function dpiOf(hwnd: HWND): number {
@@ -85,9 +111,21 @@ export const HWND_TOPMOST = -1;
 const SWP_NOACTIVATE = 0x0010;
 const SWP_NOSIZE = 0x0001;
 
-export function moveWindow(hwnd: HWND, x: number, y: number, width?: number, height?: number) {
-  const flags = SWP_NOACTIVATE | (width === undefined ? SWP_NOSIZE : 0);
+export function moveWindow(hwnd: HWND, x: number, y: number, width?: number, height?: number, keepZOrder = false) {
+  const flags = SWP_NOACTIVATE | (width === undefined ? SWP_NOSIZE : 0) | (keepZOrder ? 0x4 /* SWP_NOZORDER */ : 0);
   U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width ?? 0), Math.round(height ?? 0), flags);
+}
+
+/** Drops a topmost window to just behind `front` (or back on top with null), without hiding it. */
+export function setBehind(hwnd: HWND, front: HWND | null) {
+  const HWND_NOTOPMOST = -2;
+  const flags = SWP_NOACTIVATE | SWP_NOSIZE | 0x2; /* SWP_NOMOVE */
+  if (!front) {
+    U.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
+    return;
+  }
+  U.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+  U.SetWindowPos(hwnd, Number(front), 0, 0, 0, 0, flags);
 }
 
 function readRect(view: DataView, offset: number): Rect {
@@ -229,11 +267,32 @@ export function setTaskbarState(state: number) {
 
 const qunsBuf = new Int32Array(1);
 
-/** True while a full-screen app, game or presentation owns the screen. */
-export function fullscreenAppActive(): boolean {
-  if (shell32.symbols.SHQueryUserNotificationState(qunsBuf) !== 0) return false;
-  const state = qunsBuf[0]!;
-  return state === 2 || state === 3 || state === 4; // BUSY, D3D full screen, presentation mode
+const frameBuf = new Int32Array(4);
+
+/**
+ * True while a full-screen app, game, video or presentation owns the screen `dock` is on.
+ * The shell's own answer (SHQueryUserNotificationState) misses many borderless full-screen
+ * windows (browsers on F11, players, most games), so the window in front is checked as well:
+ * not maximized, and its visible frame covers the whole monitor.
+ */
+export function fullscreenAppActive(dock?: HWND | null): boolean {
+  if (shell32.symbols.SHQueryUserNotificationState(qunsBuf) === 0) {
+    const state = qunsBuf[0]!;
+    if (state === 2 || state === 3 || state === 4) return true; // BUSY, D3D full screen, presentation
+  }
+  const fg = U.GetForegroundWindow() as HWND | null;
+  if (!fg || U.IsZoomed(fg)) return false;
+  U.GetWindowThreadProcessId(fg, pidBuf);
+  if (pidBuf[0] === process.pid) return false;
+  const cls = windowClass(fg);
+  if (cls === "Progman" || cls === "WorkerW" || cls === "Shell_TrayWnd") return false;
+  if (dwmapi.symbols.DwmGetWindowAttribute(fg, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, frameBuf, 16) !== 0) {
+    U.GetWindowRect(fg, frameBuf);
+  }
+  const { monitor } = monitorOf(dock ?? fg);
+  const { monitor: own } = monitorOf(fg);
+  if (own.left !== monitor.left || own.top !== monitor.top) return false; // another screen
+  return frameBuf[0]! <= monitor.left && frameBuf[1]! <= monitor.top && frameBuf[2]! >= monitor.right && frameBuf[3]! >= monitor.bottom;
 }
 
 export const SW_HIDE = 0;
@@ -364,6 +423,28 @@ export function closeWindow(hwnd: HWND) {
   U.PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, 0, 0);
 }
 
+// ---------- App identity (Store apps share one host exe) ----------
+
+/**
+ * The AppUserModelID of a Store app window. Such apps all show up as ApplicationFrameHost.exe;
+ * the app itself owns the CoreWindow inside the frame, and its process knows its ID. The ID
+ * opens the app again and finds its icon through shell:AppsFolder\\<id>.
+ */
+export function storeAppId(frame: HWND): string {
+  const core = U.FindWindowExW(frame, null, wide("Windows.UI.Core.CoreWindow"), null) as HWND | null;
+  if (!core) return "";
+  U.GetWindowThreadProcessId(core, pidBuf);
+  const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pidBuf[0]!);
+  if (!handle) return "";
+  try {
+    const len = new Uint32Array([textBuf.length]);
+    if (K.GetApplicationUserModelId(handle, len, textBuf) !== 0) return "";
+    return Buffer.from(textBuf.buffer, 0, Math.max(0, len[0]! - 1) * 2).toString("utf16le");
+  } finally {
+    K.CloseHandle(handle);
+  }
+}
+
 // ---------- Live window thumbnails (what the taskbar previews use) ----------
 
 export type Thumbnail = bigint;
@@ -408,6 +489,12 @@ export const VK = {
   MEDIA_PLAY_PAUSE: 0xb3,
   VOLUME_MUTE: 0xad,
 } as const;
+
+/** Presses keys together, like a shortcut (Win+N): down in order, up in reverse. */
+export function tapKeys(...vks: number[]) {
+  for (const vk of vks) U.keybd_event(vk, 0, 0, 0);
+  for (const vk of vks.toReversed()) U.keybd_event(vk, 0, 2 /* KEYEVENTF_KEYUP */, 0);
+}
 
 export function tapKey(vk: number) {
   U.keybd_event(vk, 0, 0, 0);

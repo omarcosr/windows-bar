@@ -1,5 +1,6 @@
 import { Column, Image, Row, Text, View, store } from "@tarve/core";
 import { media, mediaControls, useMedia } from "../../services/media";
+import { launch } from "../../services/windows";
 import { ui } from "../../theme";
 import { RoundButton, Tile, glyphs } from "../ui";
 import { defineWidget } from "../types";
@@ -45,6 +46,16 @@ export default defineWidget({
       state.progress = Math.min(1, (media.position + elapsed) / media.duration);
     });
     return state;
+  },
+  menu() {
+    return [
+      [
+        { label: media.playing ? "Pausar" : "Tocar", icon: media.playing ? "pause" : "play", onSelect: mediaControls.playPause },
+        { label: "Próxima", icon: "skip-forward", onSelect: mediaControls.next },
+        { label: "Anterior", icon: "skip-back", onSelect: mediaControls.previous },
+      ],
+      [{ label: "Configurações de som", icon: "settings", onSelect: () => launch("ms-settings:sound") }],
+    ];
   },
   View({ state }) {
     const active = media.active && !!media.title;

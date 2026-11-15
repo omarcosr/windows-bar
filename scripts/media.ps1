@@ -1,6 +1,8 @@
 # Streams the current system media session (GlobalSystemMediaTransportControls) as one JSON line per change.
 param([string]$artDir)
 $ErrorActionPreference = 'Stop'
+# The dock reads this output as UTF-8; the console default (cp850/1252) mangles accents.
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
   $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'

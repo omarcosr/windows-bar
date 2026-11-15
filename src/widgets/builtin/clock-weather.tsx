@@ -1,5 +1,6 @@
 import { Column, Row, Text, View, store } from "@tarve/core";
 import { weather, weatherPoller } from "../../services/weather";
+import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { defineWidget } from "../types";
 
@@ -30,6 +31,22 @@ export default defineWidget({
     ctx.onDispose(() => clearTimeout(timer));
     ctx.onDispose(weatherPoller.acquire());
     return state;
+  },
+  menu({ ctx }) {
+    return [
+      [
+        {
+          label: ctx.config.hour12 ? "Usar formato 24 horas" : "Usar formato 12 horas",
+          icon: "settings",
+          onSelect: () => {
+            ctx.config.hour12 = !ctx.config.hour12;
+            ctx.save();
+          },
+        },
+        { label: "Abrir Relógio do Windows", icon: "bell", onSelect: () => launch("ms-clock:") },
+        { label: "Ajustar data e hora", icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
+      ],
+    ];
   },
   View({ state, ctx }) {
     const now = state.now;

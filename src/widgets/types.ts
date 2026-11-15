@@ -1,4 +1,5 @@
 import type { AppHandle, VNode } from "@tarve/core";
+import type { DockMenuItem } from "../menu/dock-menu";
 
 export type WidgetCategory = "clock" | "apps" | "system" | "media" | "finance" | "productivity";
 
@@ -41,6 +42,11 @@ export interface WidgetDefinition<C extends object = Record<string, unknown>, S 
   defaultConfig: C;
   setup(ctx: WidgetContext<C>): S;
   View(props: WidgetViewProps<C, S>): VNode;
+  /**
+   * The widget's own entries for its right-click menu, in sections. The dock appends the
+   * common ones (move, widgets, remove).
+   */
+  menu?(props: { state: S; ctx: WidgetContext<C> }): DockMenuItem[][];
 }
 
 export function defineWidget<C extends object, S extends object>(definition: WidgetDefinition<C, S>) {

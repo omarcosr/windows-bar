@@ -1,9 +1,11 @@
-import { Column, Row, Text, View, store } from "@tarve/core";
+import { Column, Row, Text, View, store, toRaw } from "@tarve/core";
+import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Sparkline, Tile } from "../ui";
 import { defineWidget } from "../types";
 
 const DAY = 86_400;
+const refreshers = new WeakMap<object, () => Promise<void>>();
 const DEMO = [62, 70, 66, 74, 71, 80, 77, 84, 82, 90, 86, 95, 99, 94, 104, 101, 110, 108, 118, 115, 124, 131, 127, 138];
 
 interface StripeTx {
@@ -40,7 +42,7 @@ export default defineWidget({
   defaultConfig: { stripeKey: "", label: "Receita" },
   setup(ctx) {
     const state = store({ total: 2980, change: 31, series: DEMO, currency: "usd", demo: true, error: "" });
-    ctx.every(10 * 60_000, async () => {
+    const load = async () => {
       const key = String(ctx.config.stripeKey || "");
       if (!key) return;
       try {
@@ -66,8 +68,18 @@ export default defineWidget({
       } catch (error) {
         state.error = String(error);
       }
-    });
+    };
+    refreshers.set(toRaw(state), load);
+    ctx.every(10 * 60_000, load);
     return state;
+  },
+  menu({ state }) {
+    return [
+      [
+        { label: "Atualizar agora", icon: "download", onSelect: () => void refreshers.get(toRaw(state))?.() },
+        { label: "Abrir painel do Stripe", icon: "star", onSelect: () => launch("https://dashboard.stripe.com") },
+      ],
+    ];
   },
   View({ state, ctx }) {
     const up = state.change >= 0;

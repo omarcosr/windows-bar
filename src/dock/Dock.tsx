@@ -5,6 +5,7 @@ import { mountWidget } from "../widgets/host";
 import { taskbarPrefs } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
 import { dockUi, removeWidget } from "./state";
+import { openWidgetMenu } from "./widget-menu";
 
 export const DOCK_TITLE = "WindowsBar Dock";
 
@@ -45,10 +46,10 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
   }
   const { View: WidgetView } = widget.definition;
   return (
-    <View style={{ position: "relative", shrink: 0 }}>
+    <Pressable onContextMenu={() => openWidgetMenu(widget)} style={{ position: "relative", shrink: 0 }}>
       <WidgetView state={widget.state} ctx={widget.ctx} preview={false} />
       {props.editing ? <RemoveBadge onClick={() => removeWidget(instance.id)} /> : null}
-    </View>
+    </Pressable>
   );
 }
 
