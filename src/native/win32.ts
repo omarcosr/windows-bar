@@ -1,0 +1,428 @@
+import { CFunction, dlopen, JSCallback, ptr, type Pointer } from "bun:ffi";
+
+/** Win32 bindings used by the dock. Everything here is synchronous and cheap enough to poll. */
+
+const user32 = dlopen("user32.dll", {
+  FindWindowW: { args: ["ptr", "ptr"], returns: "ptr" },
+  GetDpiForWindow: { args: ["ptr"], returns: "u32" },
+  SetWindowPos: { args: ["ptr", "i64", "i32", "i32", "i32", "i32", "u32"], returns: "i32" },
+  EnumWindows: { args: ["function", "ptr"], returns: "i32" },
+  IsWindowVisible: { args: ["ptr"], returns: "i32" },
+  IsIconic: { args: ["ptr"], returns: "i32" },
+  GetWindowTextLengthW: { args: ["ptr"], returns: "i32" },
+  GetWindowTextW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  GetWindow: { args: ["ptr", "u32"], returns: "ptr" },
+  GetWindowLongPtrW: { args: ["ptr", "i32"], returns: "i64" },
+  GetWindowRect: { args: ["ptr", "ptr"], returns: "i32" },
+  GetCursorPos: { args: ["ptr"], returns: "i32" },
+  GetAsyncKeyState: { args: ["i32"], returns: "i16" },
+  GetWindowThreadProcessId: { args: ["ptr", "ptr"], returns: "u32" },
+  GetForegroundWindow: { args: [], returns: "ptr" },
+  SetForegroundWindow: { args: ["ptr"], returns: "i32" },
+  ShowWindow: { args: ["ptr", "i32"], returns: "i32" },
+  PostMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
+  MonitorFromWindow: { args: ["ptr", "u32"], returns: "ptr" },
+  GetMonitorInfoW: { args: ["ptr", "ptr"], returns: "i32" },
+  keybd_event: { args: ["u8", "u8", "u32", "u64"], returns: "void" },
+  SwitchToThisWindow: { args: ["ptr", "i32"], returns: "void" },
+});
+
+const kernel32 = dlopen("kernel32.dll", {
+  OpenProcess: { args: ["u32", "i32", "u32"], returns: "ptr" },
+  CloseHandle: { args: ["ptr"], returns: "i32" },
+  QueryFullProcessImageNameW: { args: ["ptr", "u32", "ptr", "ptr"], returns: "i32" },
+  GlobalMemoryStatusEx: { args: ["ptr"], returns: "i32" },
+  GetSystemTimes: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GetSystemPowerStatus: { args: ["ptr"], returns: "i32" },
+  LoadLibraryW: { args: ["ptr"], returns: "ptr" },
+  GetProcAddress: { args: ["ptr", "u64"], returns: "ptr" },
+});
+
+const dwmapi = dlopen("dwmapi.dll", {
+  DwmGetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
+  DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
+  DwmRegisterThumbnail: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  DwmUnregisterThumbnail: { args: ["ptr"], returns: "i32" },
+  DwmUpdateThumbnailProperties: { args: ["ptr", "ptr"], returns: "i32" },
+  DwmQueryThumbnailSourceSize: { args: ["ptr", "ptr"], returns: "i32" },
+});
+
+const shell32 = dlopen("shell32.dll", {
+  SHAppBarMessage: { args: ["u32", "ptr"], returns: "u64" },
+  SHQueryUserNotificationState: { args: ["ptr"], returns: "i32" },
+});
+
+const U = user32.symbols;
+const K = kernel32.symbols;
+
+export type HWND = Pointer;
+
+export interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const wide = (s: string) => Buffer.from(s + "\0", "utf16le");
+
+export function findWindow(title: string | null, className?: string): HWND | null {
+  return U.FindWindowW(className ? wide(className) : null, title === null ? null : wide(title)) as HWND | null;
+}
+
+export function dpiOf(hwnd: HWND): number {
+  return U.GetDpiForWindow(hwnd) || 96;
+}
+
+export const HWND_TOPMOST = -1;
+const SWP_NOACTIVATE = 0x0010;
+const SWP_NOSIZE = 0x0001;
+
+export function moveWindow(hwnd: HWND, x: number, y: number, width?: number, height?: number) {
+  const flags = SWP_NOACTIVATE | (width === undefined ? SWP_NOSIZE : 0);
+  U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width ?? 0), Math.round(height ?? 0), flags);
+}
+
+function readRect(view: DataView, offset: number): Rect {
+  return {
+    left: view.getInt32(offset, true),
+    top: view.getInt32(offset + 4, true),
+    right: view.getInt32(offset + 8, true),
+    bottom: view.getInt32(offset + 12, true),
+  };
+}
+
+/** Physical bounds and work area of the monitor the window is on. */
+export function monitorOf(hwnd: HWND): { monitor: Rect; work: Rect } {
+  const mon = U.MonitorFromWindow(hwnd, 2 /* MONITOR_DEFAULTTONEAREST */);
+  const buf = new Uint8Array(40);
+  const view = new DataView(buf.buffer);
+  view.setUint32(0, 40, true);
+  U.GetMonitorInfoW(mon, buf);
+  return { monitor: readRect(view, 4), work: readRect(view, 20) };
+}
+
+/**
+ * Turns off the Windows 11 frame DWM draws around frameless windows: the 1 px border and the
+ * 8 px rounded corners, which otherwise show as a second outline around the dock's own shape.
+ * Also keeps the window out of Aero Peek.
+ */
+export function stripWindowChrome(hwnd: HWND) {
+  const DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+  const DWMWA_BORDER_COLOR = 34;
+  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, new Uint32Array([0xfffffffe]), 4);
+  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, new Uint32Array([1]), 4);
+  // Stay visible while a window is peeked from the preview, like the real taskbar.
+  const DWMWA_EXCLUDED_FROM_PEEK = 12;
+  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, new Uint32Array([1]), 4);
+}
+
+export function windowRect(hwnd: HWND): Rect {
+  const r = new Int32Array(4);
+  U.GetWindowRect(hwnd, r);
+  return { left: r[0]!, top: r[1]!, right: r[2]!, bottom: r[3]! };
+}
+
+export function cursorPos(): { x: number; y: number } {
+  const p = new Int32Array(2);
+  U.GetCursorPos(p);
+  return { x: p[0]!, y: p[1]! };
+}
+
+/** True while the key or mouse button (a virtual-key code) is held down. */
+export function keyDown(vk: number) {
+  return (U.GetAsyncKeyState(vk) & 0x8000) !== 0;
+}
+
+export function isWindowVisible(hwnd: HWND) {
+  return !!U.IsWindowVisible(hwnd);
+}
+
+// ---------- AppBar (reserves screen space like the taskbar does) ----------
+
+const ABM_NEW = 0;
+const ABM_REMOVE = 1;
+const ABM_QUERYPOS = 2;
+const ABM_SETPOS = 3;
+const ABM_GETSTATE = 4;
+const ABM_SETSTATE = 10;
+export const ABE_BOTTOM = 3;
+export const ABS_AUTOHIDE = 1;
+export const ABS_ALWAYSONTOP = 2;
+
+function appBarData(hwnd: HWND | null, edge = 0, rect?: Rect, lParam = 0) {
+  const buf = new Uint8Array(48);
+  const view = new DataView(buf.buffer);
+  view.setUint32(0, 48, true);
+  if (hwnd) view.setBigUint64(8, BigInt(hwnd), true);
+  view.setUint32(20, edge, true);
+  if (rect) {
+    view.setInt32(24, rect.left, true);
+    view.setInt32(28, rect.top, true);
+    view.setInt32(32, rect.right, true);
+    view.setInt32(36, rect.bottom, true);
+  }
+  view.setBigInt64(40, BigInt(lParam), true);
+  return { buf, view };
+}
+
+export function appBarRegister(hwnd: HWND) {
+  shell32.symbols.SHAppBarMessage(ABM_NEW, appBarData(hwnd).buf);
+}
+
+/** The rect Windows would grant for `rect` on `edge`, without reserving anything. */
+export function appBarQuery(hwnd: HWND, edge: number, rect: Rect): Rect {
+  const data = appBarData(hwnd, edge, rect);
+  shell32.symbols.SHAppBarMessage(ABM_QUERYPOS, data.buf);
+  const granted = readRect(data.view, 24);
+  if (edge === ABE_BOTTOM) granted.top = granted.bottom - (rect.bottom - rect.top);
+  return granted;
+}
+
+/** Reserves `rect` on `edge`; returns the rect Windows granted. */
+export function appBarSetPos(hwnd: HWND, edge: number, rect: Rect): Rect {
+  const data = appBarData(hwnd, edge, rect);
+  shell32.symbols.SHAppBarMessage(ABM_QUERYPOS, data.buf);
+  const granted = readRect(data.view, 24);
+  // Keep the requested thickness against the edge Windows pushed us to.
+  if (edge === ABE_BOTTOM) granted.top = granted.bottom - (rect.bottom - rect.top);
+  const final = appBarData(hwnd, edge, granted);
+  shell32.symbols.SHAppBarMessage(ABM_SETPOS, final.buf);
+  return readRect(final.view, 24);
+}
+
+export function appBarRemove(hwnd: HWND) {
+  shell32.symbols.SHAppBarMessage(ABM_REMOVE, appBarData(hwnd).buf);
+}
+
+export function taskbarState(): number {
+  return Number(shell32.symbols.SHAppBarMessage(ABM_GETSTATE, appBarData(null).buf));
+}
+
+export function setTaskbarState(state: number) {
+  shell32.symbols.SHAppBarMessage(ABM_SETSTATE, appBarData(null, 0, undefined, state).buf);
+}
+
+const qunsBuf = new Int32Array(1);
+
+/** True while a full-screen app, game or presentation owns the screen. */
+export function fullscreenAppActive(): boolean {
+  if (shell32.symbols.SHQueryUserNotificationState(qunsBuf) !== 0) return false;
+  const state = qunsBuf[0]!;
+  return state === 2 || state === 3 || state === 4; // BUSY, D3D full screen, presentation mode
+}
+
+export const SW_HIDE = 0;
+export const SW_SHOWNA = 8;
+export const SW_RESTORE = 9;
+export const SW_MINIMIZE = 6;
+
+export function showWindow(hwnd: HWND, cmd: number) {
+  U.ShowWindow(hwnd, cmd);
+}
+
+// ---------- Top-level windows ----------
+
+export interface TopWindow {
+  hwnd: HWND;
+  title: string;
+  pid: number;
+  exe: string;
+  minimized: boolean;
+}
+
+const GW_OWNER = 4;
+const GWL_EXSTYLE = -20;
+const WS_EX_TOOLWINDOW = 0x80;
+const WS_EX_APPWINDOW = 0x40000;
+const DWMWA_CLOAKED = 14;
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+const textBuf = new Uint16Array(512);
+const pidBuf = new Uint32Array(1);
+const cloakBuf = new Uint32Array(1);
+const exeCache = new Map<number, string>();
+
+export function exePathOf(pid: number): string {
+  const cached = exeCache.get(pid);
+  if (cached !== undefined) return cached;
+  let path = "";
+  const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+  if (handle) {
+    const size = new Uint32Array([textBuf.length]);
+    if (K.QueryFullProcessImageNameW(handle, 0, textBuf, size)) {
+      path = Buffer.from(textBuf.buffer, 0, size[0]! * 2).toString("utf16le");
+    }
+    K.CloseHandle(handle);
+  }
+  exeCache.set(pid, path);
+  return path;
+}
+
+function windowTitle(hwnd: HWND): string {
+  const len = U.GetWindowTextW(hwnd, textBuf, textBuf.length);
+  return len > 0 ? Buffer.from(textBuf.buffer, 0, len * 2).toString("utf16le") : "";
+}
+
+/** Windows that belong on a taskbar: visible, unowned, not tool windows, not cloaked. */
+let collected: TopWindow[] = [];
+let enumCallback: JSCallback | null = null;
+
+export function listTaskbarWindows(): TopWindow[] {
+  collected = [];
+  enumCallback ??= new JSCallback(
+    (hwnd: HWND) => {
+      if (!U.IsWindowVisible(hwnd)) return 1;
+      if (U.GetWindowTextLengthW(hwnd) === 0) return 1;
+      const ex = Number(U.GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
+      const owned = U.GetWindow(hwnd, GW_OWNER) !== null;
+      if (ex & WS_EX_TOOLWINDOW && !(ex & WS_EX_APPWINDOW)) return 1;
+      if (owned && !(ex & WS_EX_APPWINDOW)) return 1;
+      cloakBuf[0] = 0;
+      dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, cloakBuf, 4);
+      if (cloakBuf[0]) return 1;
+      U.GetWindowThreadProcessId(hwnd, pidBuf);
+      const pid = pidBuf[0]!;
+      if (pid === process.pid) return 1;
+      collected.push({ hwnd, title: windowTitle(hwnd), pid, exe: exePathOf(pid), minimized: !!U.IsIconic(hwnd) });
+      return 1;
+    },
+    { args: ["ptr", "ptr"], returns: "i32" },
+  );
+  U.EnumWindows(enumCallback.ptr, null);
+  if (exeCache.size > 512) exeCache.clear();
+  return collected;
+}
+
+export function foregroundWindow(): HWND | null {
+  return U.GetForegroundWindow() as HWND | null;
+}
+
+export function activateWindow(hwnd: HWND) {
+  if (U.IsIconic(hwnd)) U.ShowWindow(hwnd, SW_RESTORE);
+  // Windows of elevated apps (run as administrator) refuse ShowWindow from this process;
+  // SwitchToThisWindow goes through the shell, restores them and brings them forward.
+  if (U.IsIconic(hwnd)) {
+    U.SwitchToThisWindow(hwnd, 1);
+    return;
+  }
+  // An ALT tap lifts the foreground lock so SetForegroundWindow is honoured.
+  U.keybd_event(0x12, 0, 0, 0);
+  U.keybd_event(0x12, 0, 2, 0);
+  if (!U.SetForegroundWindow(hwnd)) U.SwitchToThisWindow(hwnd, 1);
+}
+
+export function windowPid(hwnd: HWND): number {
+  U.GetWindowThreadProcessId(hwnd, pidBuf);
+  return pidBuf[0]!;
+}
+
+let livePreview: ((on: number, target: HWND | null, keepOnTop: HWND | null, kind: number, extra: number) => number) | null | undefined;
+
+/**
+ * Aero Peek, as the taskbar does it: every other window fades to glass outlines and `target`
+ * shows in place. `keepOnTop` stays visible above it. Undocumented (dwmapi ordinal 113).
+ */
+export function peekWindow(target: HWND | null, keepOnTop: HWND | null = null) {
+  if (livePreview === undefined) {
+    const mod = K.LoadLibraryW(wide("dwmapi.dll"));
+    const fn = mod ? K.GetProcAddress(mod, 113) : null;
+    livePreview = fn ? (CFunction({ ptr: fn, args: ["i32", "ptr", "ptr", "u32", "u64"], returns: "i32" }) as never) : null;
+  }
+  livePreview?.(target ? 1 : 0, target, keepOnTop, 1, 0);
+}
+
+export function minimizeWindow(hwnd: HWND) {
+  U.ShowWindow(hwnd, SW_MINIMIZE);
+}
+
+export function closeWindow(hwnd: HWND) {
+  U.PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, 0, 0);
+}
+
+// ---------- Live window thumbnails (what the taskbar previews use) ----------
+
+export type Thumbnail = bigint;
+
+/** Shows a live picture of `source` inside `dest` (a window of this process). */
+export function registerThumbnail(dest: HWND, source: HWND): Thumbnail | null {
+  const out = new BigUint64Array(1);
+  return dwmapi.symbols.DwmRegisterThumbnail(dest, source, out) === 0 ? out[0]! : null;
+}
+
+export function unregisterThumbnail(thumb: Thumbnail) {
+  dwmapi.symbols.DwmUnregisterThumbnail(Number(thumb) as unknown as Pointer);
+}
+
+export function thumbnailSourceSize(thumb: Thumbnail): { width: number; height: number } {
+  const size = new Int32Array(2);
+  dwmapi.symbols.DwmQueryThumbnailSourceSize(Number(thumb) as unknown as Pointer, size);
+  return { width: size[0]!, height: size[1]! };
+}
+
+/** Places the thumbnail at `rect` (physical px in the destination's client area). */
+export function placeThumbnail(thumb: Thumbnail, rect: Rect, visible = true) {
+  const buf = new Uint8Array(48);
+  const view = new DataView(buf.buffer);
+  view.setUint32(0, 0x1 | 0x4 | 0x8 | 0x10, true); // destination, opacity, visible, client area only
+  view.setInt32(4, Math.round(rect.left), true);
+  view.setInt32(8, Math.round(rect.top), true);
+  view.setInt32(12, Math.round(rect.right), true);
+  view.setInt32(16, Math.round(rect.bottom), true);
+  view.setUint8(36, 255);
+  view.setInt32(40, visible ? 1 : 0, true);
+  view.setInt32(44, 1, true);
+  dwmapi.symbols.DwmUpdateThumbnailProperties(Number(thumb) as unknown as Pointer, buf);
+}
+
+// ---------- Keyboard ----------
+
+export const VK = {
+  LWIN: 0x5b,
+  MEDIA_NEXT: 0xb0,
+  MEDIA_PREV: 0xb1,
+  MEDIA_PLAY_PAUSE: 0xb3,
+  VOLUME_MUTE: 0xad,
+} as const;
+
+export function tapKey(vk: number) {
+  U.keybd_event(vk, 0, 0, 0);
+  U.keybd_event(vk, 0, 2 /* KEYEVENTF_KEYUP */, 0);
+}
+
+// ---------- System metrics ----------
+
+const memBuf = new Uint8Array(64);
+const memView = new DataView(memBuf.buffer);
+
+export function memoryStatus() {
+  memView.setUint32(0, 64, true);
+  K.GlobalMemoryStatusEx(memBuf);
+  const total = Number(memView.getBigUint64(8, true));
+  const avail = Number(memView.getBigUint64(16, true));
+  return { load: memView.getUint32(4, true), total, used: total - avail };
+}
+
+const times = new BigUint64Array(3);
+let lastTimes: [bigint, bigint, bigint] | null = null;
+
+/** CPU usage 0..100 since the previous call. */
+export function cpuUsage(): number {
+  K.GetSystemTimes(ptr(times, 0), ptr(times, 8), ptr(times, 16));
+  const now: [bigint, bigint, bigint] = [times[0]!, times[1]!, times[2]!];
+  const prev = lastTimes;
+  lastTimes = now;
+  if (!prev) return 0;
+  const idle = Number(now[0] - prev[0]);
+  const total = Number(now[1] - prev[1] + (now[2] - prev[2]));
+  return total > 0 ? Math.max(0, Math.min(100, (1 - idle / total) * 100)) : 0;
+}
+
+const powerBuf = new Uint8Array(12);
+
+export function powerStatus(): { hasBattery: boolean; percent: number; charging: boolean } {
+  K.GetSystemPowerStatus(powerBuf);
+  const flag = powerBuf[1]!;
+  const percent = powerBuf[2]!;
+  return { hasBattery: flag !== 128 && flag !== 255 && percent !== 255, percent, charging: powerBuf[0] === 1 };
+}

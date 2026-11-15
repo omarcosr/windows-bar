@@ -1,0 +1,19 @@
+{
+  "name": "windows-bar",
+  "module": "src/main.tsx",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun src/main.tsx",
+    "dev": "bunx tarve dev src/main.tsx",
+    "typecheck": "tsc --noEmit",
+    "build": "bunx tarve build src/main.tsx --outfile dist/WindowsBar.exe --name WindowsBar"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@tarve/core": "^0.12.0"
+  }
+}
