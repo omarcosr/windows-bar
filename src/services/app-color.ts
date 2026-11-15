@@ -1,5 +1,5 @@
 import { store } from "@tarve/core";
-import { monitorOf, screenPixels, windowClass, windowRect, isWindowVisible, type HWND, type Rect } from "../native/win32";
+import { monitorOf, screenPixels, topWindowAt, windowClass, windowRect, isWindowVisible, type HWND, type Rect } from "../native/win32";
 import { foregroundApp } from "./windows";
 
 type RGB = [number, number, number];
@@ -49,8 +49,17 @@ function appEdge(work: Rect): RGB | null {
 }
 
 function screenEdge(work: Rect): RGB | null {
-  // Two rows just above the strip, across the whole width.
-  const colors = [...row(work.left, work.right, work.bottom - 6, 16), ...row(work.left, work.right, work.bottom - 24, 16)];
+  // What sits right above the strip, across the whole width. Where that is mostly the
+  // wallpaper (a small window in front of the desktop), the strip stays clear like the
+  // desktop itself; otherwise it takes the colour of the windows there.
+  const y = work.bottom - 6;
+  const xs = Array.from({ length: 16 }, (_, i) => work.left + ((work.right - work.left) * (i + 0.5)) / 16);
+  const onDesktop = xs.map((x) => {
+    const top = topWindowAt(x, y);
+    return !top || DESKTOP_CLASSES.has(windowClass(top));
+  });
+  if (onDesktop.filter(Boolean).length >= xs.length / 2) return null;
+  const colors = screenPixels(xs.filter((_, i) => !onDesktop[i]).map((x) => ({ x, y }))).filter((c): c is RGB => !!c);
   return predominant(colors, 0.35);
 }
 
@@ -74,6 +83,13 @@ export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, p
     // Without a reserved strip the rows above it are the dock itself: nothing to read. (The
     // painted strip reaches a few px over the work area on purpose; more means no reservation.)
     if (windowRect(hwnd).top < work.bottom - 8) return;
+    // On the desktop the strip stays clear and shows the wallpaper, like the Windows taskbar.
+    const fg = foregroundApp();
+    if (!fg || DESKTOP_CLASSES.has(windowClass(fg))) {
+      current = null;
+      if (appColor.color !== null) Object.assign(appColor, { color: null, touching: false });
+      return;
+    }
     const edge = appEdge(work);
     const next = edge ?? screenEdge(work);
     const touching = !!edge;

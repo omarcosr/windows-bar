@@ -28,6 +28,8 @@ interface Item {
   running: boolean;
   active: boolean;
   windows: number;
+  /** One of its windows asked for attention (FlashWindowEx). */
+  attention: boolean;
 }
 
 /** The icon being dragged and the icon under it, while an icon is dragged to a new place. */
@@ -136,8 +138,25 @@ function AppIcon(props: {
         active: { transform: "scale(0.9)" },
       }}
     >
-      {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar. */}
-      {item.active && item.running ? (
+      {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;
+          an app asking for attention gets an orange plate until its window is activated. */}
+      {item.attention ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 5,
+            left: 2,
+            width: 40,
+            height: 42,
+            radius: 8,
+            background: "rgba(247,99,12,0.32)",
+            borderWidth: 1,
+            borderColor: "rgba(247,99,12,0.55)",
+            // Pulses a few times, then stays lit, like the taskbar's flashing button.
+            animation: { from: { opacity: 0.35 }, duration: 600, iterations: 6, direction: "alternate", easing: "easeInOut" },
+          }}
+        />
+      ) : item.active && item.running ? (
         <View
           style={{
             position: "absolute",
@@ -180,10 +199,16 @@ function AppIcon(props: {
       <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center" }}>
         <View
           style={{
-            width: item.active ? 16 : 6,
+            width: item.active || item.attention ? 16 : 6,
             height: 3,
             radius: 2,
-            background: !item.running ? "transparent" : item.active ? taskbarPrefs.accent : "rgba(255,255,255,0.55)",
+            background: !item.running
+              ? "transparent"
+              : item.attention
+                ? "#f7630c"
+                : item.active
+                  ? taskbarPrefs.accent
+                  : "rgba(255,255,255,0.55)",
             transition: { width: { duration: 180, easing: "easeOut" } },
           }}
         />
@@ -231,6 +256,7 @@ export default defineWidget({
         running: running.has(key),
         active: desktop.activeKey === key,
         windows: running.get(key)?.windows.length ?? 0,
+        attention: !!running.get(key)?.windows.some((w) => desktop.flashing.includes(w.hwnd as unknown as number)),
       };
     });
     for (const app of desktop.apps) {
@@ -244,6 +270,7 @@ export default defineWidget({
         running: true,
         active: desktop.activeKey === app.key,
         windows: app.windows.length,
+        attention: app.windows.some((w) => desktop.flashing.includes(w.hwnd as unknown as number)),
       });
     }
     const togglePin = (item: Item) => {

@@ -64,7 +64,7 @@ export class DockWindow {
     this.#hwnd = hwnd;
     this.#options = options;
     stripWindowChrome(hwnd);
-    this.#timer = setInterval(() => this.#watch(), 100);
+    this.#timer = setInterval(() => this.#watch(), 250);
     if (DockWindow.#hidesTaskbar(options)) this.#hideTaskbar();
     const cleanup = () => this.dispose();
     process.once("exit", cleanup);
@@ -221,9 +221,21 @@ export class DockWindow {
     this.#taskbar = null;
   }
 
-  /** Steps behind a full-screen window as soon as one takes the screen (checked every 100 ms). */
-  #checkFullscreen() {
-    const fullscreen = fullscreenAppActive(this.#hwnd);
+  #shellFullscreen = false;
+
+  /** Explorer's ABN_FULLSCREENAPP for this screen (see shell-events.ts). */
+  setShellFullscreen(on: boolean) {
+    this.#shellFullscreen = on;
+    this.checkFullscreen();
+  }
+
+  /**
+   * Steps behind a full-screen window as soon as one takes the screen. Driven by shell events
+   * (full-screen notice, foreground change, foreground window resized), with a slow safety check.
+   */
+  checkFullscreen() {
+    if (this.#disposed) return false;
+    const fullscreen = this.#shellFullscreen || fullscreenAppActive(this.#hwnd);
     if (fullscreen !== this.#hiddenForFullscreen) {
       this.#hiddenForFullscreen = fullscreen;
       // Step behind the full-screen window instead of hiding: a hidden AppBar loses its reserved
@@ -244,8 +256,8 @@ export class DockWindow {
         showWindow(tray, SW_HIDE);
       }
     }
-    this.#checkFullscreen();
-    if (this.#ticks % 10 !== 0) return;
+    if (this.#ticks % 8 !== 0) return;
+    this.checkFullscreen();
     stripWindowChrome(this.#hwnd); // the runtime may re-apply its frame attributes
 
     // The taskbar or another AppBar may have moved our strip; re-reserve only if it changed.

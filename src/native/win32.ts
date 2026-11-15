@@ -21,6 +21,8 @@ const user32 = dlopen("user32.dll", {
   GetDC: { args: ["ptr"], returns: "ptr" },
   ReleaseDC: { args: ["ptr", "ptr"], returns: "i32" },
   GetClassNameW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  WindowFromPoint: { args: ["u64"], returns: "ptr" },
+  GetAncestor: { args: ["ptr", "u32"], returns: "ptr" },
   GetWindowThreadProcessId: { args: ["ptr", "ptr"], returns: "u32" },
   GetForegroundWindow: { args: [], returns: "ptr" },
   SetForegroundWindow: { args: ["ptr"], returns: "i32" },
@@ -177,6 +179,14 @@ export function cursorPos(): { x: number; y: number } {
 /** True while the key or mouse button (a virtual-key code) is held down. */
 export function keyDown(vk: number) {
   return (U.GetAsyncKeyState(vk) & 0x8000) !== 0;
+}
+
+/** The top-level window under a physical screen point. */
+export function topWindowAt(x: number, y: number): HWND | null {
+  // POINT passed by value: x in the low 32 bits, y in the high ones.
+  const packed = (BigInt(Math.round(y) >>> 0) << 32n) | BigInt(Math.round(x) >>> 0);
+  const h = U.WindowFromPoint(packed) as HWND | null;
+  return h ? (U.GetAncestor(h, 2 /* GA_ROOT */) as HWND | null) : null;
 }
 
 export function windowClass(hwnd: HWND): string {

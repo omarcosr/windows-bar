@@ -5,7 +5,8 @@ import { dockUi } from "./dock/state";
 import { GalleryView, PREVIEW_PREFIX } from "./gallery/Gallery";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
-import { launch } from "./services/windows";
+import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh } from "./services/windows";
+import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
 import { setGalleryOpener } from "./dock/widget-menu";
 import { findWindow } from "./native/win32";
@@ -117,6 +118,33 @@ const nativeOptions = () => ({
 });
 dockWindow = await DockWindow.attach({ title: DOCK_TITLE, ...nativeOptions() });
 if (pendingSize) dockWindow.setContentSize(...pendingSize);
+// Shell events: full-screen notices, window lifecycle, attention requests. No polling needed.
+startShellEvents((event) => {
+  if (event.type === "fullscreen") return dockWindow?.setShellFullscreen(event.on);
+  if (event.type === "foreground" || event.type === "moved") {
+    dockWindow?.checkFullscreen();
+    if (event.type === "foreground") {
+      noteForeground(event.hwnd);
+      clearFlashing(event.hwnd);
+      scheduleRefresh();
+    }
+    return;
+  }
+  switch (event.code) {
+    case HSHELL.FLASH:
+      return markFlashing(event.hwnd);
+    case HSHELL.WINDOWACTIVATED:
+    case HSHELL.RUDEAPPACTIVATED:
+      clearFlashing(event.hwnd);
+      dockWindow?.checkFullscreen();
+      return scheduleRefresh();
+    case HSHELL.WINDOWCREATED:
+    case HSHELL.WINDOWDESTROYED:
+    case HSHELL.REDRAW:
+      return scheduleRefresh();
+  }
+});
+
 watchAppColor(
   () => DockWindow.handle(),
   () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,

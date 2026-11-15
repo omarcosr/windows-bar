@@ -31,6 +31,8 @@ export interface RunningApp {
 
 export const desktop = store({
   apps: [] as RunningApp[],
+  /** Windows asking for attention (FlashWindowEx), until they are activated. */
+  flashing: [] as number[],
   /** Key of the app whose window was last in front (the dock itself excluded). */
   activeKey: "",
 });
@@ -63,9 +65,10 @@ export const prettyName = (exe: string) => {
 
 export function refreshWindows() {
   const windows = listTaskbarWindows();
-  const fg = foregroundWindow();
   const groups = new Map<string, RunningApp>();
-  let activeKey = desktop.activeKey;
+  // The app in front is the one owning the last non-dock foreground window; the desktop or a
+  // window that is not on the taskbar leaves no app active, as on the Windows taskbar.
+  let activeKey = "";
   for (const w of windows) {
     if (!w.exe) continue;
     w.exe = appPathOf(w.hwnd, w.exe);
@@ -78,11 +81,13 @@ export function refreshWindows() {
     if (!firstSeen.has(w.hwnd)) firstSeen.set(w.hwnd, seenCounter++);
     group.windows.push({ hwnd: w.hwnd, title: w.title, minimized: w.minimized });
     group.recent.push(w.hwnd);
-    if (fg && w.hwnd === fg) activeKey = key;
+    if (lastForeground && w.hwnd === lastForeground && !w.minimized) activeKey = key;
   }
   const alive = new Set(windows.map((w) => w.hwnd));
   for (const hwnd of firstSeen.keys()) if (!alive.has(hwnd)) firstSeen.delete(hwnd);
   for (const hwnd of appIdCache.keys()) if (!alive.has(hwnd)) appIdCache.delete(hwnd);
+  if (desktop.flashing.some((h) => !alive.has(h as unknown as HWND)))
+    desktop.flashing = desktop.flashing.filter((h) => alive.has(h as unknown as HWND));
   for (const group of groups.values()) group.windows.sort((a, b) => firstSeen.get(a.hwnd)! - firstSeen.get(b.hwnd)!);
   appOrder = appOrder.filter((key) => groups.has(key));
   for (const key of groups.keys()) if (!appOrder.includes(key)) appOrder.push(key);
@@ -101,7 +106,25 @@ export function refreshWindows() {
   }
 }
 
-export const windowsPoller = createPoller(1000, refreshWindows);
+export const windowsPoller = createPoller(2000, refreshWindows);
+
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Coalesces bursts of shell events (a window opening fires several) into one refresh. */
+export function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refreshWindows, 30);
+}
+
+/** An app called FlashWindowEx: its icon asks for attention until the window is activated. */
+export function markFlashing(hwnd: number) {
+  if (!desktop.flashing.includes(hwnd)) desktop.flashing.push(hwnd);
+}
+
+export function clearFlashing(hwnd: number) {
+  const i = desktop.flashing.indexOf(hwnd);
+  if (i >= 0) desktop.flashing.splice(i, 1);
+}
 
 /**
  * The window that was in front before the dock was clicked. Clicking the dock brings the dock
@@ -137,6 +160,12 @@ export function activateApp(key: string, launchPath?: string) {
     activateWindow(app.recent.find((h) => !minimized.has(h)) ?? app.recent[0]!);
   }
   setTimeout(refreshWindows, 120);
+}
+
+/** A foreground change reported by the shell; the dock's own windows do not count. */
+export function noteForeground(hwnd: number) {
+  const h = hwnd as unknown as HWND;
+  if (windowPid(h) !== process.pid) lastForeground = h;
 }
 
 /** The last window in front that is not one of the dock's own. */
