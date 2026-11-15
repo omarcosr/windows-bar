@@ -3,8 +3,8 @@ import { config, saveConfig } from "./config";
 import { DOCK_TITLE, DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
 import { GalleryView, PREVIEW_PREFIX } from "./gallery/Gallery";
-import { glyph, initDockMenu, showDockMenu } from "./menu/dock-menu";
-import { hidePreview, initWindowPreview } from "./menu/window-preview";
+import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
+import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { launch } from "./services/windows";
 import { DockWindow } from "./native/dock-window";
 import { findWindow } from "./native/win32";
@@ -107,6 +107,8 @@ const nativeOptions = () => ({
   align: taskbarPrefs.align,
   reserveSpace: config.reserveSpace,
   stripFill: config.stripFollowsApp,
+  // Covers the 1–2 px frame line windows draw on their bottom edge, whether the colour comes
+  // from the app in front or from what is behind it.
   stripOverlap: appColor.color ? 2 : 0,
   hideNativeTaskbar: config.hideNativeTaskbar,
   bottomMargin: config.bottomMargin,
@@ -116,6 +118,7 @@ if (pendingSize) dockWindow.setContentSize(...pendingSize);
 watchAppColor(
   () => DockWindow.handle(),
   () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,
+  () => previewOpen() || menuOpen(),
 );
 await initDockMenu(app);
 await initWindowPreview(app);

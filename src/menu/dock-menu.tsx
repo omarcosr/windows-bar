@@ -252,6 +252,10 @@ export function showDockMenu(spec: DockMenuSpec) {
   }, 50);
 }
 
+export function menuOpen() {
+  return !!menu.spec;
+}
+
 export function closeDockMenu() {
   clearInterval(watch);
   watch = undefined;

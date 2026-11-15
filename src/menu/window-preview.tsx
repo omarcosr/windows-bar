@@ -237,6 +237,10 @@ export function hoverApp(key: string, hovered: boolean) {
   showTimer = setTimeout(open, preview.key ? 220 : 450);
 }
 
+export function previewOpen() {
+  return !!preview.key;
+}
+
 export function hidePreview(now = false) {
   clearTimeout(showTimer);
   if (!now) return;

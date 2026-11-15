@@ -285,7 +285,7 @@ export function GalleryView() {
             />
             {config.mode === "floating" && config.reserveSpace ? (
               <Toggle
-                label="Fundo do espaço segue o app aberto"
+                label="Fundo do espaço segue a tela"
                 checked={config.stripFollowsApp}
                 onChange={(v) => {
                   config.stripFollowsApp = v;

@@ -1,20 +1,43 @@
 import { store } from "@tarve/core";
-import { monitorOf, screenPixels, windowClass, windowRect, isWindowVisible, type HWND } from "../native/win32";
+import { monitorOf, screenPixels, windowClass, windowRect, isWindowVisible, type HWND, type Rect } from "../native/win32";
 import { foregroundApp } from "./windows";
 
+type RGB = [number, number, number];
+
 /**
- * The colour along the bottom edge of the app in front, so the strip under a floating dock can
- * continue it. null when no app window reaches the bottom of the work area (desktop, small window).
+ * The colour the strip under a floating dock paints, so the screen seems to continue under it:
+ * the bottom edge of the app in front when it sits on the strip (`touching`), otherwise the
+ * predominant colour just above the strip (wallpaper and whatever windows are there).
  */
-export const appColor = store({ color: null as string | null });
+export const appColor = store({ color: null as string | null, touching: false });
 
 const DESKTOP_CLASSES = new Set(["Progman", "WorkerW", "Shell_TrayWnd"]);
 let timer: ReturnType<typeof setInterval> | undefined;
+let current: RGB | null = null;
 
-function sample(dock: HWND | null) {
+/** Most common colour (in 16-step buckets) when it covers `share` of the samples, else the average. */
+function predominant(colors: RGB[], share: number): RGB | null {
+  if (!colors.length) return null;
+  const buckets = new Map<string, RGB[]>();
+  for (const c of colors) {
+    const key = c.map((v) => v >> 4).join(",");
+    const list = buckets.get(key);
+    if (list) list.push(c);
+    else buckets.set(key, [c]);
+  }
+  const top = [...buckets.values()].sort((a, b) => b.length - a.length)[0]!;
+  const pick = top.length / colors.length >= share ? top : colors;
+  return [0, 1, 2].map((i) => Math.round(pick.reduce((s, c) => s + c[i]!, 0) / pick.length)) as RGB;
+}
+
+function row(left: number, right: number, y: number, count: number) {
+  const xs = Array.from({ length: count }, (_, i) => left + ((right - left) * (i + 0.5)) / count);
+  return screenPixels(xs.map((x) => ({ x, y }))).filter((c): c is RGB => !!c);
+}
+
+function appEdge(work: Rect): RGB | null {
   const fg = foregroundApp();
-  if (!fg || !dock || !isWindowVisible(fg) || DESKTOP_CLASSES.has(windowClass(fg))) return null;
-  const { work } = monitorOf(dock);
+  if (!fg || !isWindowVisible(fg) || DESKTOP_CLASSES.has(windowClass(fg))) return null;
   const r = windowRect(fg);
   // Only a window that sits on the strip reads as continuing into it.
   if (r.bottom < work.bottom - 8 || r.top >= work.bottom) return null;
@@ -22,27 +45,38 @@ function sample(dock: HWND | null) {
   const right = Math.min(r.right, work.right);
   if (right - left < 40) return null;
   // A few px up: windows often end in a 1–2 px frame line of another colour.
-  const y = Math.min(r.bottom, work.bottom) - 6;
-  const xs = [0.08, 0.25, 0.5, 0.75, 0.92].map((f) => left + (right - left) * f);
-  const colors = screenPixels(xs.map((x) => ({ x, y }))).filter((c): c is [number, number, number] => !!c);
-  if (!colors.length) return null;
-  // The most common colour wins, so a scrollbar or a status icon does not tint the strip.
-  const counts = new Map<string, { c: [number, number, number]; n: number }>();
-  for (const c of colors) {
-    const key = c.map((v) => v >> 3).join(",");
-    const entry = counts.get(key);
-    if (entry) entry.n++;
-    else counts.set(key, { c, n: 1 });
-  }
-  const best = [...counts.values()].sort((a, b) => b.n - a.n)[0]!.c;
-  return `rgb(${best[0]},${best[1]},${best[2]})`;
+  return predominant(row(left, right, Math.min(r.bottom, work.bottom) - 6, 5), 0);
 }
 
-/** Samples while `enabled()` is true. */
-export function watchAppColor(dock: () => HWND | null, enabled: () => boolean) {
+function screenEdge(work: Rect): RGB | null {
+  // Two rows just above the strip, across the whole width.
+  const colors = [...row(work.left, work.right, work.bottom - 6, 16), ...row(work.left, work.right, work.bottom - 24, 16)];
+  return predominant(colors, 0.35);
+}
+
+const distance = (a: RGB, b: RGB) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+
+/**
+ * Samples while `enabled()` is true. `paused()` holds the colour while the dock's own popups
+ * (preview, menu) sit right above the strip and would be read back.
+ */
+export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, paused: () => boolean) {
   clearInterval(timer);
   timer = setInterval(() => {
-    const next = enabled() ? sample(dock()) : null;
-    if (next !== appColor.color) appColor.color = next;
+    const hwnd = dock();
+    if (!enabled() || !hwnd) {
+      current = null;
+      if (appColor.color !== null) Object.assign(appColor, { color: null, touching: false });
+      return;
+    }
+    if (paused()) return;
+    const { work } = monitorOf(hwnd);
+    const edge = appEdge(work);
+    const next = edge ?? screenEdge(work);
+    const touching = !!edge;
+    // Ignore tiny changes (video, animations near the edge) so the strip does not flicker.
+    if (next && current && distance(next, current) < 18 && touching === appColor.touching) return;
+    current = next;
+    Object.assign(appColor, { color: next ? `rgb(${next[0]},${next[1]},${next[2]})` : null, touching });
   }, 400);
 }
