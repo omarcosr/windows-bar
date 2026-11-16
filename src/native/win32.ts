@@ -426,11 +426,18 @@ export function peekWindow(target: HWND | null, keepOnTop: HWND | null = null) {
 }
 
 export function minimizeWindow(hwnd: HWND) {
-  U.ShowWindow(hwnd, SW_MINIMIZE);
+  // Windows of elevated apps (run as administrator) refuse ShowWindow from this process, but
+  // still take the system menu's Minimize command.
+  if (!U.ShowWindow(hwnd, SW_MINIMIZE) && !U.IsIconic(hwnd)) {
+    U.PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xf020 /* SC_MINIMIZE */, 0);
+  }
 }
 
 export function closeWindow(hwnd: HWND) {
-  U.PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, 0, 0);
+  // Elevated apps may refuse WM_CLOSE from this process; the system menu's Close still works.
+  if (!U.PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, 0, 0)) {
+    U.PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xf060 /* SC_CLOSE */, 0);
+  }
 }
 
 // ---------- App identity (Store apps share one host exe) ----------
