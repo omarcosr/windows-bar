@@ -5,8 +5,10 @@ import { iconFor } from "../../services/icons";
 import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { clickApp, hidePreview, hoverApp } from "../../menu/window-preview";
 import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
+import { config } from "../../config";
 import { ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
+import { iconHover } from "../ui";
 import { defineWidget } from "../types";
 
 const env = process.env;
@@ -124,8 +126,7 @@ function AppIcon(props: {
         cursor: "pointer",
         radius: 10,
         opacity: dragging ? 0.35 : 1,
-        hover: { background: "rgba(255,255,255,0.06)" },
-        active: { transform: "scale(0.9)" },
+        ...iconHover(),
       }}
     >
       {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;
@@ -167,7 +168,7 @@ function AppIcon(props: {
         <View style={{ position: "absolute", top: 8, bottom: 8, width: 3, radius: 2, background: ui.blue, [markerSide]: -2 }} />
       ) : null}
       {/* Two or more windows: a faded copy of the icon sits just behind it, as Windows does. */}
-      {item.windows > 1 && icon ? (
+      {item.windows > 1 && icon && config.stackedIcons ? (
         <Image
           src={icon}
           width={ui.app.icon}
@@ -194,7 +195,7 @@ function AppIcon(props: {
       <AppBadge exe={item.exe} />
       {/* Out of the flow, so the icon stays centred like the Start button. */}
       {/* Running: a short grey pill; in front: a longer one in the accent colour. */}
-      <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center" }}>
+      <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center", opacity: config.runningIndicator ? 1 : 0 }}>
         <View
           style={{
             width: item.active || item.attention ? 16 : 6,

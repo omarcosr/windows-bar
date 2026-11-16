@@ -266,7 +266,7 @@ async function showFor(key: string, still: () => boolean) {
  */
 export function clickApp(key: string): boolean {
   clearTimeout(showTimer);
-  if (windowsOf(key).length < 2) {
+  if (windowsOf(key).length < 2 || config.multiWindowClick === "recent") {
     hidePreview(true);
     return false;
   }
@@ -301,7 +301,7 @@ export function hoverApp(key: string, hovered: boolean) {
   };
   // With a preview up, another icon takes over only if the pointer rests on it a moment, so
   // reaching for the first or last window across neighbouring icons keeps the preview.
-  showTimer = setTimeout(() => void open(), preview.key ? 220 : 450);
+  showTimer = setTimeout(() => void open(), preview.key ? 220 : Math.max(0, Number(config.previewDelay ?? 450)));
 }
 
 export function previewOpen() {

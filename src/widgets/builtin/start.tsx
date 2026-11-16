@@ -3,7 +3,7 @@ import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { exePathOf, foregroundWindow, tapKey, tapKeys, VK, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { ui } from "../../theme";
-import { WindowsLogo } from "../ui";
+import { WindowsLogo, iconHover } from "../ui";
 import { defineWidget } from "../types";
 
 const icon = (...nodes: SvgNode[]) => nodes as readonly SvgNode[];
@@ -142,8 +142,7 @@ export default defineWidget({
           justify: "center",
           cursor: "pointer",
           shrink: 0,
-          hover: { background: "rgba(255,255,255,0.06)" },
-          active: { transform: "scale(0.9)" },
+          ...iconHover(),
         }}
       >
         <View

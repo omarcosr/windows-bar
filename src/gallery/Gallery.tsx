@@ -16,8 +16,9 @@ import {
 } from "@tarve/core";
 import { WindowsLogo } from "../widgets/ui";
 import { config, saveConfig } from "../config";
-import { addWidget, moveWidget, removeWidget } from "../dock/state";
-import { numeric, ui, BAR_HEIGHT_MAX, BAR_HEIGHT_MIN } from "../theme";
+import { addWidget, dropSide, moveWidget, removeWidget, widgetDrag, widgetDragProps } from "../dock/state";
+import { numeric, ui } from "../theme";
+import { SettingsPage } from "./Settings";
 import { mountWidget } from "../widgets/host";
 import { allWidgets, getWidget } from "../widgets/registry";
 import { categoryLabels, type WidgetCategory, type WidgetDefinition } from "../widgets/types";
@@ -25,7 +26,14 @@ import { categoryLabels, type WidgetCategory, type WidgetDefinition } from "../w
 export const GALLERY_TITLE = "WindowsBar Widgets";
 export const PREVIEW_PREFIX = "preview:";
 
-const gallery = store({ category: "all" as WidgetCategory | "all" });
+export type GalleryPage = "settings" | "widgets";
+
+const gallery = store({ page: "widgets" as GalleryPage, category: "all" as WidgetCategory | "all" });
+
+/** Which page the gallery window shows (main.tsx opens it on one or the other). */
+export function setGalleryPage(page: GalleryPage) {
+  gallery.page = page;
+}
 
 function Chip(props: { label?: string; icon?: IconName; active?: boolean; tone?: "danger" | "primary"; onClick: () => void }) {
   const bg = props.tone === "primary" ? ui.blue : props.tone === "danger" ? "rgba(255,69,58,0.16)" : "rgba(255,255,255,0.07)";
@@ -53,7 +61,7 @@ function Chip(props: { label?: string; icon?: IconName; active?: boolean; tone?:
   );
 }
 
-function SidebarItem(props: { label: string; count: number; active: boolean; onClick: () => void }) {
+function SidebarItem(props: { label: string; count?: number; icon?: IconName; active: boolean; onClick: () => void }) {
   return (
     <Pressable
       onClick={props.onClick}
@@ -67,12 +75,15 @@ function SidebarItem(props: { label: string; count: number; active: boolean; onC
         hover: { background: props.active ? ui.blue : "rgba(255,255,255,0.06)" },
       }}
     >
+      {props.icon ? <Icon name={props.icon} size={15} color="#fff" strokeWidth={2} style={{ margin: { right: 8 } }} /> : null}
       <Text size={13} weight={props.active ? 600 : 500} color="#fff" style={{ flex: 1 }}>
         {props.label}
       </Text>
-      <Text size={11} color={props.active ? "#ffffffcc" : ui.muted} style={numeric}>
-        {String(props.count)}
-      </Text>
+      {props.count !== undefined ? (
+        <Text size={11} color={props.active ? "#ffffffcc" : ui.muted} style={numeric}>
+          {String(props.count)}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -125,6 +136,16 @@ function WidgetCard(props: { definition: WidgetDefinition }) {
   );
 }
 
+/** Six dots: the drag handle. */
+const GRIP = [
+  ["circle", { cx: 9, cy: 6, r: 1 }],
+  ["circle", { cx: 15, cy: 6, r: 1 }],
+  ["circle", { cx: 9, cy: 12, r: 1 }],
+  ["circle", { cx: 15, cy: 12, r: 1 }],
+  ["circle", { cx: 9, cy: 18, r: 1 }],
+  ["circle", { cx: 15, cy: 18, r: 1 }],
+] as const;
+
 function DockOrder() {
   return (
     <Column style={{ gap: 8 }}>
@@ -132,18 +153,39 @@ function DockOrder() {
         Seu dock
       </Text>
       <Text size={11} color={ui.muted}>
-        Ordem da esquerda para a direita. No próprio dock, o "−" vermelho remove.
+        Ordem da esquerda para a direita. Arraste para reordenar, aqui ou no próprio dock; o "−" vermelho no dock remove.
       </Text>
       <Row style={{ gap: 6, wrap: true }}>
         {config.widgets.map((instance) => (
-          <Row key={instance.id} style={{ align: "center", gap: 4, padding: 4, radius: 10, background: "rgba(255,255,255,0.05)" }}>
+          <Pressable
+            key={instance.id}
+            {...widgetDragProps(instance.id, "gallery-widget:")}
+            style={{
+              position: "relative",
+              direction: "row",
+              align: "center",
+              gap: 4,
+              padding: 4,
+              radius: 10,
+              cursor: "grab",
+              background: "rgba(255,255,255,0.05)",
+              opacity: widgetDrag.source === instance.id ? 0.4 : 1,
+              hover: { background: "rgba(255,255,255,0.08)" },
+            }}
+          >
+            {dropSide(instance.id) ? (
+              <View
+                style={{ position: "absolute", top: 4, bottom: 4, width: 3, radius: 2, background: ui.blue, [dropSide(instance.id)!]: -5 }}
+              />
+            ) : null}
+            <Icon iconNode={GRIP} size={14} color={ui.muted} strokeWidth={2.2} />
             <Chip icon="chevron-left" onClick={() => moveWidget(instance.id, -1)} />
             <Text size={12} weight={600} color="#fff" style={{ padding: { left: 4, right: 4 } }}>
               {getWidget(instance.type)?.name ?? instance.type}
             </Text>
             <Chip icon="chevron-right" onClick={() => moveWidget(instance.id, 1)} />
             <Chip icon="x" tone="danger" onClick={() => removeWidget(instance.id)} />
-          </Row>
+          </Pressable>
         ))}
       </Row>
     </Column>
@@ -183,14 +225,23 @@ export function GalleryView() {
             borderColor: "rgba(255,255,255,0.06)",
           }}
         >
-          <Text size={18} weight={700} color="#fff" style={{ padding: { left: 8, bottom: 10, top: 4 } }}>
-            Widgets
+          <Text size={11} weight={600} color={ui.muted} style={{ padding: { left: 10, bottom: 4, top: 6 } }}>
+            CONFIGURAÇÕES
+          </Text>
+          <SidebarItem
+            label="Barra de tarefas"
+            icon="settings"
+            active={gallery.page === "settings"}
+            onClick={() => (gallery.page = "settings")}
+          />
+          <Text size={11} weight={600} color={ui.muted} style={{ padding: { left: 10, bottom: 4, top: 16 } }}>
+            WIDGETS
           </Text>
           <SidebarItem
             label="Todos"
             count={widgets.length}
-            active={gallery.category === "all"}
-            onClick={() => (gallery.category = "all")}
+            active={gallery.page === "widgets" && gallery.category === "all"}
+            onClick={() => Object.assign(gallery, { page: "widgets", category: "all" })}
           />
           {categories.map((c) => {
             const count = widgets.filter((w) => w.category === c).length;
@@ -200,145 +251,36 @@ export function GalleryView() {
                 key={c}
                 label={categoryLabels[c]}
                 count={count}
-                active={gallery.category === c}
-                onClick={() => (gallery.category = c)}
+                active={gallery.page === "widgets" && gallery.category === c}
+                onClick={() => Object.assign(gallery, { page: "widgets", category: c })}
               />
             );
           })}
-          <View style={{ flex: 1 }} />
-          <Column style={{ gap: 10, padding: { left: 8, right: 4, bottom: 6 } }}>
-            <Text size={11} weight={600} color={ui.muted}>
-              ESTILO
-            </Text>
-            <Row style={{ gap: 4, padding: 3, radius: 9, background: "rgba(255,255,255,0.06)" }}>
-              {(
-                [
-                  ["floating", "Flutuante"],
-                  ["full", "Barra inteira"],
-                ] as const
-              ).map(([mode, label]) => (
-                <Pressable
-                  key={mode}
-                  onClick={() => {
-                    config.mode = mode;
-                    saveConfig();
-                  }}
-                  style={{
-                    flex: 1,
-                    height: 28,
-                    radius: 7,
-                    align: "center",
-                    justify: "center",
-                    cursor: "pointer",
-                    background: config.mode === mode ? "rgba(255,255,255,0.14)" : "transparent",
-                    hover: { background: config.mode === mode ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.07)" },
-                  }}
-                >
-                  <Text size={12} weight={600} color={config.mode === mode ? "#fff" : ui.muted}>
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
-            </Row>
-            <Column style={{ gap: 6 }}>
-              <Row style={{ align: "center" }}>
-                <Text size={12} color="#fff" style={{ flex: 1 }}>
-                  Opacidade da barra
-                </Text>
-                <Text size={12} color={ui.muted} style={numeric}>
-                  {`${Math.round(config.opacity * 100)}%`}
-                </Text>
-              </Row>
-              <Slider
-                label="Opacidade da barra"
-                value={config.opacity}
-                min={0.2}
-                max={1}
-                step={0.05}
-                onValueChange={(v) => {
-                  config.opacity = Math.round(v * 100) / 100;
-                  saveConfig();
-                }}
-              />
-            </Column>
-            <Column style={{ gap: 6 }}>
-              <Row style={{ align: "center" }}>
-                <Text size={12} color="#fff" style={{ flex: 1 }}>
-                  Altura da barra
-                </Text>
-                <Text size={12} color={ui.muted} style={numeric}>
-                  {`${ui.dock.height} px`}
-                </Text>
-              </Row>
-              <Slider
-                label="Altura da barra"
-                value={ui.dock.height}
-                min={BAR_HEIGHT_MIN}
-                max={BAR_HEIGHT_MAX}
-                step={2}
-                onValueChange={(v) => {
-                  config.barHeight = Math.round(v / 2) * 2;
-                  saveConfig();
-                }}
-              />
-            </Column>
-            <Switch
-              label="Preview das janelas ao passar o mouse"
-              checked={config.hoverPreview}
-              onCheckedChange={(v) => {
-                config.hoverPreview = v;
-                saveConfig();
-              }}
-            />
-            <Switch
-              label="Reservar espaço na tela"
-              checked={config.reserveSpace}
-              onCheckedChange={(v) => {
-                config.reserveSpace = v;
-                saveConfig();
-              }}
-            />
-            {config.mode === "floating" && config.reserveSpace ? (
-              <Switch
-                label="Fundo do espaço segue a tela"
-                checked={config.stripFollowsApp}
-                onCheckedChange={(v) => {
-                  config.stripFollowsApp = v;
-                  saveConfig();
-                }}
-              />
-            ) : null}
-            <Switch
-              label={config.mode === "full" ? "Esconder barra do Windows (sempre na barra inteira)" : "Esconder barra do Windows"}
-              checked={config.hideNativeTaskbar || config.mode === "full"}
-              onCheckedChange={(v) => {
-                if (config.mode === "full") return;
-                config.hideNativeTaskbar = v;
-                saveConfig();
-              }}
-            />
-          </Column>
         </Column>
         <Scroll style={{ flex: 1, minHeight: 0, alignSelf: "stretch" }}>
-          <Column style={{ padding: 24, gap: 24 }}>
-            <DockOrder />
-            {shown.map((category) => {
-              const list = widgets.filter((w) => w.category === category);
-              if (!list.length) return null;
-              return (
-                <Column key={category} style={{ gap: 10 }}>
-                  <Text size={13} weight={700} color={ui.muted} style={{ textTransform: "uppercase", letterSpacing: 0.6 }}>
-                    {categoryLabels[category]}
-                  </Text>
-                  <Row style={{ gap: 12, wrap: true }}>
-                    {list.map((definition) => (
-                      <WidgetCard key={definition.type} definition={definition} />
-                    ))}
-                  </Row>
-                </Column>
-              );
-            })}
-          </Column>
+          {gallery.page === "settings" ? (
+            <SettingsPage />
+          ) : (
+            <Column style={{ padding: 24, gap: 24 }}>
+              <DockOrder />
+              {shown.map((category) => {
+                const list = widgets.filter((w) => w.category === category);
+                if (!list.length) return null;
+                return (
+                  <Column key={category} style={{ gap: 10 }}>
+                    <Text size={13} weight={700} color={ui.muted} style={{ textTransform: "uppercase", letterSpacing: 0.6 }}>
+                      {categoryLabels[category]}
+                    </Text>
+                    <Row style={{ gap: 12, wrap: true }}>
+                      {list.map((definition) => (
+                        <WidgetCard key={definition.type} definition={definition} />
+                      ))}
+                    </Row>
+                  </Column>
+                );
+              })}
+            </Column>
+          )}
         </Scroll>
       </Row>
     </Window>

@@ -3,14 +3,16 @@ import { config, saveConfig } from "./config";
 import { ui } from "./theme";
 import { DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
-import { GalleryView, PREVIEW_PREFIX } from "./gallery/Gallery";
+import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type GalleryPage } from "./gallery/Gallery";
+import { showOwnWindowOnTaskbar } from "./native/win32";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh } from "./services/windows";
 import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
 import { setGalleryOpener } from "./dock/widget-menu";
-import { taskbarPrefs, watchTaskbarPrefs } from "./services/taskbar-prefs";
+import { dockAlign, watchTaskbarPrefs } from "./services/taskbar-prefs";
+import { readAutostart } from "./services/autostart";
 import { watchAppColor, appColor } from "./services/app-color";
 import { disposeWidget, setWidgetApp } from "./widgets/host";
 import { allWidgets } from "./widgets/registry";
@@ -30,7 +32,11 @@ let dockWindow: DockWindow | undefined;
 let pendingSize: [number, number] | undefined;
 let gallery: AppHandle | undefined;
 
-function openGallery() {
+// The settings/widgets window is listed on the dock while it is open, like any app.
+showOwnWindowOnTaskbar(GALLERY_TITLE);
+
+function openGallery(page: GalleryPage = "widgets") {
+  setGalleryPage(page);
   if (gallery) {
     gallery.activate();
     return;
@@ -45,6 +51,10 @@ function openGallery() {
   });
 }
 
+function openSettings() {
+  openGallery("settings");
+}
+
 /** Right-click on the bar itself, outside any widget. */
 function openBarMenu() {
   hidePreview(true);
@@ -53,7 +63,10 @@ function openBarMenu() {
     title: "WindowsBar",
     subtitle: full ? "Barra inteira" : "Dock flutuante",
     sections: [
-      [{ label: "Widgets e personalização…", icon: glyph.grid, onSelect: openGallery }],
+      [
+        { label: "Configurações da barra…", icon: "settings", onSelect: openSettings },
+        { label: "Widgets…", icon: glyph.grid, onSelect: () => openGallery() },
+      ],
       [
         {
           label: full ? "Usar dock flutuante" : "Usar barra inteira",
@@ -73,7 +86,7 @@ function openBarMenu() {
         },
       ],
       [
-        { label: "Configurações da barra de tarefas", icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
+        { label: "Configurações da barra do Windows", icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
         { label: "Gerenciador de Tarefas", icon: glyph.activity, onSelect: () => launch("taskmgr.exe") },
       ],
       [{ label: "Sair do WindowsBar", icon: "x", danger: true, onSelect: () => app.close() }],
@@ -99,7 +112,11 @@ const app = createApp(
 );
 setWidgetApp(app);
 instance.onSecondInstance(() => openGallery());
-setGalleryOpener(openGallery);
+// The registry is the truth for "start with Windows" (the user may have changed it elsewhere).
+void readAutostart().then((on) => {
+  if (config.autostart !== on) config.autostart = on;
+});
+setGalleryOpener(() => openGallery());
 
 await app.ready;
 
@@ -112,7 +129,7 @@ export const stripOverlap = () => (config.mode === "floating" && config.reserveS
 
 const nativeOptions = () => ({
   mode: config.mode,
-  align: taskbarPrefs.align,
+  align: dockAlign(),
   reserveSpace: config.reserveSpace,
   hideNativeTaskbar: config.hideNativeTaskbar,
   bottomMargin: config.bottomMargin,
@@ -167,15 +184,17 @@ setInterval(() => {
 
 app.tray({
   tooltip: "WindowsBar",
-  onClick: openGallery,
+  onClick: () => openGallery(),
   menu: [
-    { id: "widgets", label: "Widgets…", onSelect: openGallery },
+    { id: "settings", label: "Configurações…", onSelect: openSettings },
+    { id: "widgets", label: "Widgets…", onSelect: () => openGallery() },
     { type: "separator" },
     { id: "quit", label: "Sair", onSelect: () => app.close() },
   ],
 });
 
 if (process.argv.includes("--widgets")) openGallery();
+if (process.argv.includes("--settings")) openSettings();
 
 await app.closed;
 dockWindow.dispose();

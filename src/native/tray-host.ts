@@ -254,6 +254,7 @@ function keepOnTop() {
 }
 
 let taskbarCreated = 0;
+let reannounce: ReturnType<typeof setTimeout> | undefined;
 
 /** Asks every app to (re)add its notification icons; they arrive at whichever tray is on top. */
 export function broadcastTaskbarCreated() {
@@ -299,6 +300,10 @@ export function startTrayHost(h: TrayHostHandlers) {
       return call();
     } finally {
       keepOnTop();
+      // Icons added while our tray was out of the way (apps answering the startup broadcast)
+      // went to Explorer only: ask again once things settle, so none goes missing here.
+      clearTimeout(reannounce);
+      reannounce = setTimeout(broadcastTaskbarCreated, 1500);
     }
   });
   pumpTimer = setInterval(pump, 8);

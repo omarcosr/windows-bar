@@ -9,7 +9,13 @@ export interface WidgetInstance {
   config: Record<string, unknown>;
 }
 
+export type HoverEffect = "zoom" | "lift" | "glow" | "highlight" | "none";
+
+export type GlowColor = "accent" | "white" | "blue" | "purple" | "green" | "orange";
+
 export type DockMode = "floating" | "full";
+
+export type DockAlign = "system" | "center" | "left";
 
 export interface DockConfig {
   version: 1;
@@ -22,6 +28,16 @@ export interface DockConfig {
   hideNativeTaskbar: boolean;
   /** "floating": a centred pill above the screen edge. "full": a bar across the whole screen, like the Windows taskbar. */
   mode: DockMode;
+  /** How app icons react to the pointer. */
+  hoverEffect: HoverEffect;
+  /** Strength of the hover effect, in % of the default (25–200). */
+  hoverIntensity: number;
+  /** Duration of the hover animation, in ms. */
+  hoverSpeed: number;
+  /** Colour of the glow effect: Windows' accent colour or a fixed one. */
+  glowColor: GlowColor;
+  /** Icons sink a little while pressed. */
+  pressEffect: boolean;
   /** Height of the bar in logical px (56–80): tiles and app icons scale with it. */
   barHeight: number;
   /** Opacity of the bar's background, 0.2–1; icons and widgets stay opaque. */
@@ -30,6 +46,24 @@ export interface DockConfig {
   hoverPreview: boolean;
   /** Gap between the dock and the bottom of the screen, in logical px. */
   bottomMargin: number;
+  /** Where Start and the apps sit: following Windows' own taskbar alignment, or fixed. */
+  align: DockAlign;
+  /** Corner radius of the floating dock, in logical px. */
+  cornerRadius: number;
+  /** Space between widgets, in logical px. */
+  widgetGap: number;
+  /** The strip's colour changes with the top-down gradient (off: at once). */
+  colorTransition: boolean;
+  /** The small pill under the icon of a running app. */
+  runningIndicator: boolean;
+  /** A faded copy behind the icon of an app with several windows. */
+  stackedIcons: boolean;
+  /** A click on an app with several windows: its window list, or straight to the last one used. */
+  multiWindowClick: "list" | "recent";
+  /** How long the pointer rests on an icon before its preview opens, in ms. */
+  previewDelay: number;
+  /** Start with Windows (HKCU Run key); mirrored from the registry at startup. */
+  autostart: boolean;
 }
 
 export const configDir = appConfigDirectory("windows-bar");
@@ -44,7 +78,21 @@ export const defaultConfig = (): DockConfig => ({
   hoverPreview: true,
   opacity: 1,
   barHeight: 64,
+  hoverEffect: "zoom",
+  hoverIntensity: 100,
+  hoverSpeed: 170,
+  glowColor: "accent",
+  pressEffect: true,
   bottomMargin: 8,
+  align: "system",
+  cornerRadius: 18,
+  widgetGap: 6,
+  colorTransition: true,
+  runningIndicator: true,
+  stackedIcons: true,
+  multiWindowClick: "list",
+  previewDelay: 450,
+  autostart: false,
   widgets: [
     { id: "clock-1", type: "clock-weather", config: {} },
     { id: "revenue-1", type: "revenue", config: {} },

@@ -1,5 +1,7 @@
 import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, View, type Child, type Style } from "@tarve/core";
 import { ui } from "../theme";
+import { config, type GlowColor, type HoverEffect } from "../config";
+import { taskbarPrefs } from "../services/taskbar-prefs";
 
 /** The graphite card every dock widget sits on. */
 export function Tile(props: {
@@ -173,4 +175,77 @@ export function Dot(props: { color: string; size?: number; width?: number }) {
 
 export function Spacer() {
   return <Row style={{ flex: 1 }} />;
+}
+
+export const hoverEffects: { value: HoverEffect; label: string }[] = [
+  { value: "zoom", label: "Ampliar" },
+  { value: "lift", label: "Elevar" },
+  { value: "glow", label: "Brilho" },
+  { value: "highlight", label: "Realce" },
+  { value: "none", label: "Nenhum" },
+];
+
+/**
+ * The hover and press styles of a dock icon (apps, Start, tray), after config.hoverEffect:
+ * zoom grows the icon a little, lift raises it, glow lights it in the accent colour, highlight
+ * only tints its slot. Animated both ways.
+ */
+export const glowColors: { value: GlowColor; label: string; color: string | null }[] = [
+  { value: "accent", label: "Destaque do Windows", color: null },
+  { value: "white", label: "Branco", color: "#ffffff" },
+  { value: "blue", label: "Azul", color: "#0a84ff" },
+  { value: "purple", label: "Roxo", color: "#bf5af2" },
+  { value: "green", label: "Verde", color: "#30d158" },
+  { value: "orange", label: "Laranja", color: "#ff9f0a" },
+];
+
+export function glowColor(): string {
+  return glowColors.find((g) => g.value === config.glowColor)?.color ?? taskbarPrefs.accent;
+}
+
+/** Two-digit hex alpha for 0..1. */
+const alpha = (a: number) =>
+  Math.round(Math.max(0, Math.min(1, a)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+
+export function iconHover(): Style {
+  const effect = config.hoverEffect ?? "zoom";
+  // 1 is the default look; the slider goes from a quarter to twice as strong.
+  const k = Math.max(0.25, Math.min(2, Number(config.hoverIntensity ?? 100) / 100));
+  const ms = Math.max(0, Math.min(600, Number(config.hoverSpeed ?? 170)));
+  const transition: Style["transition"] = {
+    transform: { duration: ms, easing: "easeOut" },
+    background: { duration: ms, easing: "easeOut" },
+    boxShadow: { duration: Math.round(ms * 1.2), easing: "easeOut" },
+  };
+  const active = config.pressEffect === false ? undefined : { transform: "scale(0.9)" };
+  const px = (n: number) => Math.round(n * k * 10) / 10;
+  switch (effect) {
+    case "zoom":
+      return { transition, hover: { transform: `translateY(-${px(2)}px) scale(${(1 + 0.14 * k).toFixed(3)})` }, active };
+    case "lift":
+      return {
+        transition,
+        hover: {
+          transform: `translateY(-${px(4)}px)`,
+          background: `rgba(255,255,255,${(0.05 * k).toFixed(3)})`,
+          boxShadow: { y: px(6), blur: px(12), color: `#000000${alpha(0.5 * k)}` },
+        },
+        active,
+      };
+    case "glow":
+      return {
+        transition,
+        hover: {
+          background: `rgba(255,255,255,${(0.08 * Math.min(k, 1.5)).toFixed(3)})`,
+          boxShadow: { blur: px(16), spread: -2, color: `${glowColor()}${alpha(0.53 * Math.min(k, 1.8))}` },
+        },
+        active,
+      };
+    case "highlight":
+      return { transition, hover: { background: `rgba(255,255,255,${Math.min(0.2, 0.07 * k).toFixed(3)})` }, active };
+    default:
+      return { active };
+  }
 }

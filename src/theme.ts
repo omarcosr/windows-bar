@@ -16,9 +16,14 @@ export const ui = {
   dock: {
     // Opaque: a translucent fill gets a darker 1 px fringe where the renderer antialiases its edge.
     background: "#0c0c0e",
-    radius: 18, // tile radius + padding, so the corners run parallel
+    /** 18 by default: tile radius + padding, so the corners run parallel. */
+    get radius() {
+      return Math.max(0, Math.min(32, Number(config.cornerRadius ?? 18)));
+    },
     padding: 6,
-    gap: 6,
+    get gap() {
+      return Math.max(0, Math.min(16, Number(config.widgetGap ?? 6)));
+    },
     /** The user's bar height (config.barHeight); reading it re-renders on change. */
     get height() {
       return barHeight();

@@ -1,4 +1,5 @@
 import { store } from "@tarve/core";
+import { config } from "../config";
 
 /** Windows taskbar settings the dock mirrors (Settings > Personalization > Taskbar). */
 export const taskbarPrefs = store({
@@ -50,4 +51,9 @@ export function watchTaskbarPrefs() {
   };
   tick();
   setInterval(tick, 5000);
+}
+
+/** The dock's alignment: the user's choice, or Windows' own when set to follow it. */
+export function dockAlign(): "center" | "left" {
+  return config.align === "center" || config.align === "left" ? config.align : taskbarPrefs.align;
 }

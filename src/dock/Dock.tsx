@@ -2,9 +2,9 @@ import { Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/cor
 import { config, type WidgetInstance } from "../config";
 import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
-import { taskbarPrefs } from "../services/taskbar-prefs";
+import { dockAlign } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
-import { dockUi, removeWidget } from "./state";
+import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./state";
 import { openWidgetMenu } from "./widget-menu";
 
 export const DOCK_TITLE = "WindowsBar Dock";
@@ -19,7 +19,7 @@ const SWEEP_MS = 380;
 
 function followColor(color: string | null) {
   if (color === sweep.next) return;
-  if (!color || !sweep.next) {
+  if (!color || !sweep.next || !config.colorTransition) {
     // From or to no colour: nothing to wipe over, switch at once.
     Object.assign(sweep, { base: color, next: color, n: sweep.n + 1 });
     return;
@@ -101,9 +101,43 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
     );
   }
   const { View: WidgetView } = widget.definition;
+  // Drag a widget onto another to move it there; a blue bar marks where it will land. Widgets
+  // with buttons of their own take the press, so while the widgets window is open (edit mode) a
+  // cover over each widget makes the whole of it draggable.
+  const side = dropSide(instance.id);
+  const drag = widgetDragProps(instance.id);
   return (
-    <Pressable onContextMenu={() => openWidgetMenu(widget)} style={{ position: "relative", shrink: 0 }}>
+    <Pressable
+      {...(props.editing ? {} : drag)}
+      onContextMenu={() => openWidgetMenu(widget)}
+      style={{
+        position: "relative",
+        shrink: 0,
+        opacity: widgetDrag.source === instance.id ? 0.4 : 1,
+        transition: { opacity: { duration: 120, easing: "easeOut" } },
+      }}
+    >
       <WidgetView state={widget.state} ctx={widget.ctx} preview={false} />
+      {props.editing ? (
+        <Pressable
+          {...drag}
+          onContextMenu={() => openWidgetMenu(widget)}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            radius: ui.tile.radius,
+            cursor: "grab",
+            zIndex: 5,
+            hover: { background: "rgba(255,255,255,0.06)" },
+          }}
+        />
+      ) : null}
+      {side ? (
+        <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [side]: -5, zIndex: 20 }} />
+      ) : null}
       {props.editing ? <RemoveBadge onClick={() => removeWidget(instance.id)} /> : null}
     </Pressable>
   );
@@ -132,7 +166,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   const group = widgets.filter(inGroup);
   const before = widgets.filter((w, i) => !inGroup(w) && (firstGroup < 0 || i < firstGroup));
   const after = widgets.filter((w, i) => !inGroup(w) && firstGroup >= 0 && i > firstGroup);
-  const left = taskbarPrefs.align === "left";
+  const left = dockAlign() === "left";
   const side = (list: WidgetInstance[], justify: "start" | "end") => (
     <Row style={{ flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{list.map(slot)}</Row>
   );

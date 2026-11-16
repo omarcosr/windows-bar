@@ -336,14 +336,8 @@ export class DockWindow {
       setTimeout(() => this.layout(), 1500);
       return;
     }
-    // The taskbar or another AppBar may have moved our strip; re-reserve only if it changed.
-    if (!this.#granted) return;
-    const bottom = screen.y + screen.height;
-    const want = appBarQuery(this.#hwnd, ABE_BOTTOM, { left: screen.x, right: screen.x + screen.width, top: bottom - px, bottom });
-    if (want.bottom !== this.#granted.bottom) {
-      this.#granted = null;
-      this.layout();
-    }
+    // A strip moved by the taskbar or another AppBar shows up as the same mismatch. (No
+    // ABM_QUERYPOS here: every AppBar call briefly steps our tray host aside, see tray-host.ts.)
   }
 
   dispose() {

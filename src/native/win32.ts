@@ -335,6 +335,12 @@ function windowTitle(hwnd: HWND): string {
 
 /** Windows that belong on a taskbar: visible, unowned, not tool windows, not cloaked. */
 let collected: TopWindow[] = [];
+const ownTaskbarTitles = new Set<string>();
+
+/** Titles of this app's windows that appear on the taskbar like any app's. */
+export function showOwnWindowOnTaskbar(title: string) {
+  ownTaskbarTitles.add(title);
+}
 let enumCallback: JSCallback | null = null;
 
 export function listTaskbarWindows(): TopWindow[] {
@@ -352,7 +358,9 @@ export function listTaskbarWindows(): TopWindow[] {
       if (cloakBuf[0]) return 1;
       U.GetWindowThreadProcessId(hwnd, pidBuf);
       const pid = pidBuf[0]!;
-      if (pid === process.pid) return 1;
+      // Of this app's own windows only the ones registered (the settings/widgets window) belong on
+      // the taskbar: the menu and preview windows look like app windows to Windows too.
+      if (pid === process.pid && !ownTaskbarTitles.has(windowTitle(hwnd))) return 1;
       collected.push({ hwnd, title: windowTitle(hwnd), pid, exe: exePathOf(pid), minimized: !!U.IsIconic(hwnd) });
       return 1;
     },

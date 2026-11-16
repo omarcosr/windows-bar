@@ -8,6 +8,54 @@ export const dockUi = store({
   editing: false,
 });
 
+/** A widget being dragged to a new place (dock or gallery list), and the widget under it. */
+export const widgetDrag = store({ source: "", over: "" });
+export const WIDGET_DRAG = "widget:";
+
+/** Puts widget `id` where `targetId` is: after it when moving right, before it when moving left. */
+export function moveWidgetTo(id: string, targetId: string) {
+  if (id === targetId) return;
+  const from = config.widgets.findIndex((w) => w.id === id);
+  const to = config.widgets.findIndex((w) => w.id === targetId);
+  if (from < 0 || to < 0) return;
+  const [item] = config.widgets.splice(from, 1);
+  config.widgets.splice(to, 0, item!);
+  saveConfig();
+}
+
+/** Drag-and-drop props for one widget in a reorderable list (the dock, or the gallery's with its own prefix). */
+export function widgetDragProps(id: string, prefix = WIDGET_DRAG) {
+  return {
+    id: prefix + id,
+    draggable: true,
+    dropTarget: true,
+    onDragStart: () => {
+      widgetDrag.source = id;
+    },
+    onDragEnter: (source: string) => {
+      if (source.startsWith(prefix)) widgetDrag.over = id;
+    },
+    onDragLeave: () => {
+      if (widgetDrag.over === id) widgetDrag.over = "";
+    },
+    onDrop: (event: { source: string }) => {
+      if (event.source.startsWith(prefix)) moveWidgetTo(event.source.slice(prefix.length), id);
+    },
+    onDragEnd: () => {
+      widgetDrag.source = "";
+      widgetDrag.over = "";
+    },
+  };
+}
+
+/** Which side of widget `id` the dragged one will land on, or null when it is not the drop target. */
+export function dropSide(id: string): "left" | "right" | null {
+  if (!widgetDrag.source || widgetDrag.over !== id || widgetDrag.source === id) return null;
+  const from = config.widgets.findIndex((w) => w.id === widgetDrag.source);
+  const to = config.widgets.findIndex((w) => w.id === id);
+  return from < to ? "right" : "left";
+}
+
 export function addWidget(type: string) {
   const definition = getWidget(type);
   if (!definition) return;

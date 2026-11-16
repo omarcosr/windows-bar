@@ -132,8 +132,13 @@ export function clearFlashing(hwnd: number) {
  */
 setInterval(() => {
   const fg = foregroundWindow();
-  if (fg && windowPid(fg) !== process.pid) lastForeground = fg;
+  if (fg && countsAsApp(fg)) lastForeground = fg;
 }, 150);
+
+/** Other apps' windows, and this app's own taskbar windows (settings); not the dock or its popups. */
+function countsAsApp(hwnd: HWND) {
+  return windowPid(hwnd) !== process.pid || desktop.apps.some((a) => a.windows.some((w) => w.hwnd === hwnd));
+}
 
 /** Starts a program, a document or a ms-settings: link, from the program's own folder. */
 export function launch(path: string) {
@@ -165,7 +170,7 @@ export function activateApp(key: string, launchPath?: string) {
 /** A foreground change reported by the shell; the dock's own windows do not count. */
 export function noteForeground(hwnd: number) {
   const h = hwnd as unknown as HWND;
-  if (windowPid(h) !== process.pid) lastForeground = h;
+  if (countsAsApp(h)) lastForeground = h;
 }
 
 /** The last window in front that is not one of the dock's own. */

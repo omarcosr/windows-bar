@@ -3,7 +3,7 @@ import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { acquireTaskbarHost, clickTrayIcon, tray, type TrayIcon } from "../../services/taskbar-host";
 import { launch, prettyName } from "../../services/windows";
 import { ui } from "../../theme";
-import { Tile } from "../ui";
+import { iconHover, Tile } from "../ui";
 import { defineWidget } from "../types";
 
 type InlineMode = "promoted" | "all" | "none";
@@ -24,8 +24,7 @@ function TrayButton(props: { icon: TrayIcon }) {
         justify: "center",
         cursor: "pointer",
         shrink: 0,
-        hover: { background: "rgba(255,255,255,0.07)" },
-        active: { transform: "scale(0.9)" },
+        ...iconHover(),
       }}
     >
       <Image src={icon.image} width={ICON} height={ICON} fit="contain" />
