@@ -1,5 +1,6 @@
 import { dlopen, JSCallback, ptr, read, toArrayBuffer, type Pointer } from "bun:ffi";
 import { deflateSync } from "node:zlib";
+import { setAppBarRoute } from "./win32";
 
 /**
  * Hosts the notification area the way RetroBar/ManagedShell do. Shell_NotifyIcon and
@@ -290,6 +291,16 @@ export function startTrayHost(h: TrayHostHandlers) {
   for (const hwnd of windows.values()) {
     U.ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, 1, null);
   }
+  // The dock's own AppBar calls go straight to Explorer: our tray drops to the bottom of the
+  // z-order for the call, so FindWindow("Shell_TrayWnd") inside SHAppBarMessage finds Explorer's.
+  setAppBarRoute((call) => {
+    U.SetWindowPos(tray, 1 /* HWND_BOTTOM */, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    try {
+      return call();
+    } finally {
+      keepOnTop();
+    }
+  });
   pumpTimer = setInterval(pump, 8);
   keepOnTop();
   topTimer = setInterval(keepOnTop, 250);
@@ -297,6 +308,7 @@ export function startTrayHost(h: TrayHostHandlers) {
 }
 
 export function stopTrayHost() {
+  setAppBarRoute(null);
   clearInterval(pumpTimer);
   clearInterval(topTimer);
   const tray = windows.get("Shell_TrayWnd");

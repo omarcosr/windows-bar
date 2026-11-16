@@ -3,9 +3,7 @@ import { CFunction, dlopen, JSCallback, ptr, type Pointer } from "bun:ffi";
 /** Win32 bindings used by the dock. Everything here is synchronous and cheap enough to poll. */
 
 const user32 = dlopen("user32.dll", {
-  FindWindowW: { args: ["ptr", "ptr"], returns: "ptr" },
   FindWindowExW: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
-  GetDpiForWindow: { args: ["ptr"], returns: "u32" },
   SetWindowPos: { args: ["ptr", "i64", "i32", "i32", "i32", "i32", "u32"], returns: "i32" },
   EnumWindows: { args: ["function", "ptr"], returns: "i32" },
   IsWindowVisible: { args: ["ptr"], returns: "i32" },
@@ -17,7 +15,6 @@ const user32 = dlopen("user32.dll", {
   GetWindowLongPtrW: { args: ["ptr", "i32"], returns: "i64" },
   GetWindowRect: { args: ["ptr", "ptr"], returns: "i32" },
   GetCursorPos: { args: ["ptr"], returns: "i32" },
-  GetAsyncKeyState: { args: ["i32"], returns: "i16" },
   GetDC: { args: ["ptr"], returns: "ptr" },
   ReleaseDC: { args: ["ptr", "ptr"], returns: "i32" },
   GetClassNameW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
@@ -48,7 +45,6 @@ const kernel32 = dlopen("kernel32.dll", {
 
 const dwmapi = dlopen("dwmapi.dll", {
   DwmGetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
-  DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
   DwmRegisterThumbnail: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
   DwmUnregisterThumbnail: { args: ["ptr"], returns: "i32" },
   DwmUpdateThumbnailProperties: { args: ["ptr", "ptr"], returns: "i32" },
@@ -92,30 +88,13 @@ export function explorerTray(): HWND | null {
   return null;
 }
 
-export function findWindow(title: string | null, className?: string): HWND | null {
-  if (!className) return U.FindWindowW(null, title === null ? null : wide(title)) as HWND | null;
-  // By class, skip this process's windows: the tray host owns a Shell_TrayWnd of its own.
-  const cls = wide(className);
-  const name = title === null ? null : wide(title);
-  let hwnd: HWND | null = null;
-  while ((hwnd = U.FindWindowExW(null, hwnd, cls, name) as HWND | null)) {
-    U.GetWindowThreadProcessId(hwnd, pidBuf);
-    if (pidBuf[0] !== process.pid) return hwnd;
-  }
-  return null;
-}
-
-export function dpiOf(hwnd: HWND): number {
-  return U.GetDpiForWindow(hwnd) || 96;
-}
-
 export const HWND_TOPMOST = -1;
 const SWP_NOACTIVATE = 0x0010;
 const SWP_NOSIZE = 0x0001;
 
-export function moveWindow(hwnd: HWND, x: number, y: number, width?: number, height?: number, keepZOrder = false) {
-  const flags = SWP_NOACTIVATE | (width === undefined ? SWP_NOSIZE : 0) | (keepZOrder ? 0x4 /* SWP_NOZORDER */ : 0);
-  U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width ?? 0), Math.round(height ?? 0), flags);
+/** Moves and sizes a window, keeping it topmost, without activating it (physical px). */
+export function placeWindow(hwnd: HWND, x: number, y: number, width: number, height: number) {
+  U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width), Math.round(height), SWP_NOACTIVATE);
 }
 
 /** Drops a topmost window to just behind `front` (or back on top with null), without hiding it. */
@@ -149,21 +128,6 @@ export function monitorOf(hwnd: HWND): { monitor: Rect; work: Rect } {
   return { monitor: readRect(view, 4), work: readRect(view, 20) };
 }
 
-/**
- * Turns off the Windows 11 frame DWM draws around frameless windows: the 1 px border and the
- * 8 px rounded corners, which otherwise show as a second outline around the dock's own shape.
- * Also keeps the window out of Aero Peek.
- */
-export function stripWindowChrome(hwnd: HWND) {
-  const DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-  const DWMWA_BORDER_COLOR = 34;
-  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, new Uint32Array([0xfffffffe]), 4);
-  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, new Uint32Array([1]), 4);
-  // Stay visible while a window is peeked from the preview, like the real taskbar.
-  const DWMWA_EXCLUDED_FROM_PEEK = 12;
-  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, new Uint32Array([1]), 4);
-}
-
 export function windowRect(hwnd: HWND): Rect {
   const r = new Int32Array(4);
   U.GetWindowRect(hwnd, r);
@@ -174,11 +138,6 @@ export function cursorPos(): { x: number; y: number } {
   const p = new Int32Array(2);
   U.GetCursorPos(p);
   return { x: p[0]!, y: p[1]! };
-}
-
-/** True while the key or mouse button (a virtual-key code) is held down. */
-export function keyDown(vk: number) {
-  return (U.GetAsyncKeyState(vk) & 0x8000) !== 0;
 }
 
 /** The top-level window under a physical screen point. */
@@ -212,6 +171,23 @@ export function isWindowVisible(hwnd: HWND) {
 
 // ---------- AppBar (reserves screen space like the taskbar does) ----------
 
+/**
+ * Who SHAppBarMessage reaches: it finds the tray with FindWindow("Shell_TrayWnd"), which is the
+ * dock's own tray host while that runs (tray-host.ts). The host installs a route that hands the
+ * call to Explorer directly; relayed through the host, Explorer accepts the AppBar but at times
+ * never applies its work area.
+ */
+let appBarRoute: (<T>(call: () => T) => T) | null = null;
+
+export function setAppBarRoute(route: (<T>(call: () => T) => T) | null) {
+  appBarRoute = route;
+}
+
+function appBarMessage(message: number, data: Uint8Array) {
+  const call = () => shell32.symbols.SHAppBarMessage(message, data);
+  return appBarRoute ? appBarRoute(call) : call();
+}
+
 const ABM_NEW = 0;
 const ABM_REMOVE = 1;
 const ABM_QUERYPOS = 2;
@@ -238,14 +214,14 @@ function appBarData(hwnd: HWND | null, edge = 0, rect?: Rect, lParam = 0) {
   return { buf, view };
 }
 
-export function appBarRegister(hwnd: HWND) {
-  shell32.symbols.SHAppBarMessage(ABM_NEW, appBarData(hwnd).buf);
+export function appBarRegister(hwnd: HWND): boolean {
+  return Number(appBarMessage(ABM_NEW, appBarData(hwnd).buf)) !== 0;
 }
 
 /** The rect Windows would grant for `rect` on `edge`, without reserving anything. */
 export function appBarQuery(hwnd: HWND, edge: number, rect: Rect): Rect {
   const data = appBarData(hwnd, edge, rect);
-  shell32.symbols.SHAppBarMessage(ABM_QUERYPOS, data.buf);
+  appBarMessage(ABM_QUERYPOS, data.buf);
   const granted = readRect(data.view, 24);
   if (edge === ABE_BOTTOM) granted.top = granted.bottom - (rect.bottom - rect.top);
   return granted;
@@ -254,25 +230,25 @@ export function appBarQuery(hwnd: HWND, edge: number, rect: Rect): Rect {
 /** Reserves `rect` on `edge`; returns the rect Windows granted. */
 export function appBarSetPos(hwnd: HWND, edge: number, rect: Rect): Rect {
   const data = appBarData(hwnd, edge, rect);
-  shell32.symbols.SHAppBarMessage(ABM_QUERYPOS, data.buf);
+  appBarMessage(ABM_QUERYPOS, data.buf);
   const granted = readRect(data.view, 24);
   // Keep the requested thickness against the edge Windows pushed us to.
   if (edge === ABE_BOTTOM) granted.top = granted.bottom - (rect.bottom - rect.top);
   const final = appBarData(hwnd, edge, granted);
-  shell32.symbols.SHAppBarMessage(ABM_SETPOS, final.buf);
+  appBarMessage(ABM_SETPOS, final.buf);
   return readRect(final.view, 24);
 }
 
 export function appBarRemove(hwnd: HWND) {
-  shell32.symbols.SHAppBarMessage(ABM_REMOVE, appBarData(hwnd).buf);
+  appBarMessage(ABM_REMOVE, appBarData(hwnd).buf);
 }
 
 export function taskbarState(): number {
-  return Number(shell32.symbols.SHAppBarMessage(ABM_GETSTATE, appBarData(null).buf));
+  return Number(appBarMessage(ABM_GETSTATE, appBarData(null).buf));
 }
 
 export function setTaskbarState(state: number) {
-  shell32.symbols.SHAppBarMessage(ABM_SETSTATE, appBarData(null, 0, undefined, state).buf);
+  appBarMessage(ABM_SETSTATE, appBarData(null, 0, undefined, state).buf);
 }
 
 const qunsBuf = new Int32Array(1);

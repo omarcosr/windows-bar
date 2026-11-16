@@ -11,27 +11,17 @@ import {
   store,
   type AppHandle,
   type IconName,
+  type ImageSource,
+  type ScreenInfo,
   type SvgNode,
 } from "@tarve/core";
 import { DockWindow } from "../native/dock-window";
-import {
-  cursorPos,
-  dpiOf,
-  findWindow,
-  foregroundWindow,
-  keyDown,
-  monitorOf,
-  moveWindow,
-  stripWindowChrome,
-  windowRect,
-  type HWND,
-} from "../native/win32";
 import { ui } from "../theme";
 
 export interface DockMenuItem {
   label: string;
   /** A built-in icon name, a Lucide-style node list, or an image path. */
-  icon?: IconName | readonly SvgNode[] | { image: string };
+  icon?: IconName | readonly SvgNode[] | { image: ImageSource };
   danger?: boolean;
   onSelect: () => void;
   /** Right-click on the row. */
@@ -43,7 +33,7 @@ export interface DockMenuItem {
 export interface DockMenuSpec {
   title: string;
   subtitle?: string;
-  image?: string;
+  image?: ImageSource;
   sections: DockMenuItem[][];
   /**
    * Icons only, five per row, no header, like the Windows hidden-icons flyout. Clicks do not
@@ -58,11 +48,14 @@ const PANEL_WIDTH = 288;
 const menu = store({ spec: null as DockMenuSpec | null });
 
 let handle: AppHandle | undefined;
-let hwnd: HWND | null = null;
 let size = { width: PANEL_WIDTH, height: 200 };
+/** Where the menu opens, in physical screen px: the pointer's x and the monitor under it. */
 let anchorX = 0;
-let openedAt = 0;
-let watch: ReturnType<typeof setInterval> | undefined;
+let scale = 1;
+let area = { x: 0, y: 0, width: 1920, height: 1080 };
+/** Bumped on every open and close; a pending open whose number moved on is dropped. */
+let opening = 0;
+let pending = false;
 
 export const glyph = {
   pin: [
@@ -207,7 +200,8 @@ function MenuView() {
       skipTaskbar
       level="alwaysOnTop"
       backdrop="transparent"
-      position={{ x: -4000, y: -4000 }}
+      visible={false}
+      chrome="none"
       theme={darkTheme}
       style={{ background: "rgba(0,0,0,0)" }}
     >
@@ -262,15 +256,13 @@ function MenuView() {
 }
 
 function place() {
-  if (!hwnd) return;
-  const scale = dpiOf(hwnd) / 96;
+  if (!handle) return;
   const width = Math.ceil(size.width * scale);
   const height = Math.ceil(size.height * scale);
-  const { monitor } = monitorOf(hwnd);
-  const top = DockWindow.topEdge() ?? monitor.bottom - 80;
+  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
   const gap = Math.round(8 * scale);
-  const x = Math.max(monitor.left + gap, Math.min(anchorX - width / 2, monitor.right - width - gap));
-  moveWindow(hwnd, x, top - gap - height, width, height);
+  const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
+  handle.setBounds({ x, y: top - gap - height, width, height, physical: true });
 }
 
 function resize(width: number, height: number) {
@@ -279,45 +271,46 @@ function resize(width: number, height: number) {
   if (menu.spec) place();
 }
 
+function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
+  const hit = p && screens.find((s) => p.x >= s.x && p.x < s.x + s.width && p.y >= s.y && p.y < s.y + s.height);
+  return hit || screens.find((s) => s.primary) || screens[0];
+}
+
 /** Creates the menu window once, hidden, so right-clicks open it without delay. */
 export async function initDockMenu(app: AppHandle) {
   handle = app.openWindow(MenuView, { id: "menu", keyboardEvents: true, closeBehavior: "hide" });
   await handle.ready;
-  for (let i = 0; i < 50 && !hwnd; i++) {
-    hwnd = findWindow(MENU_TITLE);
-    if (!hwnd) await Bun.sleep(40);
-  }
-  if (hwnd) stripWindowChrome(hwnd);
-  handle.hide();
   handle.onEvent((event) => {
     if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") closeDockMenu();
+  });
+  // Light dismiss: the menu is activated when it opens, so a click anywhere else (another app,
+  // the desktop, the dock itself) takes the focus from it. An open still waiting for the
+  // screen query ignores the blur of the menu it replaces.
+  handle.onFocusChange((focused) => {
+    if (!focused && !pending) closeDockMenu();
   });
 }
 
 /** Opens the dock's popup menu above the pointer. */
 export function showDockMenu(spec: DockMenuSpec) {
-  if (!handle || !hwnd) return;
+  const h = handle;
+  if (!h) return;
+  const ticket = ++opening;
+  pending = true;
   menu.spec = spec;
-  anchorX = cursorPos().x;
-  place();
-  handle.show();
-  handle.activate();
-  openedAt = Date.now();
-  const startForeground = foregroundWindow();
-  clearInterval(watch);
-  // Light dismiss, without relying on the menu getting focus: a press outside it, Esc, or
-  // another app coming to the front closes it.
-  watch = setInterval(() => {
-    if (!hwnd || Date.now() - openedAt < 150) return;
-    const fg = foregroundWindow();
-    if (fg !== hwnd && fg !== startForeground && fg !== DockWindow.handle()) return closeDockMenu();
-    if (keyDown(0x1b)) return closeDockMenu();
-    if (keyDown(0x01) || keyDown(0x02) || keyDown(0x04)) {
-      const p = cursorPos();
-      const r = windowRect(hwnd);
-      if (p.x < r.left || p.x >= r.right || p.y < r.top || p.y >= r.bottom) closeDockMenu();
+  void h.screens().then(({ screens, cursor }) => {
+    if (ticket !== opening) return;
+    pending = false;
+    const screen = screenAt(screens, cursor);
+    if (screen) {
+      scale = screen.scale || 1;
+      area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
     }
-  }, 50);
+    anchorX = cursor?.x ?? area.x + area.width / 2;
+    place();
+    h.show();
+    h.activate();
+  });
 }
 
 export function menuOpen() {
@@ -325,8 +318,8 @@ export function menuOpen() {
 }
 
 export function closeDockMenu() {
-  clearInterval(watch);
-  watch = undefined;
+  opening++;
+  pending = false;
   if (!menu.spec) return;
   menu.spec = null;
   handle?.hide();

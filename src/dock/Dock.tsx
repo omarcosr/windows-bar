@@ -1,6 +1,6 @@
 import { Pressable, Row, Text, View, Window, darkTheme } from "@tarve/core";
 import { config, type WidgetInstance } from "../config";
-import { dockBackground, ui } from "../theme";
+import { darken, dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { taskbarPrefs } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
@@ -56,9 +56,12 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
 export function DockView(props: { onSize: (width: number, height: number) => void; onContextMenu: () => void }) {
   const editing = dockUi.editing;
   const full = config.mode === "full";
-  // Floating dock over a reserved strip: the window spans the strip and paints it in the colour
-  // of the app in front, so the app seems to continue under the dock.
-  const strip = !full && config.reserveSpace && config.stripFollowsApp;
+  // With reserveSpace the window is an AppBar spanning the whole strip. A floating dock then
+  // sits inside it with its margins, over a strip painted in the colour of the app in front
+  // (stripFollowsApp), so the app seems to continue under the dock.
+  const docked = config.reserveSpace;
+  const inStrip = docked && !full;
+  const strip = inStrip && config.stripFollowsApp;
   const stripMargin = config.bottomMargin;
   const widgets = config.widgets;
   // Start and Apps form one group, placed like the Windows taskbar's icons: centred or on the
@@ -90,73 +93,71 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       width={1600}
       height={90}
       frameless
+      chrome="none"
       resizable={false}
       skipTaskbar
       level="alwaysOnTop"
       backdrop="transparent"
       position="bottom"
       theme={darkTheme}
-      // Transparent black, not the theme's white: antialiased edges blend toward this colour.
-      style={{ background: "rgba(0,0,0,0)" }}
     >
       <View
         style={
-          strip
+          inStrip
             ? {
-                // The strip colour fills the whole window, including the few px it overlaps the
-                // app above (to cover that app's bottom frame line); the dock sits at the bottom.
                 flex: 1,
-                direction: "column",
-                justify: "end",
-                align: "stretch",
-                background: appColor.color ?? "rgba(0,0,0,0)",
-                transition: { background: { duration: 220, easing: "easeOut" } },
+                direction: "row",
+                align: "center",
+                justify: left ? "start" : "center",
+                // The window reaches 2 px over the app above (stripOverlap); the dock stays put.
+                // A 1 px top edge 15% darker than the strip marks where it starts; it also covers
+                // the frame line the app above draws on its bottom edge.
+                padding: {
+                  left: stripMargin,
+                  right: stripMargin,
+                  bottom: stripMargin,
+                  top: stripMargin + (strip ? 1 : 0),
+                },
+                borderWidth: strip ? { top: 1 } : 0,
+                borderColor: strip && appColor.color ? darken(appColor.color) : "rgba(0,0,0,0)",
+                background: strip ? (appColor.color ?? "rgba(0,0,0,0)") : undefined,
+                transition: { background: { duration: 220, easing: "easeOut" }, borderColor: { duration: 220, easing: "easeOut" } },
               }
             : { flex: 1, align: "start", justify: "start", direction: "row" }
         }
       >
-        {/* onSize reports the content box, so the padded box sits inside the measured one. */}
+        {/* A free dock's window hugs this box; the edit-mode room for the remove badges is its padding. */}
         <View
-          onSize={({ width, height }) => props.onSize(width, height)}
-          style={strip ? { shrink: 0 } : full ? { flex: 1 } : { shrink: 0 }}
+          onSize={({ borderBox }) => props.onSize(borderBox.width, borderBox.height)}
+          style={{
+            ...(full ? { flex: 1 } : { shrink: 0 }),
+            padding: {
+              top: editing && !docked ? 9 : 0,
+              left: editing && !full && !docked ? 9 : 0,
+              right: editing && !full && !docked ? 2 : 0,
+            },
+          }}
         >
-          {/* onSize reports the content box, so the strip's margins live one level down. */}
-          <View
-            style={
-              strip
-                ? {
-                    direction: "row",
-                    justify: taskbarPrefs.align === "left" ? "start" : "center",
-                    padding: stripMargin,
-                  }
-                : {}
-            }
+          <Pressable
+            onContextMenu={props.onContextMenu}
+            style={{
+              direction: "row",
+              align: "center",
+              height: ui.dock.height,
+              gap: ui.dock.gap,
+              padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
+              radius: full ? 0 : ui.dock.radius,
+              background: dockBackground(config.opacity),
+              // The full-width bar gets the same darker top edge as the strip.
+              borderWidth: full ? { top: 1 } : 0,
+              boxSizing: "border-box",
+              borderColor: full ? darken(dockBackground(config.opacity)) : "rgba(0,0,0,0)",
+              width: full ? "100%" : undefined,
+              shrink: 0,
+            }}
           >
-            <View
-              style={{
-                shrink: 0,
-                width: full ? "100%" : undefined,
-                padding: { top: editing ? 9 : 0, left: editing && !full ? 9 : 0, right: editing && !full ? 2 : 0 },
-              }}
-            >
-              <Pressable
-                onContextMenu={props.onContextMenu}
-                style={{
-                  direction: "row",
-                  align: "center",
-                  height: ui.dock.height,
-                  gap: ui.dock.gap,
-                  padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
-                  radius: full ? 0 : ui.dock.radius,
-                  background: dockBackground(config.opacity),
-                  width: full ? "100%" : undefined,
-                  shrink: 0,
-                }}
-              >
-                {content}
-              </Pressable>
-            </View>
-          </View>
+            {content}
+          </Pressable>
         </View>
       </View>
     </Window>

@@ -1,6 +1,6 @@
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
 import { config, saveConfig } from "./config";
-import { DOCK_TITLE, DockView } from "./dock/Dock";
+import { DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
 import { GalleryView, PREVIEW_PREFIX } from "./gallery/Gallery";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
@@ -9,20 +9,18 @@ import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh } 
 import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
 import { setGalleryOpener } from "./dock/widget-menu";
-import { findWindow } from "./native/win32";
 import { taskbarPrefs, watchTaskbarPrefs } from "./services/taskbar-prefs";
-import { appColor, watchAppColor } from "./services/app-color";
+import { watchAppColor, appColor } from "./services/app-color";
 import { disposeWidget, setWidgetApp } from "./widgets/host";
 import { allWidgets } from "./widgets/registry";
 import "./widgets/builtin";
 
 // One dock per user: a second launch (exe or bun start) opens the gallery of the running one.
+// Right after a dock was killed its pipe can still answer for a few seconds, longer than the
+// ~2.5 s requestSingleInstance retries (seen with 0.13.0): ask again before giving up.
 let instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
-// Right after a dock is killed its pipe can still answer for a moment; without a dock window
-// there is nobody to hand over to, so wait for the pipe to go and take over.
-if (!instance.primary) await Bun.sleep(700);
-for (let i = 0; !instance.primary && !findWindow(DOCK_TITLE) && i < 10; i++) {
-  await Bun.sleep(500);
+for (let i = 0; !instance.primary && i < 6; i++) {
+  await Bun.sleep(700);
   instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
 }
 if (!instance.primary) process.exit(0);
@@ -105,18 +103,21 @@ setGalleryOpener(openGallery);
 await app.ready;
 
 watchTaskbarPrefs();
+/**
+ * Covers the 1–2 px frame line of the app above the strip. Constant while the strip is on, also
+ * while no colour is known yet, so the dock never shifts when the colour comes and goes.
+ */
+export const stripOverlap = () => (config.mode === "floating" && config.reserveSpace && config.stripFollowsApp ? 2 : 0);
+
 const nativeOptions = () => ({
   mode: config.mode,
   align: taskbarPrefs.align,
   reserveSpace: config.reserveSpace,
-  stripFill: config.stripFollowsApp,
-  // Covers the 1–2 px frame line windows draw on their bottom edge, whether the colour comes
-  // from the app in front or from what is behind it.
-  stripOverlap: appColor.color ? 2 : 0,
   hideNativeTaskbar: config.hideNativeTaskbar,
   bottomMargin: config.bottomMargin,
+  stripOverlap: stripOverlap(),
 });
-dockWindow = await DockWindow.attach({ title: DOCK_TITLE, ...nativeOptions() });
+dockWindow = DockWindow.attach(app, nativeOptions());
 if (pendingSize) dockWindow.setContentSize(...pendingSize);
 // Shell events: full-screen notices, window lifecycle, attention requests. No polling needed.
 startShellEvents((event) => {

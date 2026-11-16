@@ -41,4 +41,16 @@ export function dockBackground(opacity: number) {
   return a >= 1 ? ui.dock.background : `rgba(12,12,14,${a.toFixed(2)})`;
 }
 
+/** `color` (rgb()/rgba()/#rrggbb) with its channels scaled by 1 - amount: 0.15 is 15% darker. */
+export function darken(color: string, amount = 0.15) {
+  const k = 1 - amount;
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+  const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
+  const parts = hex ? hex.slice(1).map((h) => parseInt(h, 16)) : rgb ? rgb[1]!.split(",").map((v) => parseFloat(v)) : null;
+  if (!parts) return color;
+  const [r, g, b, a] = parts as [number, number, number, number?];
+  const c = (v: number) => Math.round(v * k);
+  return a === undefined ? `rgb(${c(r)},${c(g)},${c(b)})` : `rgba(${c(r)},${c(g)},${c(b)},${a})`;
+}
+
 export const numeric = { fontVariantNumeric: "tabular-nums" } as const;

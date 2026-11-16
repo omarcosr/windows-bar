@@ -1,18 +1,12 @@
-import { Column, Icon, Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle } from "@tarve/core";
+import { dlopen } from "bun:ffi";
+import { Icon, Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle, type ScreenInfo } from "@tarve/core";
 import { config } from "../config";
 import { DockWindow } from "../native/dock-window";
 import {
   closeWindow,
-  cursorPos,
-  dpiOf,
-  findWindow,
-  monitorOf,
-  moveWindow,
   peekWindow,
   placeThumbnail,
-  windowRect,
   registerThumbnail,
-  stripWindowChrome,
   thumbnailSourceSize,
   unregisterThumbnail,
   type HWND,
@@ -40,12 +34,27 @@ let handle: AppHandle | undefined;
 let hwnd: HWND | null = null;
 let thumbs: { source: HWND; thumb: Thumbnail }[] = [];
 let showTimer: ReturnType<typeof setTimeout> | undefined;
+/** Where the preview opens, in physical screen px: the pointer's x and the monitor under it. */
 let anchorX = 0;
+/** Opened by a click on the icon: stays until picked or dismissed, not by the pointer leaving. */
+let pinned = false;
+let scale = 1;
+let area = { x: 0, y: 0, width: 1920, height: 1080 };
 /** The app icon under the pointer, as reported by the icons' hover events. */
 let hoveredKey = "";
-let outsideSince = 0;
+/** The pointer is over the preview's panel, as reported by its own pointer events. */
+let overPreview = false;
+let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 let peekTimer: ReturnType<typeof setTimeout> | undefined;
 let peeking = false;
+
+// The thumbnails and the peek are DWM features Tarve does not wrap, so they stay on FFI; so does
+// keeping the preview itself out of the peek (DWMWA_EXCLUDED_FROM_PEEK).
+const dwm = dlopen("dwmapi.dll", { DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" } });
+
+function excludeFromPeek(window: HWND) {
+  dwm.symbols.DwmSetWindowAttribute(window, 12 /* DWMWA_EXCLUDED_FROM_PEEK */, new Uint32Array([1]), 4);
+}
 
 function startPeek(target: HWND) {
   clearTimeout(peekTimer);
@@ -68,7 +77,7 @@ function windowsOf(key: string) {
 }
 
 function Card(props: { hwnd: HWND; title: string; exe: string }) {
-  const icon = iconFor(props.exe);
+  const icon = iconFor(props.exe, 16);
   return (
     <Pressable
       onHover={(hovered) => (hovered ? startPeek(props.hwnd) : stopPeek())}
@@ -131,11 +140,24 @@ function PreviewView() {
       skipTaskbar
       level="alwaysOnTop"
       backdrop="transparent"
-      position={{ x: -4000, y: -4000 }}
+      visible={false}
+      chrome="none"
       theme={darkTheme}
       style={{ background: "rgba(0,0,0,0)" }}
     >
-      <View style={{ alignSelf: "start", direction: "row", gap: GAP, padding: PAD, radius: 14, background: "#1c1c1f" }}>
+      <View
+        onPointerMove={() => {
+          if (overPreview) return;
+          overPreview = true;
+          checkPointer();
+        }}
+        onPointerLeave={() => {
+          overPreview = false;
+          checkPointer();
+        }}
+        onSize={() => layout()}
+        style={{ alignSelf: "start", direction: "row", gap: GAP, padding: PAD, radius: 14, background: "#1c1c1f" }}
+      >
         {app ? windows.map((w) => <Card key={String(w.hwnd)} hwnd={w.hwnd} title={w.title} exe={app.exe} />) : null}
       </View>
     </Window>
@@ -152,14 +174,16 @@ function layout() {
   if (!hwnd || !preview.key) return;
   const windows = windowsOf(preview.key);
   if (!windows.length) return hidePreview(true);
-  const scale = dpiOf(hwnd) / 96;
   const width = Math.ceil((PAD * 2 + CARD_W * windows.length + GAP * (windows.length - 1)) * scale);
   const height = Math.ceil((CARD_H + PAD * 2) * scale);
-  const { monitor } = monitorOf(hwnd);
-  const top = DockWindow.topEdge() ?? monitor.bottom - 80;
+  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
   const gap = Math.round(8 * scale);
-  const x = Math.max(monitor.left + gap, Math.min(anchorX - width / 2, monitor.right - width - gap));
-  moveWindow(hwnd, x, top - gap - height, width, height);
+  // Centred on the app's icon, as the taskbar does, wherever on the icon the pointer was; it
+  // follows the icon when the dock re-centres (an app opened or closed).
+  const iconX = DockWindow.nodeCenterX("app:" + preview.key);
+  if (iconX !== null) anchorX = iconX;
+  const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
+  handle?.setBounds({ x, y: top - gap - height, width, height, physical: true });
 
   const sources = windows.map((w) => w.hwnd);
   if (thumbs.length !== sources.length || thumbs.some((t, i) => t.source !== sources[i])) {
@@ -184,34 +208,78 @@ function layout() {
 }
 
 /**
- * The preview stays while the pointer is on its icon or on the preview itself (with the gap
- * between them), and closes a moment after it leaves both. Polling the pointer works the same
- * whichever of the two windows it is over, unlike hover events.
+ * The preview stays while the pointer is on its icon or on the preview itself, and closes a
+ * moment after it leaves both: the moment covers the gap between the dock and the preview. On a
+ * neighbouring icon it stays too (on the way to the first or last card); hoverApp switches it
+ * only if the pointer rests there.
  */
-function watchPointer() {
-  if (!preview.key || !hwnd) return;
-  const p = cursorPos();
-  const r = windowRect(hwnd);
-  const bridge = DockWindow.topEdge() ?? r.bottom;
-  const overPreview = p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < Math.max(r.bottom, bridge + 2);
-  if (overPreview || hoveredKey === preview.key) {
-    outsideSince = 0;
-    return;
-  }
-  if (hoveredKey && hoveredKey !== preview.key) return; // another icon: hoverApp switches it
-  outsideSince ||= Date.now();
-  if (Date.now() - outsideSince > 250) hidePreview(true);
+function checkPointer() {
+  clearTimeout(leaveTimer);
+  if (!preview.key || pinned || overPreview || hoveredKey) return;
+  leaveTimer = setTimeout(() => {
+    if (!overPreview && !hoveredKey) hidePreview(true);
+  }, 300);
+}
+
+function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
+  const hit = p && screens.find((s) => p.x >= s.x && p.x < s.x + s.width && p.y >= s.y && p.y < s.y + s.height);
+  return hit || screens.find((s) => s.primary) || screens[0];
 }
 
 export async function initWindowPreview(app: AppHandle) {
-  handle = app.openWindow(PreviewView, { id: "preview", closeBehavior: "hide" });
+  handle = app.openWindow(PreviewView, { id: "preview", closeBehavior: "hide", keyboardEvents: true });
   await handle.ready;
-  for (let i = 0; i < 50 && !hwnd; i++) {
-    hwnd = findWindow(TITLE);
-    if (!hwnd) await Bun.sleep(40);
+  const native = handle.nativeHandle();
+  hwnd = native ? (Number(native) as unknown as HWND) : null;
+  if (hwnd) excludeFromPeek(hwnd);
+  handle.onEvent((event) => {
+    if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") hidePreview(true);
+  });
+  handle.onFocusChange((focused) => {
+    // A list opened by a click closes when something else is clicked (it lost focus). Clicking
+    // its own icon again is handled by clickApp, which runs after this; let it see the state.
+    if (!focused && pinned) setTimeout(() => pinned && hidePreview(true), 120);
+  });
+}
+
+/** Places the preview for `key` above the pointer and shows it, unless `still()` turned false meanwhile. */
+async function showFor(key: string, still: () => boolean) {
+  if (!handle) return;
+  const { screens, cursor } = await handle.screens();
+  if (!still()) return;
+  const screen = screenAt(screens, cursor);
+  if (screen) {
+    scale = screen.scale || 1;
+    area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
   }
-  if (hwnd) stripWindowChrome(hwnd);
-  handle.hide();
+  anchorX = cursor?.x ?? area.x + area.width / 2;
+  if (preview.key !== key) clearThumbs();
+  preview.key = key;
+  layout();
+  handle.show();
+}
+
+/**
+ * A click on the icon of an app with several windows, as on the Windows taskbar: the list of its
+ * windows opens and stays (whatever the hover setting) until a window is picked, the icon is
+ * clicked again, Esc, or a click elsewhere. Returns false when the click should go on as usual.
+ */
+export function clickApp(key: string): boolean {
+  clearTimeout(showTimer);
+  if (windowsOf(key).length < 2) {
+    hidePreview(true);
+    return false;
+  }
+  if (pinned && preview.key === key) {
+    hidePreview(true);
+    return true;
+  }
+  pinned = true;
+  void showFor(key, () => pinned).then(() => {
+    // Focus lets a click elsewhere (focus loss) or Esc close it, like the taskbar's list.
+    if (pinned && preview.key === key) handle?.activate();
+  });
+  return true;
 }
 
 /** The pointer entered (or left) an app icon. */
@@ -219,22 +287,21 @@ export function hoverApp(key: string, hovered: boolean) {
   clearTimeout(showTimer);
   if (!hovered) {
     if (hoveredKey === key) hoveredKey = "";
+    checkPointer();
     return;
   }
   hoveredKey = key;
+  checkPointer();
   if (key === preview.key) return;
-  const open = () => {
+  const open = async () => {
     // The pointer may have only crossed this icon on its way up to the open preview.
-    if (hoveredKey !== key) return;
+    if (hoveredKey !== key || !handle || pinned) return;
     if (!config.hoverPreview || !windowsOf(key).length) return hidePreview(true);
-    anchorX = cursorPos().x;
-    preview.key = key;
-    layout();
-    handle?.show();
+    await showFor(key, () => hoveredKey === key && !pinned);
   };
   // With a preview up, another icon takes over only if the pointer rests on it a moment, so
   // reaching for the first or last window across neighbouring icons keeps the preview.
-  showTimer = setTimeout(open, preview.key ? 220 : 450);
+  showTimer = setTimeout(() => void open(), preview.key ? 220 : 450);
 }
 
 export function previewOpen() {
@@ -245,15 +312,16 @@ export function hidePreview(now = false) {
   clearTimeout(showTimer);
   if (!now) return;
   stopPeek();
+  pinned = false;
   if (!preview.key) return;
   preview.key = "";
-  outsideSince = 0;
+  overPreview = false;
+  clearTimeout(leaveTimer);
   clearThumbs();
   handle?.hide();
 }
 
-// Windows open and close while a preview is up.
+// Windows open, close and resize while a preview is up: keeps the cards' thumbnails in step.
 setInterval(() => {
   if (preview.key) layout();
 }, 700);
-setInterval(watchPointer, 80);

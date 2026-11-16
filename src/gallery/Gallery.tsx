@@ -1,4 +1,19 @@
-import { Column, Icon, Pressable, Row, Scroll, Slider, Text, TitleBar, View, Window, darkTheme, store, type IconName } from "@tarve/core";
+import {
+  Column,
+  Icon,
+  Pressable,
+  Row,
+  Scroll,
+  Slider,
+  Switch,
+  Text,
+  TitleBar,
+  View,
+  Window,
+  darkTheme,
+  store,
+  type IconName,
+} from "@tarve/core";
 import { WindowsLogo } from "../widgets/ui";
 import { config, saveConfig } from "../config";
 import { addWidget, moveWidget, removeWidget } from "../dock/state";
@@ -34,42 +49,6 @@ function Chip(props: { label?: string; icon?: IconName; active?: boolean; tone?:
           {props.label}
         </Text>
       )}
-    </Pressable>
-  );
-}
-
-function Toggle(props: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <Pressable
-      onClick={() => props.onChange(!props.checked)}
-      style={{ direction: "row", align: "center", gap: 10, cursor: "pointer", padding: { top: 2, bottom: 2 } }}
-    >
-      <View
-        style={{
-          width: 34,
-          height: 20,
-          radius: 10,
-          padding: 2,
-          shrink: 0,
-          background: props.checked ? ui.green : "#3a3a3e",
-          transition: { background: { duration: 160, easing: "easeOut" } },
-        }}
-      >
-        <View
-          style={{
-            width: 16,
-            height: 16,
-            radius: 8,
-            background: "#fff",
-            transform: { x: props.checked ? 14 : 0 },
-            boxShadow: { y: 1, blur: 2, color: "#0006" },
-            transition: { transform: { duration: 160, easing: "easeOut" } },
-          }}
-        />
-      </View>
-      <Text size={12} color="#fff" style={{ flex: 1 }}>
-        {props.label}
-      </Text>
     </Pressable>
   );
 }
@@ -282,36 +261,36 @@ export function GalleryView() {
                 }}
               />
             </Column>
-            <Toggle
+            <Switch
               label="Preview das janelas ao passar o mouse"
               checked={config.hoverPreview}
-              onChange={(v) => {
+              onCheckedChange={(v) => {
                 config.hoverPreview = v;
                 saveConfig();
               }}
             />
-            <Toggle
+            <Switch
               label="Reservar espaço na tela"
               checked={config.reserveSpace}
-              onChange={(v) => {
+              onCheckedChange={(v) => {
                 config.reserveSpace = v;
                 saveConfig();
               }}
             />
             {config.mode === "floating" && config.reserveSpace ? (
-              <Toggle
+              <Switch
                 label="Fundo do espaço segue a tela"
                 checked={config.stripFollowsApp}
-                onChange={(v) => {
+                onCheckedChange={(v) => {
                   config.stripFollowsApp = v;
                   saveConfig();
                 }}
               />
             ) : null}
-            <Toggle
+            <Switch
               label={config.mode === "full" ? "Esconder barra do Windows (sempre na barra inteira)" : "Esconder barra do Windows"}
               checked={config.hideNativeTaskbar || config.mode === "full"}
-              onChange={(v) => {
+              onCheckedChange={(v) => {
                 if (config.mode === "full") return;
                 config.hideNativeTaskbar = v;
                 saveConfig();

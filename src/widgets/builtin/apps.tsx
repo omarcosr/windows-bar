@@ -3,8 +3,7 @@ import { existsSync } from "node:fs";
 import { acquireBadges, badgeFor } from "../../services/badges";
 import { iconFor } from "../../services/icons";
 import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
-import { hidePreview, hoverApp } from "../../menu/window-preview";
-import { keyDown } from "../../native/win32";
+import { clickApp, hidePreview, hoverApp } from "../../menu/window-preview";
 import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
 import { ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
@@ -35,15 +34,6 @@ interface Item {
 /** The icon being dragged and the icon under it, while an icon is dragged to a new place. */
 const drag = store({ source: "", over: "" });
 const DRAG_PREFIX = "app:";
-
-// A drag whose end event never came (the dock moved under the pointer, focus changed) must not
-// leave an icon dimmed: once the left button is up, the drag is over.
-setInterval(() => {
-  if (drag.source && !keyDown(0x01)) {
-    drag.source = "";
-    drag.over = "";
-  }
-}, 250);
 
 /** Unread count (or the app's own overlay picture) on the icon's top-right corner. */
 function AppBadge(props: { exe: string }) {
@@ -87,7 +77,7 @@ function AppIcon(props: {
   onMove: (source: string, target: string) => void;
 }) {
   const { item } = props;
-  const icon = iconFor(item.exe);
+  const icon = iconFor(item.exe, ui.app.icon);
   const dragging = drag.source === item.key;
   const dropHere = drag.over === item.key && drag.source && !dragging;
   // The marker shows on the side the dragged icon will land.
@@ -98,8 +88,8 @@ function AppIcon(props: {
       draggable
       dropTarget
       onClick={() => {
-        hidePreview(true);
-        props.onClick();
+        // Several windows: the list of them opens, as on the Windows taskbar.
+        if (!clickApp(item.key)) props.onClick();
       }}
       onContextMenu={() => {
         hidePreview(true);
@@ -297,7 +287,7 @@ export default defineWidget({
     // The entries the Windows taskbar offers, in the dock's own menu above the icon.
     const showMenu = (item: Item) => {
       const windows = desktop.apps.find((a) => a.key === item.key)?.windows ?? [];
-      const icon = iconFor(item.exe);
+      const icon = iconFor(item.exe, 28);
       const windowItems: DockMenuItem[] = windows.slice(0, 8).map((w) => ({
         label: w.title,
         icon: glyph.window,
