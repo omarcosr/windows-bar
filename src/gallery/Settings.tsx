@@ -44,7 +44,7 @@ function Section(props: { title: string; description?: string; children: Child }
 }
 
 /** One setting, name and explanation on the left and its control on the right; `when={false}` leaves it out (it does not apply to the current choices). */
-function Setting(props: { label: string; description?: string; when?: boolean; children: Child }) {
+export function Setting(props: { label: string; description?: string; when?: boolean; children: Child }) {
   if (props.when === false) return null;
   return (
     <Row
@@ -72,7 +72,7 @@ function Setting(props: { label: string; description?: string; when?: boolean; c
   );
 }
 
-function Choice<T extends string>(props: { value: T; options: readonly { value: T; label: string }[]; onChange: (value: T) => void }) {
+export function Choice<T extends string>(props: { value: T; options: readonly { value: T; label: string }[]; onChange: (value: T) => void }) {
   return (
     <Row style={{ gap: 3, padding: 3, radius: 9, background: "rgba(255,255,255,0.06)" }}>
       {props.options.map((o) => {
@@ -123,7 +123,7 @@ function Range(props: {
   );
 }
 
-function Toggle(props: { checked: boolean; label: string; onChange: (v: boolean) => void; disabled?: boolean }) {
+export function Toggle(props: { checked: boolean; label: string; onChange: (v: boolean) => void; disabled?: boolean }) {
   return <Switch label="" aria-label={props.label} checked={props.checked} disabled={props.disabled} onCheckedChange={props.onChange} />;
 }
 

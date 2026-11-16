@@ -343,6 +343,18 @@ export function windowExists(title: string): boolean {
   return U.FindWindowExW(null, null, null, wide(title)) !== null;
 }
 
+
+const popupMenuClass = wide("#32768");
+
+/** Whether a standard Win32 popup menu (class #32768, e.g. a tray icon's context menu) is on screen. */
+export function popupMenuVisible(): boolean {
+  let h: HWND | null = null;
+  while ((h = U.FindWindowExW(null, h, popupMenuClass, null) as HWND | null)) {
+    if (U.IsWindowVisible(h)) return true;
+  }
+  return false;
+}
+
 export function showOwnWindowOnTaskbar(title: string) {
   ownTaskbarTitles.add(title);
 }
@@ -471,19 +483,41 @@ export function thumbnailSourceSize(thumb: Thumbnail): { width: number; height: 
   return { width: size[0]!, height: size[1]! };
 }
 
-/** Places the thumbnail at `rect` (physical px in the destination's client area). */
-export function placeThumbnail(thumb: Thumbnail, rect: Rect, visible = true) {
+/**
+ * Places the thumbnail at `rect` (physical px in the destination's client area). The whole window
+ * is shown, title bar included, as on the taskbar; `source` crops it (see visibleFrame).
+ */
+export function placeThumbnail(thumb: Thumbnail, rect: Rect, visible = true, source: Rect | null = null) {
   const buf = new Uint8Array(48);
   const view = new DataView(buf.buffer);
-  view.setUint32(0, 0x1 | 0x4 | 0x8 | 0x10, true); // destination, opacity, visible, client area only
+  view.setUint32(0, 0x1 | (source ? 0x2 : 0) | 0x4 | 0x8 | 0x10, true); // destination, source, opacity, visible, client area only
   view.setInt32(4, Math.round(rect.left), true);
   view.setInt32(8, Math.round(rect.top), true);
   view.setInt32(12, Math.round(rect.right), true);
   view.setInt32(16, Math.round(rect.bottom), true);
+  if (source) {
+    view.setInt32(20, Math.round(source.left), true);
+    view.setInt32(24, Math.round(source.top), true);
+    view.setInt32(28, Math.round(source.right), true);
+    view.setInt32(32, Math.round(source.bottom), true);
+  }
   view.setUint8(36, 255);
   view.setInt32(40, visible ? 1 : 0, true);
-  view.setInt32(44, 1, true);
+  view.setInt32(44, 0, true);
   dwmapi.symbols.DwmUpdateThumbnailProperties(Number(thumb) as unknown as Pointer, buf);
+}
+
+/**
+ * The visible part of a window inside its window rect: Windows 10/11 frames carry invisible resize
+ * borders that a thumbnail would show as empty margins. Null for a minimized window.
+ */
+export function visibleFrame(hwnd: HWND): Rect | null {
+  if (U.IsIconic(hwnd)) return null;
+  const outer = windowRect(hwnd);
+  const r = new Int32Array(4);
+  if (dwmapi.symbols.DwmGetWindowAttribute(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, r, 16) !== 0) return null;
+  const frame = { left: r[0]! - outer.left, top: r[1]! - outer.top, right: r[2]! - outer.left, bottom: r[3]! - outer.top };
+  return frame.right > frame.left && frame.bottom > frame.top ? frame : null;
 }
 
 // ---------- Keyboard ----------

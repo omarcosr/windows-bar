@@ -2,6 +2,7 @@ import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, View, type Child,
 import { ui } from "../theme";
 import { config, type GlowColor, type HoverEffect } from "../config";
 import { taskbarPrefs } from "../services/taskbar-prefs";
+import { hideTip } from "../menu/hover-tip";
 
 /** The graphite card every dock widget sits on. */
 export function Tile(props: {
@@ -32,7 +33,14 @@ export function Tile(props: {
   if (!props.onClick && !props.onContextMenu) return <View style={style}>{props.children}</View>;
   return (
     <Pressable
-      onClick={props.onClick}
+      onClick={
+        props.onClick
+          ? () => {
+              hideTip();
+              props.onClick!();
+            }
+          : undefined
+      }
       onContextMenu={props.onContextMenu}
       style={{
         ...style,

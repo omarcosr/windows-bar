@@ -1,11 +1,12 @@
-import { Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/core";
+import { Icon, Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/core";
 import { config, type WidgetInstance } from "../config";
 import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { dockAlign } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
 import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./state";
-import { openWidgetMenu } from "./widget-menu";
+import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
+import { glyph } from "../menu/dock-menu";
 
 export const DOCK_TITLE = "WindowsBar Dock";
 
@@ -62,6 +63,35 @@ function Sweep(props: { height: number }) {
         transition: { top: { duration: SWEEP_MS, easing: "easeInOut" } },
       }}
     />
+  );
+}
+
+function SettingsBadge(props: { onClick: () => void }) {
+  return (
+    <Pressable
+      onClick={props.onClick}
+      style={{
+        // Bottom-right, inside the tile: diagonal from the remove badge, so even a narrow widget
+        // keeps the two apart.
+        position: "absolute",
+        bottom: 3,
+        right: 3,
+        width: 20,
+        height: 20,
+        radius: 10,
+        background: "rgba(58,58,64,0.92)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        align: "center",
+        justify: "center",
+        cursor: "pointer",
+        zIndex: 10,
+        boxShadow: { y: 1, blur: 3, color: "#0008" },
+        hover: { transform: "scale(1.1)", background: ui.blue },
+      }}
+    >
+      <Icon iconNode={glyph.sliders} size={12} color="#fff" strokeWidth={2.4} />
+    </Pressable>
   );
 }
 
@@ -141,6 +171,7 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
         <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [side]: -5, zIndex: 20 }} />
       ) : null}
       {props.editing ? <RemoveBadge onClick={() => removeWidget(instance.id)} /> : null}
+      {props.editing && widget.definition.settings?.length ? <SettingsBadge onClick={() => openWidgetSettings(instance.id)} /> : null}
     </Pressable>
   );
 }
@@ -159,7 +190,13 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   const stripColor = strip ? appColor.color : null;
   if (strip) queueMicrotask(() => followColor(stripColor));
   const stripHeight = stripMargin * 2 + 2 + ui.dock.height + 4;
-  const widgets = config.widgets;
+  // Widgets with nothing to show step aside; edit mode shows them all so they can be reached.
+  const shown = (w: WidgetInstance) => {
+    if (editing) return true;
+    const m = mountWidget(w);
+    return !m?.definition.hidden?.({ state: m.state, ctx: m.ctx });
+  };
+  const widgets = config.widgets.filter(shown);
   // Start and Apps form one group, placed like the Windows taskbar's icons: centred or on the
   // left, following Windows' own taskbar alignment. Other widgets keep their side of the group.
   const slot = (instance: WidgetInstance) => <WidgetSlot key={instance.id} instance={instance} editing={editing} />;

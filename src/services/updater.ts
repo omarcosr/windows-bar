@@ -8,7 +8,8 @@ import { config } from "../config";
  * new executable, verifies it and swaps itself (installUpdate restarts it).
  */
 export const UPDATE_REPO = "omarcosr/windows-bar";
-const UPDATE_URL = `https://github.com/${UPDATE_REPO}/releases/latest/download/latest.json`;
+/** WINDOWSBAR_UPDATE_URL points a copy at another feed (local tests); the manifest is still verified. */
+const UPDATE_URL = process.env.WINDOWSBAR_UPDATE_URL || `https://github.com/${UPDATE_REPO}/releases/latest/download/latest.json`;
 /** Ed25519 public key from `tarve keygen`; its private half (windows-bar-update.key) signs releases. */
 const UPDATE_PUBLIC_KEY = "vE8Xw8cUxDOZnioS0ka0KelRK+2HT7wy2Aou4RDce6Q=";
 const CHECK_EVERY = 6 * 60 * 60 * 1000;
@@ -81,6 +82,14 @@ export async function download(): Promise<void> {
  */
 export function restartToUpdate() {
   if (downloaded) installUpdate(downloaded, { restart: true });
+}
+
+
+/** Checks, downloads and installs right away (`WindowsBar.exe --update`); restarts when there is one. */
+export async function updateNow(): Promise<void> {
+  if (updater.status !== "ready") await checkNow();
+  if (updater.status === "available") await download();
+  if (updater.status === "ready") restartToUpdate();
 }
 
 /** Removes what the previous update left, then checks a minute after start and every 6 h. */

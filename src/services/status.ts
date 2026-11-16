@@ -18,6 +18,8 @@ export const status = store({
   charging: false,
   language: "",
   layout: "",
+  /** The input language's full name, for the hover tip. */
+  languageName: "",
 });
 
 function assign(next: Partial<typeof status>) {
@@ -47,7 +49,7 @@ export function refreshStatus() {
 
 export function refreshLanguage() {
   const kb = keyboardLayout(foregroundApp());
-  assign({ language: kb.language, layout: kb.layout });
+  assign({ language: kb.language, layout: kb.layout, languageName: kb.name });
 }
 
 export const statusPoller = createPoller(1000, refreshStatus);

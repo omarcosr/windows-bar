@@ -4,6 +4,7 @@ import { launch } from "../../services/windows";
 import { status, statusPoller } from "../../services/status";
 import { ui } from "../../theme";
 import { Tile } from "../ui";
+import { HoverTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
 const SIZE = 18;
@@ -78,6 +79,23 @@ function BatteryGlyph() {
   );
 }
 
+function networkTip() {
+  const access = status.internet ? "Acesso à Internet" : "Sem acesso à Internet";
+  if (status.network === "none") return ["Não conectado", "Nenhuma conexão disponível"];
+  if (status.network === "wifi") return [status.ssid || "Wi-Fi", access];
+  return [status.network === "ethernet" ? "Rede (cabo)" : "Rede", access];
+}
+
+function volumeTip() {
+  if (!status.hasAudio) return ["Nenhum dispositivo de áudio"];
+  return [status.muted ? "Alto-falantes: mudo" : `Alto-falantes: ${status.volume}%`];
+}
+
+function batteryTip() {
+  const pct = Math.round(status.battery);
+  return [status.charging ? `Bateria: ${pct}% disponível (conectado)` : `Bateria: ${pct}% restante`];
+}
+
 /** Network, volume and battery in one block, as Windows groups them; a click opens Quick Settings. */
 export default defineWidget({
   type: "tray-status",
@@ -99,13 +117,23 @@ export default defineWidget({
       ],
     ];
   },
-  View() {
+  View({ ctx, preview }) {
+    // Each icon has its own tip, as on the taskbar.
+    const id = (part: string) => `tip:${ctx.instanceId}:${part}`;
     return (
       <Tile padding={{ left: 12, right: 12 }} onClick={() => tapKeys(VK.LWIN, 0x41 /* A */)}>
         <Row style={{ align: "center", gap: 10 }}>
-          <NetworkGlyph />
-          <VolumeGlyph />
-          {status.hasBattery ? <BatteryGlyph /> : null}
+          <HoverTip id={id("net")} tip={networkTip} disabled={preview}>
+            <NetworkGlyph />
+          </HoverTip>
+          <HoverTip id={id("volume")} tip={volumeTip} disabled={preview}>
+            <VolumeGlyph />
+          </HoverTip>
+          {status.hasBattery ? (
+            <HoverTip id={id("battery")} tip={batteryTip} disabled={preview}>
+              <BatteryGlyph />
+            </HoverTip>
+          ) : null}
         </Row>
       </Tile>
     );

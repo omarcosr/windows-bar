@@ -1,24 +1,35 @@
-// Builds a release of WindowsBar: the executable, the Windows installer and the signed update
-// manifest, the Tarve way (tarve build, tarve package --format setup, tarve release).
+// Builds a release of WindowsBar the Tarve way:
+//   tarve build --packs --trim   the executable (Bun trimmed), able to run app packs
+//   tarve pack                   the app's code and files without the runtime (incremental update)
+//   tarve package --format setup,zip   the installer and the portable zip
+//   tarve release                the signed latest.json listing the executable and the pack
 //
-//   bun run release                 version from package.json, files in dist/
-//   bun run release 0.2.0           sets package.json to 0.2.0 first
+//   bun run release                  version from package.json, files in dist/
+//   bun run release 0.2.0            sets package.json to 0.2.0 first
 //   bun run release 0.2.0 --publish  also creates GitHub release v0.2.0 with gh and uploads it
 //   --notes "..."                    release notes (manifest and GitHub)
+//   --out dir                        output folder instead of dist (e.g. while dist\WindowsBar.exe runs)
+//   --base-url url                   where the files will be served (default: the GitHub release)
 //
-// Signing uses ./windows-bar-update.key (tarve keygen; keep it secret, out of git) or
-// TARVE_UPDATE_PRIVATE_KEY. The app checks updates with the matching public key in
-// src/services/updater.ts.
+// Installed copies built with --packs download only the pack (a few hundred KB) when the new
+// release runs on the same executable (same Tarve runtime and native features); otherwise the
+// whole executable. Signing uses ./windows-bar-update.key (tarve keygen; secret, out of git) or
+// TARVE_UPDATE_PRIVATE_KEY; the app verifies with the public key in src/services/updater.ts.
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const REPO = "omarcosr/windows-bar";
 const PUBLIC_KEY = "vE8Xw8cUxDOZnioS0ka0KelRK+2HT7wy2Aou4RDce6Q=";
+const KEY_FILE = "windows-bar-update.key";
 
 const args = process.argv.slice(2);
+const VALUED = ["--notes", "--out", "--base-url"];
 const flag = (name: string) => args.includes(name);
 const option = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
-const positional = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--notes"));
+const positional = args.filter((a, i) => !a.startsWith("--") && !VALUED.includes(args[i - 1] ?? ""));
+
+const keyArgs = process.env.TARVE_UPDATE_PRIVATE_KEY ? [] : existsSync(KEY_FILE) ? ["--key", KEY_FILE] : null;
+if (!keyArgs) throw new Error(`no signing key: set TARVE_UPDATE_PRIVATE_KEY or put ${KEY_FILE} here`);
 
 const pkgPath = "package.json";
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
@@ -31,6 +42,12 @@ if (version !== pkg.version) {
 }
 const notes = option("--notes") ?? `WindowsBar ${version}`;
 const tag = `v${version}`;
+const out = option("--out") ?? "dist";
+const baseUrl = option("--base-url") ?? `https://github.com/${REPO}/releases/download/${tag}/`;
+const exe = join(out, "WindowsBar.exe");
+const pack = join(out, "WindowsBar.tarve");
+const releaseDir = join(out, "release");
+const updatesDir = join(out, "updates");
 
 function run(cmd: string[]) {
   console.log(`> ${cmd.join(" ")}`);
@@ -38,71 +55,34 @@ function run(cmd: string[]) {
   if (r.exitCode !== 0) throw new Error(`failed (${r.exitCode}): ${cmd.join(" ")}`);
 }
 
-for (const dir of ["dist/release", "dist/updates"]) rmSync(dir, { recursive: true, force: true });
+for (const dir of [releaseDir, updatesDir]) rmSync(dir, { recursive: true, force: true });
 
-run(["bunx", "tarve", "build", "src/main.tsx", "--version", version, "--outfile", "dist/WindowsBar.exe"]);
+run(["bunx", "tarve", "build", "src/main.tsx", "--version", version, "--packs", "--trim", ...keyArgs, "--outfile", exe]);
+run(["bunx", "tarve", "pack", "src/main.tsx", "--version", version, ...keyArgs, "--outfile", pack]);
+run(["bunx", "tarve", "package", exe, "--entry", "src/main.tsx", "--version", version, "--format", "setup,zip", "--out", releaseDir]);
 run([
-  "bunx",
-  "tarve",
-  "package",
-  "dist/WindowsBar.exe",
-  "--entry",
-  "src/main.tsx",
-  "--version",
-  version,
-  "--format",
-  "setup,zip",
-  "--out",
-  "dist/release",
-]);
-const KEY_FILE = "windows-bar-update.key";
-const keyArgs = !process.env.TARVE_UPDATE_PRIVATE_KEY && existsSync(KEY_FILE) ? ["--key", KEY_FILE] : [];
-if (!process.env.TARVE_UPDATE_PRIVATE_KEY && !keyArgs.length) throw new Error(`no signing key: set TARVE_UPDATE_PRIVATE_KEY or put ${KEY_FILE} here`);
-run([
-  "bunx",
-  "tarve",
-  "release",
-  ...keyArgs,
-  "--version",
-  version,
-  "--artifact",
-  "win32-x64=dist/WindowsBar.exe",
-  "--out",
-  "dist/updates",
-  "--base-url",
-  `https://github.com/${REPO}/releases/download/${tag}/`,
-  "--public-key",
-  PUBLIC_KEY,
-  "--notes",
-  notes,
+  "bunx", "tarve", "release", ...keyArgs,
+  "--version", version,
+  "--artifact", `win32-x64=${exe}`,
+  "--pack", pack,
+  "--out", updatesDir,
+  "--base-url", baseUrl,
+  "--public-key", PUBLIC_KEY,
+  "--notes", notes,
 ]);
 
-const installers = readdirSync("dist/release").map((f) => join("dist/release", f));
-const executables = readdirSync("dist/updates")
+const installers = readdirSync(releaseDir).map((f) => join(releaseDir, f));
+const updates = readdirSync(updatesDir)
   .filter((f) => f !== "latest.json")
-  .map((f) => join("dist/updates", f));
+  .map((f) => join(updatesDir, f));
 console.log("\nRelease files:");
-for (const f of [...installers, ...executables, "dist/updates/latest.json"]) console.log("  " + f);
+for (const f of [...installers, ...updates, join(updatesDir, "latest.json")]) console.log("  " + f);
 
 if (flag("--publish")) {
-  // The executable and installers first, latest.json last: a client never sees a manifest whose
-  // files are not there yet.
-  run([
-    "gh",
-    "release",
-    "create",
-    tag,
-    ...executables,
-    ...installers,
-    "--repo",
-    REPO,
-    "--title",
-    `WindowsBar ${version}`,
-    "--notes",
-    notes,
-  ]);
-  run(["gh", "release", "upload", tag, "dist/updates/latest.json", "--repo", REPO]);
+  // Everything else first, latest.json last: a client never sees a manifest whose files are not there yet.
+  run(["gh", "release", "create", tag, ...updates, ...installers, "--repo", REPO, "--title", `WindowsBar ${version}`, "--notes", notes]);
+  run(["gh", "release", "upload", tag, join(updatesDir, "latest.json"), "--repo", REPO]);
   console.log(`\nPublished https://github.com/${REPO}/releases/tag/${tag}`);
-} else if (existsSync("dist/updates/latest.json")) {
+} else {
   console.log(`\nNot published. To publish: bun run release ${version} --publish`);
 }

@@ -140,7 +140,7 @@ export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: n
 
 // ---------- Keyboard layout ----------
 
-const localeBuf = new Uint16Array(32);
+const localeBuf = new Uint16Array(128);
 
 function localeInfo(lcid: number, type: number) {
   const n = kernel32.symbols.GetLocaleInfoW(lcid, type, localeBuf, localeBuf.length);
@@ -151,7 +151,7 @@ function localeInfo(lcid: number, type: number) {
  * The input language of `hwnd`'s thread as the Windows tray writes it: the ISO 639-2 language
  * ("POR") and the short layout name ("PTB", numbered when the language has several layouts).
  */
-export function keyboardLayout(hwnd: Pointer | null): { language: string; layout: string; hkl: string } {
+export function keyboardLayout(hwnd: Pointer | null): { language: string; layout: string; name: string; hkl: string } {
   const thread = hwnd ? user32.symbols.GetWindowThreadProcessId(hwnd, null) : 0;
   const hkl = BigInt(user32.symbols.GetKeyboardLayout(thread));
   const langId = Number(hkl & 0xffffn);
@@ -165,5 +165,11 @@ export function keyboardLayout(hwnd: Pointer | null): { language: string; layout
     .filter((h) => (h & 0xffffn) === BigInt(langId))
     .sort((a, b) => (base(a) === base(b) ? (a < b ? -1 : 1) : base(a) ? -1 : 1));
   const index = same.indexOf(hkl);
-  return { language, layout: same.length > 1 && index >= 0 ? `${abbrev}${index + 1}` : abbrev, hkl: hkl.toString(16) };
+  return {
+    language,
+    layout: same.length > 1 && index >= 0 ? `${abbrev}${index + 1}` : abbrev,
+    // "Português (Brasil)", in the system's own language.
+    name: localeInfo(langId, 0x2 /* LOCALE_SLOCALIZEDDISPLAYNAME */),
+    hkl: hkl.toString(16),
+  };
 }

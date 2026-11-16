@@ -12,17 +12,30 @@ let coords: { lat: number; lon: number; city: string } | undefined;
 
 async function locate() {
   if (coords) return coords;
-  const res = await fetch("https://ipwho.is/");
-  const data = (await res.json()) as { latitude: number; longitude: number; city: string; success: boolean };
+  const data = (await getJson("https://ipwho.is/")) as { latitude: number; longitude: number; city: string; success: boolean };
   if (!data.success) throw new Error("ip lookup failed");
   coords = { lat: data.latitude, lon: data.longitude, city: data.city };
   return coords;
 }
 
+/** fetch + json with a timeout and one retry: transient network drops (ECONNRESET) shouldn't surface. */
+async function getJson(url: string): Promise<unknown> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+      return await res.json();
+    } catch (error) {
+      if (attempt >= 1) throw error;
+      await Bun.sleep(2_000);
+    }
+  }
+}
+
 export const weatherPoller = createPoller(15 * 60_000, async () => {
   const { lat, lon, city } = await locate();
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code`;
-  const data = (await (await fetch(url)).json()) as { current: { temperature_2m: number; weather_code: number } };
+  const data = (await getJson(url)) as { current: { temperature_2m: number; weather_code: number } };
   weather.temperature = Math.round(data.current.temperature_2m);
   weather.code = data.current.weather_code;
   weather.city = city;

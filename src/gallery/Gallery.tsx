@@ -13,13 +13,17 @@ import {
   darkTheme,
   store,
   type IconName,
+  type SvgNode,
 } from "@tarve/core";
+import { glyph } from "../menu/dock-menu";
 import { WindowsLogo } from "../widgets/ui";
 import { config, saveConfig } from "../config";
 import { addWidget, dropSide, moveWidget, removeWidget, widgetDrag, widgetDragProps } from "../dock/state";
 import { numeric, ui } from "../theme";
 import { SettingsPage } from "./Settings";
 import { mountWidget } from "../widgets/host";
+import { editWidgetSettings } from "../widgets/settings";
+import { WidgetSettingsModal } from "./WidgetSettings";
 import { allWidgets, getWidget } from "../widgets/registry";
 import { categoryLabels, type WidgetCategory, type WidgetDefinition } from "../widgets/types";
 
@@ -35,7 +39,7 @@ export function setGalleryPage(page: GalleryPage) {
   gallery.page = page;
 }
 
-function Chip(props: { label?: string; icon?: IconName; active?: boolean; tone?: "danger" | "primary"; onClick: () => void }) {
+function Chip(props: { label?: string; icon?: IconName | readonly SvgNode[]; active?: boolean; tone?: "danger" | "primary"; onClick: () => void }) {
   const bg = props.tone === "primary" ? ui.blue : props.tone === "danger" ? "rgba(255,69,58,0.16)" : "rgba(255,255,255,0.07)";
   const fg = props.tone === "danger" ? ui.danger : "#fff";
   return (
@@ -51,7 +55,11 @@ function Chip(props: { label?: string; icon?: IconName; active?: boolean; tone?:
       }}
     >
       {props.icon ? (
-        <Icon name={props.icon} size={14} color={fg} strokeWidth={2.4} />
+        typeof props.icon === "string" ? (
+          <Icon name={props.icon} size={14} color={fg} strokeWidth={2.4} />
+        ) : (
+          <Icon iconNode={props.icon} size={14} color={fg} strokeWidth={2.2} />
+        )
       ) : (
         <Text size={12} weight={600} color={fg}>
           {props.label}
@@ -102,7 +110,8 @@ function Preview(props: { definition: WidgetDefinition }) {
 
 function WidgetCard(props: { definition: WidgetDefinition }) {
   const { definition } = props;
-  const placed = config.widgets.filter((w) => w.type === definition.type).length;
+  const instances = config.widgets.filter((w) => w.type === definition.type);
+  const placed = instances.length;
   return (
     <Column
       style={{
@@ -126,6 +135,9 @@ function WidgetCard(props: { definition: WidgetDefinition }) {
             {definition.description}
           </Text>
         </Column>
+        {placed && definition.settings?.length ? (
+          <Chip icon={glyph.sliders} onClick={() => editWidgetSettings(instances[0]!.id)} />
+        ) : null}
         <Chip
           label={placed ? `Adicionar outro (${placed})` : "Adicionar"}
           tone={placed ? undefined : "primary"}
@@ -188,8 +200,8 @@ function DockOrder() {
           </Pressable>
         ))}
       </Row>
-    </Column>
-  );
+      </Column>
+    );
 }
 
 export function GalleryView() {
@@ -283,6 +295,7 @@ export function GalleryView() {
           )}
         </Scroll>
       </Row>
+        <WidgetSettingsModal />
     </Window>
   );
 }

@@ -222,22 +222,15 @@ export default defineWidget({
   description: "Apps fixados e abertos. Arraste para reordenar; clique direito abre o menu do app.",
   category: "apps",
   defaultConfig: { pinned: candidates.filter((p) => existsSync(p)).slice(0, 5) as string[], showUnpinned: true },
+  settings: [{ kind: "toggle", key: "showUnpinned", label: "Mostrar apps abertos não fixados" }],
   setup(ctx) {
     ctx.onDispose(windowsPoller.acquire());
     ctx.onDispose(acquireBadges());
     return {};
   },
-  menu({ ctx }) {
+  menu() {
     return [
       [
-        {
-          label: ctx.config.showUnpinned === false ? "Mostrar apps abertos não fixados" : "Mostrar só apps fixados",
-          icon: glyph.eye,
-          onSelect: () => {
-            ctx.config.showUnpinned = ctx.config.showUnpinned === false;
-            ctx.save();
-          },
-        },
         { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
       ],
     ];

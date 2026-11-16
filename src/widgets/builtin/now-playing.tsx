@@ -35,7 +35,19 @@ export default defineWidget({
   name: "Tocando agora",
   description: "Música de qualquer player (Spotify, navegador, Apple Music) com controles.",
   category: "media",
-  defaultConfig: {},
+  defaultConfig: { hideWhenIdle: true, hideWhenPaused: false, showProgress: true, showControls: true },
+  settings: [
+    { kind: "toggle", key: "hideWhenIdle", label: "Ocultar quando nada estiver tocando", description: "Some do dock enquanto nenhum player tem mídia aberta." },
+    {
+      kind: "toggle",
+      key: "hideWhenPaused",
+      label: "Ocultar também quando pausado",
+      description: "Só aparece enquanto algo está tocando.",
+      when: (c) => c.hideWhenIdle,
+    },
+    { kind: "toggle", key: "showControls", label: "Mostrar controles", description: "Anterior, tocar/pausar e próxima no próprio bloco." },
+    { kind: "toggle", key: "showProgress", label: "Mostrar barra de progresso" },
+  ],
   setup(ctx) {
     ctx.onDispose(useMedia());
     const state = store({ progress: 0 });
@@ -47,6 +59,11 @@ export default defineWidget({
     });
     return state;
   },
+  hidden({ ctx }) {
+    if (!ctx.config.hideWhenIdle) return false;
+    if (!(media.active && media.title)) return true;
+    return ctx.config.hideWhenPaused && !media.playing;
+  },
   menu() {
     return [
       [
@@ -54,13 +71,15 @@ export default defineWidget({
         { label: "Próxima", icon: "skip-forward", onSelect: mediaControls.next },
         { label: "Anterior", icon: "skip-back", onSelect: mediaControls.previous },
       ],
-      [{ label: "Configurações de som", icon: "settings", onSelect: () => launch("ms-settings:sound") }],
+      [
+        { label: "Configurações de som", icon: "settings", onSelect: () => launch("ms-settings:sound") },
+      ],
     ];
   },
-  View({ state }) {
+  View({ state, ctx }) {
     const active = media.active && !!media.title;
     return (
-      <Tile width={300} padding={7} style={{ position: "relative" }}>
+      <Tile width={ctx.config.showControls ? 300 : 220} padding={7} style={{ position: "relative" }}>
         <Art />
         <Column style={{ flex: 1, gap: 1, minWidth: 0 }}>
           <Text size={12} weight={650} color={ui.text} style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
@@ -70,13 +89,16 @@ export default defineWidget({
             {active ? media.artist || media.app : "Abra um player"}
           </Text>
         </Column>
-        <Row style={{ gap: 5, align: "center" }}>
-          <RoundButton onClick={mediaControls.previous}>{glyphs.previous(13)}</RoundButton>
-          <RoundButton onClick={mediaControls.playPause} background={ui.blue}>
-            {media.playing ? glyphs.pause(14) : glyphs.play(14)}
-          </RoundButton>
-          <RoundButton onClick={mediaControls.next}>{glyphs.next(13)}</RoundButton>
-        </Row>
+        {ctx.config.showControls ? (
+          <Row style={{ gap: 5, align: "center" }}>
+            <RoundButton onClick={mediaControls.previous}>{glyphs.previous(13)}</RoundButton>
+            <RoundButton onClick={mediaControls.playPause} background={ui.blue}>
+              {media.playing ? glyphs.pause(14) : glyphs.play(14)}
+            </RoundButton>
+            <RoundButton onClick={mediaControls.next}>{glyphs.next(13)}</RoundButton>
+          </Row>
+        ) : null}
+        {ctx.config.showProgress ? (
         <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 2, background: "rgba(255,255,255,0.06)" }}>
           <View
             style={{
@@ -87,6 +109,7 @@ export default defineWidget({
             }}
           />
         </View>
+        ) : null}
       </Tile>
     );
   },

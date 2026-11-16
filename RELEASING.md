@@ -19,8 +19,13 @@ O workflow publica em Releases:
 | --- | --- |
 | `WindowsBar-Setup-<v>-win32-x64.exe` | Instalador (por usuário, em `%LOCALAPPDATA%\Programs\WindowsBar`) |
 | `WindowsBar-<v>-windows-x64.zip` | Versão portátil |
-| `WindowsBar-<v>-win32-x64.exe` | Executável baixado pelo updater |
+| `WindowsBar-<v>-win32-x64-bun.tarve` | Pacote do app sem o runtime (~150 KB): a atualização incremental |
+| `WindowsBar-<v>-win32-x64.exe` | Executável completo, baixado só quando o pacote não serve |
 | `latest.json` | Manifesto assinado que o app consulta (enviado por último) |
+
+O executável é gerado com `--packs --trim`. Uma cópia instalada baixa só o `.tarve` quando a nova versão roda no mesmo executável (mesma versão do Tarve e mesmas funções nativas); se não, baixa o executável inteiro. Os pacotes ficam em `%LOCALAPPDATA%\WindowsBar.Dock\packs`.
+
+Para testar contra um servidor local: `bun run release 0.2.0 --out <pasta> --base-url http://localhost:8765/`, sirva `<pasta>\updates` e rode a cópia instalada com `WINDOWSBAR_UPDATE_URL=http://localhost:8765/latest.json`; `WindowsBar.exe --update` procura, baixa e instala na hora.
 
 ## Chave de assinatura
 

@@ -16,6 +16,7 @@ import {
   type SvgNode,
 } from "@tarve/core";
 import { DockWindow } from "../native/dock-window";
+import { foregroundWindow, isWindowVisible, popupMenuVisible, windowPid } from "../native/win32";
 import { ui } from "../theme";
 
 export interface DockMenuItem {
@@ -91,6 +92,11 @@ export const glyph = {
   bar: [
     ["rect", { x: 2, y: 4, width: 20, height: 16, rx: 2.5 }],
     ["path", { d: "M2 15h20" }],
+  ] as readonly SvgNode[],
+  /** Settings: sliders read clearly at badge sizes, where a toothed gear looks like a sun. */
+  sliders: [
+    ["path", { d: "M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" }],
+    ["path", { d: "M14 2v4M8 10v4M16 18v4" }],
   ] as readonly SvgNode[],
 };
 
@@ -287,14 +293,59 @@ export async function initDockMenu(app: AppHandle) {
   // the desktop, the dock itself) takes the focus from it. An open still waiting for the
   // screen query ignores the blur of the menu it replaces.
   handle.onFocusChange((focused) => {
-    if (!focused && !pending) closeDockMenu();
+    if (!focused && !pending && !hold) closeDockMenu();
   });
 }
 
 /** Opens the dock's popup menu above the pointer. */
+let hold: { timer: ReturnType<typeof setInterval>; owner: number; seen: boolean; until: number } | null = null;
+
+function stopHold() {
+  if (!hold) return;
+  clearInterval(hold.timer);
+  hold = null;
+}
+
+/**
+ * Keeps the menu open while an app answers a right-click on one of its items with its own
+ * context menu, as the Windows tray overflow does. The menu loses the focus to that context
+ * menu, so the light dismiss waits until the context menu is gone and the foreground has moved
+ * on to something other than the owner's hidden menu window (or back to the dock).
+ */
+export function holdDockMenu(ownerPid: number) {
+  stopHold();
+  if (!menu.spec) return;
+  const state = {
+    owner: ownerPid,
+    seen: false,
+    until: Date.now() + 1500,
+    timer: setInterval(() => {
+      if (!menu.spec || hold !== state) return stopHold();
+      if (popupMenuVisible()) {
+        state.seen = true;
+        return;
+      }
+      // No standard menu yet: the app may still be building it, or draws a custom one.
+      if (!state.seen && Date.now() < state.until) return;
+      const fg = foregroundWindow();
+      const pid = fg ? windowPid(fg) : 0;
+      if (pid === process.pid) {
+        stopHold();
+        handle?.activate();
+      } else if (fg && pid === state.owner && (!state.seen || !isWindowVisible(fg))) {
+        // Menu dismissed without a choice (or a custom menu still up): stay open.
+      } else {
+        closeDockMenu();
+      }
+    }, 100),
+  };
+  hold = state;
+}
+
 export function showDockMenu(spec: DockMenuSpec) {
   const h = handle;
   if (!h) return;
+  stopHold();
   const ticket = ++opening;
   pending = true;
   menu.spec = spec;
@@ -318,6 +369,7 @@ export function menuOpen() {
 }
 
 export function closeDockMenu() {
+  stopHold();
   opening++;
   pending = false;
   if (!menu.spec) return;

@@ -9,26 +9,40 @@ import {
   registerThumbnail,
   thumbnailSourceSize,
   unregisterThumbnail,
+  visibleFrame,
   type HWND,
   type Thumbnail,
 } from "../native/win32";
 import { iconFor } from "../services/icons";
-import { desktop, focusWindow } from "../services/windows";
+import { desktop, focusWindow, scheduleRefresh } from "../services/windows";
 import { ui } from "../theme";
 
 const TITLE = "WindowsBar Preview";
 // Fixed geometry: DWM paints each live thumbnail into a rectangle we compute from these.
+const BORDER = 1;
 const PAD = 8;
 const GAP = 8;
 const CARD_PAD = 6;
 const HEADER = 24;
-const THUMB_W = 224;
+/** Thumbnails share one height and take their window's shape, as on the taskbar. */
 const THUMB_H = 126;
-const CARD_W = THUMB_W + CARD_PAD * 2;
+const THUMB_W = 224;
+/** Narrow (portrait) windows still leave room for a readable title. */
+const THUMB_MIN_W = 150;
+const THUMB_MAX_W = 300;
 const CARD_H = CARD_PAD + HEADER + CARD_PAD + THUMB_H + CARD_PAD;
-const MAX_WINDOWS = 5;
+/** Too many windows for one row of thumbnails: a list of titles instead, as the taskbar does. */
+const ROW_H = 36;
+const LIST_W = 320;
 
-const preview = store({ key: "" });
+const preview = store({
+  key: "",
+  /** Thumbnail width per card, in logical px. */
+  widths: [] as number[],
+  list: false,
+  /** Windows just closed from the preview: hidden until the next window scan drops them. */
+  closed: [] as number[],
+});
 
 let handle: AppHandle | undefined;
 let hwnd: HWND | null = null;
@@ -73,25 +87,60 @@ function stopPeek() {
 }
 
 function windowsOf(key: string) {
-  return desktop.apps.find((a) => a.key === key)?.windows.slice(0, MAX_WINDOWS) ?? [];
+  const windows = desktop.apps.find((a) => a.key === key)?.windows ?? [];
+  return preview.closed.length ? windows.filter((w) => !preview.closed.includes(Number(w.hwnd))) : windows;
 }
 
-function Card(props: { hwnd: HWND; title: string; exe: string }) {
+/** Closes one window and keeps the preview up for the others, as the taskbar does. */
+function closeFromPreview(target: HWND) {
+  stopPeek();
+  closeWindow(target);
+  const id = Number(target);
+  preview.closed = [...preview.closed, id];
+  // A window that asks first (unsaved changes) is still there afterwards: show it again.
+  setTimeout(() => (preview.closed = preview.closed.filter((h) => h !== id)), 2500);
+  scheduleRefresh();
+  layout();
+}
+
+function CloseButton(props: { hwnd: HWND }) {
+  return (
+    <Pressable
+      onClick={() => closeFromPreview(props.hwnd)}
+      style={{
+        width: 22,
+        height: 22,
+        radius: 6,
+        align: "center",
+        justify: "center",
+        opacity: 0,
+        groupHover: { opacity: 1 },
+        hover: { background: "#c42b1c" },
+      }}
+    >
+      <Icon name="x" size={13} color="#fff" strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
+function pick(target: HWND) {
+  stopPeek();
+  hidePreview(true);
+  focusWindow(target);
+}
+
+function Card(props: { hwnd: HWND; title: string; exe: string; width: number }) {
   const icon = iconFor(props.exe, 16);
   return (
     <Pressable
       onHover={(hovered) => (hovered ? startPeek(props.hwnd) : stopPeek())}
-      onClick={() => {
-        stopPeek();
-        hidePreview(true);
-        focusWindow(props.hwnd);
-      }}
+      onClick={() => pick(props.hwnd)}
       style={{
-        width: CARD_W,
+        width: props.width + CARD_PAD * 2,
         height: CARD_H,
         padding: CARD_PAD,
         gap: CARD_PAD,
-        radius: 10,
+        radius: 8,
         cursor: "pointer",
         group: true,
         hover: { background: "rgba(255,255,255,0.08)" },
@@ -102,27 +151,38 @@ function Card(props: { hwnd: HWND; title: string; exe: string }) {
         <Text size={12} color={ui.text} style={{ flex: 1, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
           {props.title}
         </Text>
-        <Pressable
-          onClick={() => {
-            closeWindow(props.hwnd);
-            hidePreview(true);
-          }}
-          style={{
-            width: 22,
-            height: 22,
-            radius: 6,
-            align: "center",
-            justify: "center",
-            opacity: 0,
-            groupHover: { opacity: 1 },
-            hover: { background: "#c42b1c" },
-          }}
-        >
-          <Icon name="x" size={13} color="#fff" strokeWidth={2.2} />
-        </Pressable>
+        <CloseButton hwnd={props.hwnd} />
       </Row>
-      {/* DWM draws the live window here, on top of this placeholder. */}
-      <View style={{ width: THUMB_W, height: THUMB_H, radius: 6, background: "rgba(255,255,255,0.04)" }} />
+      {/* DWM draws the live window here; nothing painted under it, so no frame shows around it. */}
+      <View style={{ width: props.width, height: THUMB_H }} />
+    </Pressable>
+  );
+}
+
+function ListRow(props: { hwnd: HWND; title: string; exe: string }) {
+  const icon = iconFor(props.exe, 16);
+  return (
+    <Pressable
+      onHover={(hovered) => (hovered ? startPeek(props.hwnd) : stopPeek())}
+      onClick={() => pick(props.hwnd)}
+      style={{
+        width: LIST_W,
+        height: ROW_H,
+        padding: { left: 10, right: 7 },
+        direction: "row",
+        align: "center",
+        gap: 10,
+        radius: 6,
+        cursor: "pointer",
+        group: true,
+        hover: { background: "rgba(255,255,255,0.08)" },
+      }}
+    >
+      {icon ? <Image src={icon} width={16} height={16} fit="contain" /> : null}
+      <Text size={12} color={ui.text} style={{ flex: 1, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
+        {props.title}
+      </Text>
+      <CloseButton hwnd={props.hwnd} />
     </Pressable>
   );
 }
@@ -133,8 +193,8 @@ function PreviewView() {
   return (
     <Window
       title={TITLE}
-      width={PAD * 2 + CARD_W * MAX_WINDOWS + GAP * (MAX_WINDOWS - 1)}
-      height={CARD_H + PAD * 2}
+      width={(BORDER + PAD) * 2 + (THUMB_W + CARD_PAD * 2) * 4 + GAP * 3}
+      height={CARD_H + (BORDER + PAD) * 2}
       frameless
       resizable={false}
       skipTaskbar
@@ -156,9 +216,26 @@ function PreviewView() {
           checkPointer();
         }}
         onSize={() => layout()}
-        style={{ alignSelf: "start", direction: "row", gap: GAP, padding: PAD, radius: 14, background: "#1c1c1f" }}
+        style={{
+          alignSelf: "start",
+          direction: preview.list ? "column" : "row",
+          gap: preview.list ? 2 : GAP,
+          padding: PAD,
+          radius: 12,
+          background: "#1c1c1f",
+          borderWidth: BORDER,
+          borderColor: "rgba(255,255,255,0.09)",
+        }}
       >
-        {app ? windows.map((w) => <Card key={String(w.hwnd)} hwnd={w.hwnd} title={w.title} exe={app.exe} />) : null}
+        {app
+          ? windows.map((w, i) =>
+              preview.list ? (
+                <ListRow key={String(w.hwnd)} hwnd={w.hwnd} title={w.title} exe={app.exe} />
+              ) : (
+                <Card key={String(w.hwnd)} hwnd={w.hwnd} title={w.title} exe={app.exe} width={preview.widths[i] ?? THUMB_W} />
+              ),
+            )
+          : null}
       </View>
     </Window>
   );
@@ -169,21 +246,20 @@ function clearThumbs() {
   thumbs = [];
 }
 
+/** The visible size of a window (its invisible resize borders cropped) and the crop itself. */
+function sourceOf(source: HWND, thumb: Thumbnail) {
+  const crop = visibleFrame(source);
+  if (crop) return { crop, width: crop.right - crop.left, height: crop.bottom - crop.top };
+  return { crop: null, ...thumbnailSourceSize(thumb) };
+}
+
 /** Sizes and places the window above the pointer, then lays the live thumbnails into their cards. */
 function layout() {
   if (!hwnd || !preview.key) return;
   const windows = windowsOf(preview.key);
   if (!windows.length) return hidePreview(true);
-  const width = Math.ceil((PAD * 2 + CARD_W * windows.length + GAP * (windows.length - 1)) * scale);
-  const height = Math.ceil((CARD_H + PAD * 2) * scale);
-  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
   const gap = Math.round(8 * scale);
-  // Centred on the app's icon, as the taskbar does, wherever on the icon the pointer was; it
-  // follows the icon when the dock re-centres (an app opened or closed).
-  const iconX = DockWindow.nodeCenterX("app:" + preview.key);
-  if (iconX !== null) anchorX = iconX;
-  const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
-  handle?.setBounds({ x, y: top - gap - height, width, height, physical: true });
+  const room = area.width / scale - 16;
 
   const sources = windows.map((w) => w.hwnd);
   if (thumbs.length !== sources.length || thumbs.some((t, i) => t.source !== sources[i])) {
@@ -193,17 +269,45 @@ function layout() {
       if (thumb !== null) thumbs.push({ source, thumb });
     }
   }
-  thumbs.forEach((t) => {
-    const i = sources.indexOf(t.source);
-    const size = thumbnailSourceSize(t.thumb);
-    const boxW = THUMB_W * scale;
-    const boxH = THUMB_H * scale;
-    const fit = size.width && size.height ? Math.min(boxW / size.width, boxH / size.height, 1) : 1;
-    const w = (size.width || boxW) * fit;
-    const h = (size.height || boxH) * fit;
-    const left = (PAD + i * (CARD_W + GAP) + CARD_PAD) * scale + (boxW - w) / 2;
-    const top = (PAD + CARD_PAD + HEADER + CARD_PAD) * scale + (boxH - h) / 2;
-    placeThumbnail(t.thumb, { left, top, right: left + w, bottom: top + h });
+  const shapes = thumbs.map((t) => sourceOf(t.source, t.thumb));
+  const widths = sources.map((source) => {
+    const shape = shapes[thumbs.findIndex((t) => t.source === source)];
+    const natural = shape && shape.width && shape.height ? (THUMB_H * shape.width) / shape.height : THUMB_W;
+    return Math.round(Math.max(THUMB_MIN_W, Math.min(THUMB_MAX_W, natural)));
+  });
+  const rowWidth = (BORDER + PAD) * 2 + widths.reduce((sum, w) => sum + w + CARD_PAD * 2, 0) + GAP * (widths.length - 1);
+  const list = rowWidth > room;
+  if (preview.list !== list) preview.list = list;
+  if (!list && widths.join() !== preview.widths.join()) preview.widths = widths;
+
+  const width = Math.ceil((list ? (BORDER + PAD) * 2 + LIST_W : rowWidth) * scale);
+  const height = Math.ceil(
+    (list ? (BORDER + PAD) * 2 + windows.length * ROW_H + 2 * (windows.length - 1) : CARD_H + (BORDER + PAD) * 2) * scale,
+  );
+  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
+  // Centred on the app's icon, as the taskbar does, wherever on the icon the pointer was; it
+  // follows the icon when the dock re-centres (an app opened or closed).
+  const iconX = DockWindow.nodeCenterX("app:" + preview.key);
+  if (iconX !== null) anchorX = iconX;
+  const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
+  handle?.setBounds({ x, y: Math.max(area.y + gap, top - gap - height), width, height, physical: true });
+
+  let left = (BORDER + PAD + CARD_PAD) * scale;
+  sources.forEach((source, i) => {
+    const index = thumbs.findIndex((t) => t.source === source);
+    const t = thumbs[index];
+    const boxW = widths[i]! * scale;
+    if (t) {
+      const shape = shapes[index]!;
+      const boxH = THUMB_H * scale;
+      const fit = shape.width && shape.height ? Math.min(boxW / shape.width, boxH / shape.height, 1) : 1;
+      const w = (shape.width || boxW) * fit;
+      const h = (shape.height || boxH) * fit;
+      const x0 = left + (boxW - w) / 2;
+      const y0 = (BORDER + PAD + CARD_PAD + HEADER + CARD_PAD) * scale + (boxH - h) / 2;
+      placeThumbnail(t.thumb, { left: x0, top: y0, right: x0 + w, bottom: y0 + h }, !list, shape.crop);
+    }
+    left += boxW + (CARD_PAD * 2 + GAP) * scale;
   });
 }
 

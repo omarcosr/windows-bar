@@ -40,6 +40,17 @@ export default defineWidget({
   description: "Receita líquida dos últimos 30 dias com tendência. Sem chave mostra dados de exemplo.",
   category: "finance",
   defaultConfig: { stripeKey: "", label: "Receita" },
+  settings: [
+    { kind: "text", key: "label", label: "Título", placeholder: "Receita" },
+    {
+      kind: "text",
+      key: "stripeKey",
+      label: "Chave restrita do Stripe",
+      description: "Só leitura de saldo (rk_live_…). Vazia mostra dados de exemplo.",
+      placeholder: "rk_live_…",
+      secret: true,
+    },
+  ],
   setup(ctx) {
     const state = store({ total: 2980, change: 31, series: DEMO, currency: "usd", demo: true, error: "" });
     const load = async () => {

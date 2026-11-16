@@ -4,6 +4,7 @@ import { launch } from "../../services/windows";
 import { languagePoller, refreshLanguage, status } from "../../services/status";
 import { ui } from "../../theme";
 import { Tile } from "../ui";
+import { HoverTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
 /** The input language indicator ("POR / PTB2"); a click switches layouts like Win+Space. */
@@ -25,8 +26,10 @@ export default defineWidget({
       ],
     ];
   },
-  View() {
+  View({ ctx, preview }) {
+    const tip = () => [status.languageName || status.language, status.layout ? `Teclado ${status.layout}` : "", "Para alternar, pressione Windows + Espaço"];
     return (
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
       <Tile
         padding={{ left: 10, right: 10 }}
         onClick={() => {
@@ -43,6 +46,7 @@ export default defineWidget({
           </Text>
         </Column>
       </Tile>
+      </HoverTip>
     );
   },
 });

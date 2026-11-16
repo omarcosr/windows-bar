@@ -3,6 +3,8 @@ import { tapKeys, VK } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Tile } from "../ui";
+import { HoverTip } from "../../menu/hover-tip";
+import { clockTip } from "../../services/clock-tooltip";
 import { defineWidget } from "../types";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -13,7 +15,12 @@ export default defineWidget({
   name: "Relógio da barra",
   description: "Hora e data como no Windows. Clique abre a central de notificações.",
   category: "clock",
-  defaultConfig: { hour12: false, seconds: false },
+  defaultConfig: { hour12: false, seconds: false, showDate: true },
+  settings: [
+    { kind: "toggle", key: "hour12", label: "Formato 12 horas" },
+    { kind: "toggle", key: "seconds", label: "Mostrar segundos" },
+    { kind: "toggle", key: "showDate", label: "Mostrar data" },
+  ],
   setup(ctx) {
     const state = store({ now: new Date() });
     let timer: ReturnType<typeof setTimeout>;
@@ -40,23 +47,27 @@ export default defineWidget({
       ],
     ];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const now = state.now;
     let h = now.getHours();
     if (ctx.config.hour12) h = h % 12 || 12;
     const time = `${ctx.config.hour12 ? h : pad(h)}:${pad(now.getMinutes())}${ctx.config.seconds ? `:${pad(now.getSeconds())}` : ""}`;
     const date = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
     return (
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => clockTip(!!ctx.config.hour12)} disabled={preview}>
       <Tile padding={{ left: 12, right: 12 }} onClick={() => tapKeys(VK.LWIN, 0x4e /* N */)}>
         <Column style={{ align: "end", gap: 2 }}>
           <Text size={13} weight={600} color={ui.text} style={numeric}>
             {time}
           </Text>
-          <Text size={12} weight={500} color={ui.muted} style={numeric}>
-            {date}
-          </Text>
+          {ctx.config.showDate ? (
+            <Text size={12} weight={500} color={ui.muted} style={numeric}>
+              {date}
+            </Text>
+          ) : null}
         </Column>
       </Tile>
+      </HoverTip>
     );
   },
 });

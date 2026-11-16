@@ -23,6 +23,7 @@
     "appId": "WindowsBar.Dock",
     "description": "Barra de tarefas com widgets para o Windows 11",
     "publisher": "omarcosr",
+    "icon": "assets/icon.png",
     "installer": {
       "directory": "WindowsBar",
       "shortcutName": "WindowsBar",

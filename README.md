@@ -56,7 +56,7 @@ A configuração fica em `%APPDATA%\windows-bar\config.json`.
 
 ## Atualizações
 
-O WindowsBar procura novas versões um minuto depois de abrir e a cada 6 horas. Com **Baixar atualizações automaticamente** ligado, a nova versão é baixada e verificada (assinatura digital) em segundo plano e instalada quando você clicar em **Reiniciar e atualizar** em **Configurações da barra → Sistema**. Também dá para procurar na hora pelo ícone do WindowsBar na bandeja → **Procurar atualizações**.
+O WindowsBar procura novas versões um minuto depois de abrir e a cada 6 horas. Na maioria das versões o download é só o código do app (algumas centenas de KB), sem baixar o executável inteiro de novo. Com **Baixar atualizações automaticamente** ligado, a nova versão é baixada e verificada (assinatura digital) em segundo plano e instalada quando você clicar em **Reiniciar e atualizar** em **Configurações da barra → Sistema**. Também dá para procurar na hora pelo ícone do WindowsBar na bandeja → **Procurar atualizações**.
 
 ## Desinstalar
 
