@@ -36,9 +36,10 @@ export function Tile(props: {
       onContextMenu={props.onContextMenu}
       style={{
         ...style,
-        cursor: "pointer",
-        hover: { background: props.background ?? ui.tile.hover },
-        active: { transform: "scale(0.97)" },
+        // The hand and the press feedback only where a left click does something.
+        cursor: props.onClick ? "pointer" : "default",
+        hover: props.onClick ? { background: props.background ?? ui.tile.hover } : undefined,
+        active: props.onClick ? { transform: "scale(0.97)" } : undefined,
         transition: { background: { duration: 140, easing: "easeOut" } },
       }}
     >

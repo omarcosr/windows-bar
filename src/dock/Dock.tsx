@@ -113,6 +113,8 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
       style={{
         position: "relative",
         shrink: 0,
+        // The widget's own buttons show the hand; the rest of it is only draggable.
+        cursor: "default",
         opacity: widgetDrag.source === instance.id ? 0.4 : 1,
         transition: { opacity: { duration: 120, easing: "easeOut" } },
       }}
@@ -195,10 +197,15 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       position="bottom"
       theme={darkTheme}
     >
-      <View
+      {/* The whole window answers a right-click with the bar menu: the strip around a floating
+          dock and any empty space, not only the dock itself. */}
+      <Pressable
+        onContextMenu={props.onContextMenu}
         style={
           inStrip
             ? {
+                // Only right-click does something here: no hand cursor.
+                cursor: "default",
                 flex: 1,
                 direction: "row",
                 align: "center",
@@ -213,7 +220,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
                 background: strip ? (sweep.base ?? "rgba(0,0,0,0)") : undefined,
                 overflow: "hidden",
               }
-            : { flex: 1, align: "start", justify: "start", direction: "row" }
+            : { flex: 1, align: "start", justify: "start", direction: "row", cursor: "default" }
         }
       >
         {strip ? <Sweep height={stripHeight} /> : null}
@@ -232,6 +239,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
           <Pressable
             onContextMenu={props.onContextMenu}
             style={{
+              cursor: "default",
               direction: "row",
               align: "center",
               height: ui.dock.height,
@@ -247,7 +255,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
             {content}
           </Pressable>
         </View>
-      </View>
+      </Pressable>
     </Window>
   );
 }

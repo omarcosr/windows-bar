@@ -338,6 +338,11 @@ let collected: TopWindow[] = [];
 const ownTaskbarTitles = new Set<string>();
 
 /** Titles of this app's windows that appear on the taskbar like any app's. */
+/** Whether a top-level window with this exact title exists (any process). */
+export function windowExists(title: string): boolean {
+  return U.FindWindowExW(null, null, null, wide(title)) !== null;
+}
+
 export function showOwnWindowOnTaskbar(title: string) {
   ownTaskbarTitles.add(title);
 }

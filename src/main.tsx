@@ -1,10 +1,10 @@
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
 import { config, saveConfig } from "./config";
 import { ui } from "./theme";
-import { DockView } from "./dock/Dock";
+import { DOCK_TITLE, DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
 import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type GalleryPage } from "./gallery/Gallery";
-import { showOwnWindowOnTaskbar } from "./native/win32";
+import { showOwnWindowOnTaskbar, windowExists } from "./native/win32";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh } from "./services/windows";
@@ -12,17 +12,38 @@ import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
 import { setGalleryOpener } from "./dock/widget-menu";
 import { dockAlign, watchTaskbarPrefs } from "./services/taskbar-prefs";
-import { readAutostart } from "./services/autostart";
+import { readAutostart, setAutostart } from "./services/autostart";
+import { checkNow, restartToUpdate, startUpdater, updater } from "./services/updater";
 import { watchAppColor, appColor } from "./services/app-color";
 import { disposeWidget, setWidgetApp } from "./widgets/host";
 import { allWidgets } from "./widgets/registry";
 import "./widgets/builtin";
 
-// One dock per user: a second launch (exe or bun start) opens the gallery of the running one.
-// Right after a dock was killed its pipe can still answer for a few seconds, longer than the
-// ~2.5 s requestSingleInstance retries (seen with 0.13.0): ask again before giving up.
+// Command-line jobs the installer runs (package.json tarve.installer), then exit:
+//   --autostart on|off  the "start with Windows" entry
+//   --quit              close a running dock (before installing over it or uninstalling)
+const argv = process.argv.slice(2);
+if (argv.includes("--autostart")) {
+  const on = argv[argv.indexOf("--autostart") + 1] !== "off";
+  await setAutostart(on);
+  process.exit(0);
+}
+
+// One dock per user: a second launch (exe or bun start) is handed to the running one.
 let instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
-for (let i = 0; !instance.primary && i < 6; i++) {
+if (argv.includes("--quit")) {
+  if (instance.primary) {
+    instance.release();
+    process.exit(0);
+  }
+  // The running dock got "--quit" and closes; give it time to restore the taskbar and exit.
+  for (let i = 0; i < 30 && windowExists(DOCK_TITLE); i++) await Bun.sleep(200);
+  await Bun.sleep(500);
+  process.exit(0);
+}
+// Right after a dock was killed its pipe can still answer for a few seconds, longer than the
+// ~2.5 s requestSingleInstance retries (seen with 0.13.0): with no dock on screen, ask again.
+for (let i = 0; !instance.primary && !windowExists(DOCK_TITLE) && i < 6; i++) {
   await Bun.sleep(700);
   instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
 }
@@ -111,7 +132,11 @@ const app = createApp(
   },
 );
 setWidgetApp(app);
-instance.onSecondInstance(() => openGallery());
+instance.onSecondInstance(({ args }) => {
+  if (args.includes("--quit")) app.close();
+  else if (args.includes("--settings")) openSettings();
+  else openGallery();
+});
 // The registry is the truth for "start with Windows" (the user may have changed it elsewhere).
 void readAutostart().then((on) => {
   if (config.autostart !== on) config.autostart = on;
@@ -188,6 +213,7 @@ app.tray({
   menu: [
     { id: "settings", label: "Configurações…", onSelect: openSettings },
     { id: "widgets", label: "Widgets…", onSelect: () => openGallery() },
+    { id: "update", label: "Procurar atualizações", onSelect: () => (updater.status === "ready" ? restartToUpdate() : void checkNow()) },
     { type: "separator" },
     { id: "quit", label: "Sair", onSelect: () => app.close() },
   ],
@@ -195,6 +221,8 @@ app.tray({
 
 if (process.argv.includes("--widgets")) openGallery();
 if (process.argv.includes("--settings")) openSettings();
+
+startUpdater();
 
 await app.closed;
 dockWindow.dispose();

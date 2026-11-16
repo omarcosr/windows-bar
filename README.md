@@ -13,6 +13,19 @@ bun run build             # dist/WindowsBar.exe
 - **Right-click an app icon** to pin or unpin it.
 - Config lives in `%APPDATA%\windows-bar\config.json`. Put a restricted Stripe key in the `revenue` widget's `stripeKey` to replace the demo data.
 
+## Releases, installer and updates
+
+```powershell
+bun run release 0.2.0             # dist/release: WindowsBar-Setup-0.2.0-win32-x64.exe + portable .zip
+                                  # dist/updates: the executable + signed latest.json
+bun run release 0.2.0 --publish   # same, then GitHub release v0.2.0 (gh), latest.json uploaded last
+```
+
+- The installer is Tarve's (`tarve package --format setup`, configured by `tarve.installer` in `package.json`): per-user install into `%LOCALAPPDATA%\Programs\WindowsBar`, Start menu entry, optional desktop shortcut, "start with Windows" (runs `WindowsBar.exe --autostart on|off`), uninstaller. It closes a running dock first (`--quit`).
+- Updates follow Tarve's updater: the app reads `https://github.com/omarcosr/windows-bar/releases/latest/download/latest.json`, checks its Ed25519 signature against the public key in `src/services/updater.ts`, downloads and verifies the new executable, and installs it when the user restarts (Configurações > Sistema). It checks a minute after start and every 6 hours.
+- Releases are signed with `windows-bar-update.key` (created by `bunx tarve keygen`, git-ignored). Keep a backup: without it, installed copies cannot accept new versions. In CI, pass it as `TARVE_UPDATE_PRIVATE_KEY`.
+- The repository must be public (or the releases hosted somewhere public) for installed copies to download updates.
+
 ## How it works
 
 | Layer | Files |

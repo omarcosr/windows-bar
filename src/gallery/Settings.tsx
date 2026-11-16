@@ -1,6 +1,7 @@
 import { Column, Image, Pressable, Row, Slider, Switch, Text, View, type Child } from "@tarve/core";
 import { config, defaultConfig, saveConfig, type DockConfig } from "../config";
 import { setAutostart } from "../services/autostart";
+import { APP_VERSION, checkNow, download, restartToUpdate, updater } from "../services/updater";
 import { launch } from "../services/windows";
 import { taskbarPrefs } from "../services/taskbar-prefs";
 import { BAR_HEIGHT_MAX, BAR_HEIGHT_MIN, dockBackground, numeric, ui } from "../theme";
@@ -42,8 +43,9 @@ function Section(props: { title: string; description?: string; children: Child }
   );
 }
 
-/** One setting: name and explanation on the left, its control on the right. */
-function Setting(props: { label: string; description?: string; disabled?: boolean; children: Child }) {
+/** One setting, name and explanation on the left and its control on the right; `when={false}` leaves it out (it does not apply to the current choices). */
+function Setting(props: { label: string; description?: string; when?: boolean; children: Child }) {
+  if (props.when === false) return null;
   return (
     <Row
       style={{
@@ -53,7 +55,6 @@ function Setting(props: { label: string; description?: string; disabled?: boolea
         padding: { left: 16, right: 16, top: 10, bottom: 10 },
         borderWidth: { top: 1 },
         borderColor: "rgba(255,255,255,0.05)",
-        opacity: props.disabled ? 0.45 : 1,
       }}
     >
       <Column style={{ flex: 1, gap: 2, minWidth: 0 }}>
@@ -176,6 +177,40 @@ function HoverPreview() {
   );
 }
 
+/** Version, update state and the one action that fits it. */
+function UpdateSetting() {
+  const s = updater.status;
+  const description =
+    s === "unsupported"
+      ? "Atualizações automáticas funcionam na versão instalada pelo instalador."
+      : s === "checking"
+        ? "Procurando…"
+        : s === "current"
+          ? "Você está na versão mais recente."
+          : s === "available"
+            ? `Versão ${updater.version} disponível.`
+            : s === "downloading"
+              ? `Baixando a versão ${updater.version}… ${Math.round(updater.progress * 100)}%`
+              : s === "ready"
+                ? `Versão ${updater.version} pronta para instalar.`
+                : s === "error"
+                  ? `Não foi possível verificar: ${updater.error}`
+                  : "Procura novas versões no GitHub.";
+  return (
+    <Setting label={`Atualizações · versão ${APP_VERSION}`} description={description}>
+      {s === "ready" ? (
+        <Button label="Reiniciar e atualizar" onClick={restartToUpdate} />
+      ) : s === "available" ? (
+        <Button label="Baixar" onClick={() => void download()} />
+      ) : s === "unsupported" || s === "downloading" || s === "checking" ? (
+        <View />
+      ) : (
+        <Button label="Procurar agora" onClick={() => void checkNow()} />
+      )}
+    </Setting>
+  );
+}
+
 /** The taskbar's own settings page, grouped like Windows Settings. */
 export function SettingsPage() {
   const floating = config.mode === "floating";
@@ -217,7 +252,7 @@ export function SettingsPage() {
             onChange={(v) => set("barHeight", Math.round(v / 2) * 2)}
           />
         </Setting>
-        <Setting label="Cantos arredondados" description="Só no estilo flutuante." disabled={!floating}>
+        <Setting label="Cantos arredondados" when={floating}>
           <Range
             label="Cantos"
             value={ui.dock.radius}
@@ -267,7 +302,7 @@ export function SettingsPage() {
             onChange={(v) => set("align", v)}
           />
         </Setting>
-        <Setting label="Distância da borda" description="Espaço entre o dock flutuante e a borda da tela." disabled={!floating}>
+        <Setting label="Distância da borda" description="Espaço entre o dock flutuante e a borda da tela." when={floating}>
           <Range
             label="Distância"
             value={config.bottomMargin}
@@ -281,11 +316,7 @@ export function SettingsPage() {
         <Setting label="Reservar espaço na tela" description="Janelas maximizadas param acima da barra.">
           <Toggle label="Reservar espaço" checked={config.reserveSpace} onChange={(v) => set("reserveSpace", v)} />
         </Setting>
-        <Setting
-          label="Fundo do espaço segue a tela"
-          description="Pinta a faixa embaixo do dock com a cor do app aberto."
-          disabled={!strip}
-        >
+        <Setting label="Fundo do espaço segue a tela" description="Pinta a faixa embaixo do dock com a cor do app aberto." when={strip}>
           <Toggle
             label="Fundo segue a tela"
             checked={config.stripFollowsApp}
@@ -296,7 +327,7 @@ export function SettingsPage() {
         <Setting
           label="Animação da troca de cor"
           description="A cor nova desce em degradê; desligado, troca na hora."
-          disabled={!strip || !config.stripFollowsApp}
+          when={strip && config.stripFollowsApp}
         >
           <Toggle
             label="Animação"
@@ -322,10 +353,22 @@ export function SettingsPage() {
         <Setting label="Efeito">
           <Choice value={config.hoverEffect} options={hoverEffects} onChange={(v) => set("hoverEffect", v)} />
         </Setting>
-        <Setting label="Experimente" description="Passe o mouse nos ícones ao lado.">
+        <Setting label="Experimente" description="Passe o mouse nos ícones ao lado." when={config.hoverEffect !== "none"}>
           <HoverPreview />
         </Setting>
-        <Setting label="Intensidade" description="Quanto o ícone cresce, sobe ou brilha." disabled={config.hoverEffect === "none"}>
+        <Setting
+          label="Intensidade"
+          description={
+            {
+              zoom: "Quanto o ícone cresce.",
+              lift: "Quanto o ícone sobe.",
+              glow: "Força do brilho.",
+              highlight: "Quão claro fica o fundo.",
+              none: "",
+            }[config.hoverEffect]
+          }
+          when={config.hoverEffect !== "none"}
+        >
           <Range
             label="Intensidade"
             value={config.hoverIntensity}
@@ -336,11 +379,7 @@ export function SettingsPage() {
             onChange={(v) => config.hoverEffect !== "none" && set("hoverIntensity", Math.round(v))}
           />
         </Setting>
-        <Setting
-          label="Velocidade da animação"
-          description="Menor é mais rápido; 0 troca na hora."
-          disabled={config.hoverEffect === "none"}
-        >
+        <Setting label="Velocidade da animação" description="Menor é mais rápido; 0 troca na hora." when={config.hoverEffect !== "none"}>
           <Range
             label="Velocidade"
             value={config.hoverSpeed}
@@ -351,7 +390,7 @@ export function SettingsPage() {
             onChange={(v) => config.hoverEffect !== "none" && set("hoverSpeed", Math.round(v))}
           />
         </Setting>
-        <Setting label="Cor do brilho" description="Só no efeito Brilho." disabled={config.hoverEffect !== "glow"}>
+        <Setting label="Cor do brilho" when={config.hoverEffect === "glow"}>
           <Row style={{ gap: 6 }}>
             {glowColors.map((g) => {
               const on = config.glowColor === g.value;
@@ -389,6 +428,17 @@ export function SettingsPage() {
       </Section>
 
       <Section title="Ícones e janelas">
+        <Setting label="Tamanho dos ícones" description="Apps, botão Iniciar e bandeja; relativo à altura da barra.">
+          <Range
+            label="Tamanho"
+            value={config.iconScale}
+            min={70}
+            max={130}
+            step={5}
+            unit="%"
+            onChange={(v) => set("iconScale", Math.round(v))}
+          />
+        </Setting>
         <Setting label="Indicador de apps abertos" description="O traço embaixo do ícone.">
           <Toggle label="Indicador" checked={config.runningIndicator} onChange={(v) => set("runningIndicator", v)} />
         </Setting>
@@ -408,7 +458,7 @@ export function SettingsPage() {
         <Setting label="Preview ao passar o mouse" description="Miniaturas das janelas acima do ícone.">
           <Toggle label="Preview" checked={config.hoverPreview} onChange={(v) => set("hoverPreview", v)} />
         </Setting>
-        <Setting label="Tempo até o preview abrir" disabled={!config.hoverPreview}>
+        <Setting label="Tempo até o preview abrir" when={config.hoverPreview}>
           <Range
             label="Tempo"
             value={config.previewDelay}
@@ -428,9 +478,13 @@ export function SettingsPage() {
             checked={config.autostart}
             onChange={(v) => {
               set("autostart", v);
-              setAutostart(v);
+              void setAutostart(v);
             }}
           />
+        </Setting>
+        <UpdateSetting />
+        <Setting label="Baixar atualizações automaticamente" description="A nova versão é instalada quando você reinicia o WindowsBar.">
+          <Toggle label="Baixar automaticamente" checked={config.autoUpdate} onChange={(v) => set("autoUpdate", v)} />
         </Setting>
         <Setting label="Configurações da barra do Windows" description="Ícones da bandeja, alinhamento e comportamentos do Windows.">
           <Button label="Abrir" onClick={() => launch("ms-settings:taskbar")} />

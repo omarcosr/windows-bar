@@ -38,6 +38,8 @@ export interface DockConfig {
   glowColor: GlowColor;
   /** Icons sink a little while pressed. */
   pressEffect: boolean;
+  /** App, Start and tray icon size in % of the size that fits the bar height (70–130). */
+  iconScale: number;
   /** Height of the bar in logical px (56–80): tiles and app icons scale with it. */
   barHeight: number;
   /** Opacity of the bar's background, 0.2–1; icons and widgets stay opaque. */
@@ -64,6 +66,8 @@ export interface DockConfig {
   previewDelay: number;
   /** Start with Windows (HKCU Run key); mirrored from the registry at startup. */
   autostart: boolean;
+  /** Download new versions on their own; they install when the user restarts the app. */
+  autoUpdate: boolean;
 }
 
 export const configDir = appConfigDirectory("windows-bar");
@@ -78,6 +82,7 @@ export const defaultConfig = (): DockConfig => ({
   hoverPreview: true,
   opacity: 1,
   barHeight: 64,
+  iconScale: 100,
   hoverEffect: "zoom",
   hoverIntensity: 100,
   hoverSpeed: 170,
@@ -93,6 +98,7 @@ export const defaultConfig = (): DockConfig => ({
   multiWindowClick: "list",
   previewDelay: 450,
   autostart: false,
+  autoUpdate: true,
   widgets: [
     { id: "clock-1", type: "clock-weather", config: {} },
     { id: "revenue-1", type: "revenue", config: {} },

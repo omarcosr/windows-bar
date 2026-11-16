@@ -7,7 +7,8 @@
     "start": "bun src/main.tsx",
     "dev": "bunx tarve dev src/main.tsx",
     "typecheck": "tsc --noEmit",
-    "build": "bunx tarve build src/main.tsx --outfile dist/WindowsBar.exe --name WindowsBar"
+    "build": "bunx tarve build src/main.tsx --outfile dist/WindowsBar.exe",
+    "release": "bun scripts/release.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
@@ -15,5 +16,59 @@
   },
   "dependencies": {
     "@tarve/core": "0.13.0"
+  },
+  "version": "0.1.0",
+  "tarve": {
+    "name": "WindowsBar",
+    "appId": "WindowsBar.Dock",
+    "description": "Barra de tarefas com widgets para o Windows 11",
+    "publisher": "omarcosr",
+    "installer": {
+      "directory": "WindowsBar",
+      "shortcutName": "WindowsBar",
+      "languages": [
+        "pt-BR",
+        "en"
+      ],
+      "homepage": "https://github.com/omarcosr/windows-bar",
+      "accent": "#0a84ff",
+      "options": {
+        "desktopShortcut": {
+          "enabled": true,
+          "default": false
+        },
+        "startup": {
+          "enabled": true,
+          "default": true,
+          "command": [
+            "--autostart",
+            "on"
+          ],
+          "undo": [
+            "--autostart",
+            "off"
+          ]
+        },
+        "launch": {
+          "enabled": true,
+          "default": true,
+          "args": []
+        }
+      },
+      "hooks": {
+        "beforeInstall": [
+          "--quit"
+        ],
+        "beforeUninstall": [
+          [
+            "--quit"
+          ],
+          [
+            "--autostart",
+            "off"
+          ]
+        ]
+      }
+    }
   }
 }

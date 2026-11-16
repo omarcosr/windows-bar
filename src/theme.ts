@@ -43,7 +43,10 @@ export const ui = {
   app: {
     /** 32 px in the default 64 px bar, scaled with the bar, on even pixels. */
     get icon() {
-      return Math.round(((barHeight() - 12) * 32) / 52 / 2) * 2;
+      const scale = Math.max(0.7, Math.min(1.3, Number(config.iconScale ?? 100) / 100));
+      const base = ((barHeight() - 12) * 32) / 52;
+      // Even pixels, and never taller than the tile minus room for the running indicator.
+      return Math.max(16, Math.min(barHeight() - 22, Math.round((base * scale) / 2) * 2));
     },
     get slot() {
       return this.icon + 12;

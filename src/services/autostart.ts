@@ -10,11 +10,12 @@ function command() {
   return /\\bun(\.exe)?$/i.test(exe) && process.argv[1] ? `"${exe}" "${resolve(process.argv[1])}"` : `"${exe}"`;
 }
 
-export function setAutostart(on: boolean) {
+export async function setAutostart(on: boolean): Promise<void> {
   const args = on
     ? ["reg.exe", "add", KEY, "/v", NAME, "/t", "REG_SZ", "/d", command(), "/f"]
     : ["reg.exe", "delete", KEY, "/v", NAME, "/f"];
-  Bun.spawn(args, { windowsHide: true, stdout: "ignore", stderr: "ignore" });
+  // Awaited: the installer runs "--autostart on|off" and the process exits right after.
+  await Bun.spawn(args, { windowsHide: true, stdout: "ignore", stderr: "ignore" }).exited;
 }
 
 export async function readAutostart(): Promise<boolean> {

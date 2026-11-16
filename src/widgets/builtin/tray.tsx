@@ -2,13 +2,15 @@ import { Icon, Image, Pressable, Row, View } from "@tarve/core";
 import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { acquireTaskbarHost, clickTrayIcon, tray, type TrayIcon } from "../../services/taskbar-host";
 import { launch, prettyName } from "../../services/windows";
+import { config } from "../../config";
 import { ui } from "../../theme";
 import { iconHover, Tile } from "../ui";
 import { defineWidget } from "../types";
 
 type InlineMode = "promoted" | "all" | "none";
 
-const ICON = 18;
+/** Tray icons follow the icon size setting (18 px at 100%). */
+const trayIcon = () => Math.round((18 * Math.max(0.7, Math.min(1.3, Number(config.iconScale ?? 100) / 100))) / 2) * 2;
 
 function TrayButton(props: { icon: TrayIcon }) {
   const { icon } = props;
@@ -27,7 +29,7 @@ function TrayButton(props: { icon: TrayIcon }) {
         ...iconHover(),
       }}
     >
-      <Image src={icon.image} width={ICON} height={ICON} fit="contain" />
+      <Image src={icon.image} width={trayIcon()} height={trayIcon()} fit="contain" />
     </Pressable>
   );
 }
@@ -90,7 +92,7 @@ export default defineWidget({
             radius: 7,
             align: "center",
             justify: "center",
-            cursor: "pointer",
+            cursor: overflow.length ? "pointer" : "default",
             shrink: 0,
             opacity: overflow.length ? 1 : 0.35,
             hover: { background: "rgba(255,255,255,0.07)" },
