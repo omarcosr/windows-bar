@@ -1,74 +1,175 @@
 # WindowsBar
 
-A lumabar-style smart dock for Windows 11, built with [Tarve](https://tarve.dev) (TSX on Bun, painted natively — no web view).
+Uma barra de tarefas com widgets para o Windows 11, inspirada no [Luma Bar](https://lumabar.xyz/). Substitui a barra do Windows por um dock com seus apps, relógio, clima, música tocando, uso de CPU/RAM, bandeja do sistema e o que mais você quiser montar.
 
-```powershell
-bun install
-bun start                 # run the dock
-bun start -- --widgets    # run and open the widget gallery
-bun run build             # dist/WindowsBar.exe
-```
+Feito com [Tarve](https://tarve.dev): interface desenhada nativamente, sem navegador embutido.
 
-- **Right-click the dock** (or click the tray icon) to open the gallery: add widgets, reorder, remove, and settings.
-- **Right-click an app icon** to pin or unpin it.
-- Config lives in `%APPDATA%\windows-bar\config.json`. Put a restricted Stripe key in the `revenue` widget's `stripeKey` to replace the demo data.
+## Instalação
 
-## Releases, installer and updates
+1. Baixe o `WindowsBar-Setup-<versão>-win32-x64.exe` em [Releases](https://github.com/omarcosr/windows-bar/releases/latest).
+2. Execute. A instalação é por usuário (não pede administrador) e vai para `%LOCALAPPDATA%\Programs\WindowsBar`.
+3. Escolha se quer atalho na área de trabalho e se o WindowsBar deve iniciar com o Windows.
 
-```powershell
-bun run release 0.2.0             # dist/release: WindowsBar-Setup-0.2.0-win32-x64.exe + portable .zip
-                                  # dist/updates: the executable + signed latest.json
-bun run release 0.2.0 --publish   # same, then GitHub release v0.2.0 (gh), latest.json uploaded last
-```
+> O executável ainda não é assinado digitalmente, então o Windows SmartScreen pode avisar na primeira execução. Clique em **Mais informações → Executar assim mesmo**.
 
-- The installer is Tarve's (`tarve package --format setup`, configured by `tarve.installer` in `package.json`): per-user install into `%LOCALAPPDATA%\Programs\WindowsBar`, Start menu entry, optional desktop shortcut, "start with Windows" (runs `WindowsBar.exe --autostart on|off`), uninstaller. It closes a running dock first (`--quit`).
-- Updates follow Tarve's updater: the app reads `https://github.com/omarcosr/windows-bar/releases/latest/download/latest.json`, checks its Ed25519 signature against the public key in `src/services/updater.ts`, downloads and verifies the new executable, and installs it when the user restarts (Configurações > Sistema). It checks a minute after start and every 6 hours.
-- Releases are signed with `windows-bar-update.key` (created by `bunx tarve keygen`, git-ignored). Keep a backup: without it, installed copies cannot accept new versions. In CI, pass it as `TARVE_UPDATE_PRIVATE_KEY`.
-- The repository must be public (or the releases hosted somewhere public) for installed copies to download updates.
+Prefere sem instalar? Baixe o `.zip` da mesma página, extraia e rode `WindowsBar.exe` (essa versão não se atualiza sozinha).
 
-## How it works
+Requisitos: Windows 11, 64 bits.
 
-| Layer | Files |
+## Como usar
+
+| Ação | Onde |
 | --- | --- |
-| Native window: size to content, bottom-centre, AppBar space reservation, hide taskbar, hide in full screen | `src/native/dock-window.ts`, `src/native/win32.ts` (bun:ffi → user32/kernel32/shell32/dwmapi) |
-| Shared data services, polled only while a widget uses them | `src/services/` (windows, icons, system, media, weather) |
-| Widget system | `src/widgets/types.ts`, `registry.ts`, `host.ts` |
-| Built-in widgets | `src/widgets/builtin/*.tsx` |
-| Taskbar host: tray icons and app badges, forwarded on to Explorer | `src/native/tray-host.ts`, `src/services/taskbar-host.ts`, `src/services/badges.ts` |
-| Network, volume, battery, keyboard layout | `src/native/status.ts`, `src/services/status.ts` |
-| Dock and gallery views | `src/dock/`, `src/gallery/` |
+| Abrir um app / alternar janelas | Clique no ícone. Com várias janelas abertas, aparece o preview para escolher. |
+| Menu do app (fixar, fechar, abrir local do arquivo) | Clique direito no ícone. |
+| Reordenar apps | Arraste o ícone. |
+| Ver as janelas de um app | Passe o mouse no ícone. |
+| Menu Iniciar | Clique no botão do Windows; clique direito abre o menu de sistema (como o Win+X). |
+| Adicionar, remover e reordenar widgets | Clique direito em qualquer área vazia da barra → **Widgets…**. |
+| Configurações da barra | Clique direito em uma área vazia → **Configurações da barra…**. |
+| Menu de um widget (mover, remover) | Clique direito no widget. |
+| Fechar o WindowsBar | Clique direito em uma área vazia → **Sair do WindowsBar**. |
 
-Now Playing and icon extraction run small PowerShell helpers (`scripts/`), because WinRT media sessions and shell icons are not reachable through plain FFI.
+### Widgets incluídos
 
-## Writing a widget
+- **Apps**: fixados e abertos, com preview das janelas e os contadores de notificação dos apps.
+- **Iniciar**: abre o menu Iniciar.
+- **Relógio e clima**: hora, dia e temperatura.
+- **Tocando agora**: música de qualquer player (Spotify, navegador, Apple Music) com controles.
+- **CPU e RAM**: uso ao vivo.
+- **Bandeja do sistema**: ícones dos apps em segundo plano.
+- **Rede, volume e bateria**, **Idioma do teclado** e **Relógio da barra**: os mesmos itens do canto da barra do Windows.
+- **Receita (Stripe)**: receita dos últimos 30 dias. Sem chave mostra dados de exemplo; para usar seus dados, coloque uma chave restrita (somente leitura) do Stripe em `stripeKey` no arquivo de configuração.
 
-One file plus one line in `src/widgets/builtin/index.ts`:
+### Configurações
+
+Em **Configurações** você ajusta:
+
+- **Aparência**: estilo (flutuante ou barra inteira), altura, cantos, opacidade e espaço entre widgets.
+- **Posição**: alinhamento, distância da borda e reserva de espaço para as janelas maximizadas.
+- **Cor**: o fundo da barra pode seguir a cor do app aberto, com animação.
+- **Efeito ao passar o mouse**: tipo, intensidade, velocidade e cor do brilho.
+- **Ícones e janelas**: tamanho dos ícones, indicador de app aberto, ícones empilhados, comportamento do clique e preview.
+- **Sistema**: iniciar com o Windows, atualizações automáticas e restaurar os padrões.
+
+A configuração fica em `%APPDATA%\windows-bar\config.json`.
+
+## Atualizações
+
+O WindowsBar procura novas versões um minuto depois de abrir e a cada 6 horas. Com **Baixar atualizações automaticamente** ligado, a nova versão é baixada e verificada (assinatura digital) em segundo plano e instalada quando você clicar em **Reiniciar e atualizar** em **Configurações da barra → Sistema**. Também dá para procurar na hora pelo ícone do WindowsBar na bandeja → **Procurar atualizações**.
+
+## Desinstalar
+
+**Configurações do Windows → Apps → Aplicativos instalados → WindowsBar → Desinstalar.** A barra do Windows volta automaticamente.
+
+Se por algum motivo a barra do Windows não reaparecer (por exemplo, depois de o processo ser encerrado à força), reinicie o Explorer pelo Gerenciador de Tarefas ou reabra o WindowsBar e feche-o pelo menu.
+
+## Problemas e sugestões
+
+Abra uma [issue](https://github.com/omarcosr/windows-bar/issues) com a versão do Windows, a versão do WindowsBar (em **Configurações da barra → Sistema**) e, se possível, um print.
+
+---
+
+## Criando widgets
+
+Cada widget é um arquivo `.tsx` com `defineWidget()`. Ainda não há carregamento de plugins externos: widgets novos entram no app por pull request.
+
+### Ambiente
+
+Requer [Bun](https://bun.sh) 1.3+ no Windows.
+
+```powershell
+git clone https://github.com/omarcosr/windows-bar
+cd windows-bar
+bun install
+bun run dev                 # roda o dock e recarrega ao salvar
+bun start -- --widgets      # roda e abre a galeria de widgets
+bun run typecheck
+```
+
+Só roda um WindowsBar por vez: com uma cópia instalada aberta, a segunda execução apenas abre a galeria da primeira, então feche a instalada (clique direito na barra → **Sair do WindowsBar**) antes de desenvolver.
+
+### Um widget mínimo
+
+`src/widgets/builtin/counter.tsx`:
 
 ```tsx
 import { Text, store } from "@tarve/core";
+import { ui } from "../../theme";
 import { Tile } from "../ui";
 import { defineWidget } from "../types";
 
 export default defineWidget({
-  type: "counter",
-  name: "Counter",
-  description: "Counts clicks.",
-  category: "productivity",
-  defaultConfig: { step: 1 },
+  type: "counter",                  // id único, salvo na configuração
+  name: "Contador",                 // nome na galeria
+  description: "Conta cliques.",
+  category: "productivity",         // clock | apps | system | media | finance | productivity
+  defaultConfig: { step: 1 },       // config por instância
   setup(ctx) {
-    const state = store({ count: 0 });      // a store re-renders the tile when it changes
-    ctx.every(60_000, () => {});            // polling, cleared when the widget is removed
-    ctx.onDispose(() => {});                // any other cleanup
+    const state = store({ count: 0 });   // store: mudanças redesenham o widget
+    ctx.every(60_000, () => {});         // polling, cancelado quando o widget sai da barra
+    ctx.onDispose(() => {});             // qualquer outra limpeza
     return state;
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     return (
       <Tile width={90} onClick={() => (state.count += ctx.config.step)}>
-        <Text size={16} weight={700} color="#fff">{String(state.count)}</Text>
+        <Text size={16} weight={700} color={ui.text}>{String(state.count)}</Text>
       </Tile>
     );
+  },
+  menu({ state, ctx }) {
+    // Itens próprios do clique direito; o dock acrescenta mover, widgets e remover.
+    return [[{ label: "Zerar", icon: "x", onSelect: () => (state.count = 0) }]];
   },
 });
 ```
 
-`setup` runs once per placed instance (so two clocks have separate state and config); `ctx.config` is saved per instance and `ctx.save()` persists edits.
+E registre em `src/widgets/builtin/index.ts`:
+
+```ts
+import counter from "./counter";
+// ...
+for (const widget of [clockWeather, start, apps, /* ... */, counter]) registerWidget(widget);
+```
+
+### API
+
+| | |
+| --- | --- |
+| `setup(ctx)` | Roda uma vez por instância na barra (dois relógios têm estado e config separados). Retorne um `store`. |
+| `View({ state, ctx, preview })` | Desenha o widget. `preview` é `true` quando ele aparece na galeria: evite efeitos colaterais ali. |
+| `menu({ state, ctx })` | Opcional. Seções de itens `{ label, icon?, danger?, onSelect }` do clique direito. |
+| `ctx.config` | Config salva da instância (reativa). Depois de alterar, chame `ctx.save()`. |
+| `ctx.every(ms, fn)` | Roda `fn` agora e a cada `ms` enquanto o widget está montado. Erros são registrados, não lançados. |
+| `ctx.onDispose(fn)` | Limpeza quando o widget é removido. |
+| `ctx.app` | O `AppHandle` do Tarve (janelas, menus nativos etc.). |
+
+### O que reaproveitar
+
+- **Componentes** (`src/widgets/ui.tsx`): `Tile` (o bloco padrão, já com hover e altura da barra), `Sparkline`, `Meter`, `RoundButton`, `Dot`, `Spacer`, `WindowsLogo` e `iconHover()` para aplicar o efeito de hover escolhido pelo usuário.
+- **Tema** (`src/theme.ts`): cores (`ui.text`, `ui.faint`, `ui.green`, `ui.danger`...) e `numeric` para números com largura fixa. Use-os para o widget combinar com a barra.
+- **Serviços** (`src/services/`): dados compartilhados que só são consultados enquanto algum widget usa: janelas e apps (`windows.ts`, inclusive `launch()`), CPU/RAM (`system.ts`), mídia (`media.ts`), clima (`weather.ts`), rede/volume/bateria (`status.ts`), ícones de apps (`icons.ts`).
+
+Componentes de layout e texto (`Row`, `Column`, `View`, `Text`, `Image`...) e `store` vêm do `@tarve/core`; veja a [documentação do Tarve](https://tarve.dev).
+
+### Boas práticas
+
+- Use `ctx.every` em vez de `setInterval`, para o polling parar quando o widget for removido.
+- Mantenha o widget na altura da barra: o `Tile` já cuida disso; prefira larguras fixas.
+- Nada de bloquear a thread principal: chamadas de rede com `fetch` assíncrono, trabalho pesado em serviços.
+- Textos da interface em português, como o restante do app.
+- Rode `bun run typecheck` antes de abrir o PR e inclua um print do widget na barra.
+
+### Como o app está organizado
+
+| Camada | Arquivos |
+| --- | --- |
+| Janela nativa: posição, reserva de espaço, esconder a barra do Windows, tela cheia | `src/native/dock-window.ts`, `src/native/win32.ts` |
+| Bandeja e contadores de notificação (repassados ao Explorer) | `src/native/tray-host.ts`, `src/services/taskbar-host.ts`, `src/services/badges.ts` |
+| Serviços de dados | `src/services/` |
+| Sistema de widgets | `src/widgets/types.ts`, `registry.ts`, `host.ts` |
+| Widgets incluídos | `src/widgets/builtin/` |
+| Dock, galeria e configurações | `src/dock/`, `src/gallery/` |
+
+Para publicar versões, veja [RELEASING.md](RELEASING.md).
