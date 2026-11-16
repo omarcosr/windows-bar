@@ -1,8 +1,17 @@
+import { config } from "./config";
 /**
  * Visual tokens for the dock. Spacing runs on a 2 px grid: the dock pads its 52 px tiles by 6,
  * widgets sit 6 apart, app icons sit in 44 px slots (12 px between 32 px icons).
  * Values follow lumabar's dark dock: near-black, graphite tiles.
  */
+export const BAR_HEIGHT_MIN = 56;
+export const BAR_HEIGHT_MAX = 80;
+
+function barHeight() {
+  const h = Number(config.barHeight) || 64;
+  return Math.max(BAR_HEIGHT_MIN, Math.min(BAR_HEIGHT_MAX, Math.round(h / 2) * 2));
+}
+
 export const ui = {
   dock: {
     // Opaque: a translucent fill gets a darker 1 px fringe where the renderer antialiases its edge.
@@ -10,19 +19,30 @@ export const ui = {
     radius: 18, // tile radius + padding, so the corners run parallel
     padding: 6,
     gap: 6,
-    height: 64,
+    /** The user's bar height (config.barHeight); reading it re-renders on change. */
+    get height() {
+      return barHeight();
+    },
   },
   tile: {
     background: "#1c1c1f",
     hover: "#252529",
     border: "rgba(255,255,255,0.05)",
     radius: 12,
-    height: 52,
+    /** The bar minus its padding. */
+    get height() {
+      return barHeight() - 12;
+    },
   },
   /** One slot per app icon (and the Start button): the icon sits centred, the indicator below it. */
   app: {
-    slot: 44,
-    icon: 32,
+    /** 32 px in the default 64 px bar, scaled with the bar, on even pixels. */
+    get icon() {
+      return Math.round(((barHeight() - 12) * 32) / 52 / 2) * 2;
+    },
+    get slot() {
+      return this.icon + 12;
+    },
   },
   text: "#f5f5f7",
   muted: "#8e8e93",

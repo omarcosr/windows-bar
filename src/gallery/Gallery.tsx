@@ -17,7 +17,7 @@ import {
 import { WindowsLogo } from "../widgets/ui";
 import { config, saveConfig } from "../config";
 import { addWidget, moveWidget, removeWidget } from "../dock/state";
-import { numeric, ui } from "../theme";
+import { numeric, ui, BAR_HEIGHT_MAX, BAR_HEIGHT_MIN } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { allWidgets, getWidget } from "../widgets/registry";
 import { categoryLabels, type WidgetCategory, type WidgetDefinition } from "../widgets/types";
@@ -257,6 +257,27 @@ export function GalleryView() {
                 step={0.05}
                 onValueChange={(v) => {
                   config.opacity = Math.round(v * 100) / 100;
+                  saveConfig();
+                }}
+              />
+            </Column>
+            <Column style={{ gap: 6 }}>
+              <Row style={{ align: "center" }}>
+                <Text size={12} color="#fff" style={{ flex: 1 }}>
+                  Altura da barra
+                </Text>
+                <Text size={12} color={ui.muted} style={numeric}>
+                  {`${ui.dock.height} px`}
+                </Text>
+              </Row>
+              <Slider
+                label="Altura da barra"
+                value={ui.dock.height}
+                min={BAR_HEIGHT_MIN}
+                max={BAR_HEIGHT_MAX}
+                step={2}
+                onValueChange={(v) => {
+                  config.barHeight = Math.round(v / 2) * 2;
                   saveConfig();
                 }}
               />

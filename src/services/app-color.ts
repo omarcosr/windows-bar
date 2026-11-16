@@ -1,8 +1,31 @@
 import { store } from "@tarve/core";
-import { monitorOf, screenPixels, topWindowAt, windowClass, windowRect, isWindowVisible, type HWND, type Rect } from "../native/win32";
+import {
+  exePathOf,
+  foregroundWindow,
+  monitorOf,
+  screenPixels,
+  topWindowAt,
+  windowClass,
+  windowPid,
+  windowRect,
+  isWindowVisible,
+  type HWND,
+  type Rect,
+} from "../native/win32";
 import { foregroundApp } from "./windows";
 
 type RGB = [number, number, number];
+
+/**
+ * Windows' own flyouts: Start, search, quick settings, notifications, the clock's calendar. They
+ * open over the screen for a moment; the strip keeps the colour it had instead of reading them.
+ */
+const SHELL_FLYOUTS = /\\(SearchHost|StartMenuExperienceHost|SearchApp|ShellExperienceHost|ShellHost)\.exe$/i;
+
+function shellFlyoutInFront() {
+  const fg = foregroundWindow();
+  return !!fg && SHELL_FLYOUTS.test(exePathOf(windowPid(fg)));
+}
 
 /**
  * The colour the strip under a floating dock paints, so the screen seems to continue under it:
@@ -38,6 +61,8 @@ function row(left: number, right: number, y: number, count: number) {
 function appEdge(work: Rect): RGB | null {
   const fg = foregroundApp();
   if (!fg || !isWindowVisible(fg) || DESKTOP_CLASSES.has(windowClass(fg))) return null;
+  // A flyout that just closed is still the last window in front; it is not an app to continue.
+  if (SHELL_FLYOUTS.test(exePathOf(windowPid(fg)))) return null;
   const r = windowRect(fg);
   // Only a window that sits on the strip reads as continuing into it.
   if (r.bottom < work.bottom - 8 || r.top >= work.bottom) return null;
@@ -78,7 +103,7 @@ export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, p
       if (appColor.color !== null) Object.assign(appColor, { color: null, touching: false });
       return;
     }
-    if (paused()) return;
+    if (paused() || shellFlyoutInFront()) return;
     const { work } = monitorOf(hwnd);
     // Without a reserved strip the rows above it are the dock itself: nothing to read. (The
     // painted strip reaches a few px over the work area on purpose; more means no reservation.)
@@ -97,5 +122,5 @@ export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, p
     if (next && current && distance(next, current) < 18 && touching === appColor.touching) return;
     current = next;
     Object.assign(appColor, { color: next ? `rgb(${next[0]},${next[1]},${next[2]})` : null, touching });
-  }, 400);
+  }, 150);
 }

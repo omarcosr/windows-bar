@@ -39,7 +39,6 @@ function excludeFromPeek(hwnd: HWND) {
 }
 
 /** The dock's base height in logical px; edit-mode badges never grow the reserved strip. */
-const DOCK_HEIGHT = 64;
 
 export interface DockWindowOptions {
   mode: "floating" | "full";
@@ -51,6 +50,8 @@ export interface DockWindowOptions {
   bottomMargin: number;
   /** Logical px the window reaches up over the app above the strip, hiding its bottom frame line. */
   stripOverlap: number;
+  /** Bar height in logical px (config.barHeight): the reserved strip follows it. */
+  barHeight: number;
 }
 
 /**
@@ -166,7 +167,7 @@ export class DockWindow {
       // Not before the first render: the strip's thickness depends on the dock's size.
       if (!this.#size.width) return;
       // The window spans the reserved strip and the view adds the margins.
-      const thickness = DOCK_HEIGHT + (full ? 0 : this.#options.bottomMargin * 2);
+      const thickness = this.#options.barHeight + (full ? 0 : this.#options.bottomMargin * 2);
       // The AppBar goes through Win32, not app.appBar: app.appBar's SHAppBarMessage reaches the
       // dock's own tray host (tray-host.ts) instead of Explorer and fails, and it pins the window
       // to the strip, so the strip could not reach over the app above (stripOverlap). Win32 calls

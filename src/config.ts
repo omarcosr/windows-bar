@@ -22,6 +22,8 @@ export interface DockConfig {
   hideNativeTaskbar: boolean;
   /** "floating": a centred pill above the screen edge. "full": a bar across the whole screen, like the Windows taskbar. */
   mode: DockMode;
+  /** Height of the bar in logical px (56–80): tiles and app icons scale with it. */
+  barHeight: number;
   /** Opacity of the bar's background, 0.2–1; icons and widgets stay opaque. */
   opacity: number;
   /** Live window previews when the pointer rests on an app icon. */
@@ -41,6 +43,7 @@ export const defaultConfig = (): DockConfig => ({
   mode: "floating",
   hoverPreview: true,
   opacity: 1,
+  barHeight: 64,
   bottomMargin: 8,
   widgets: [
     { id: "clock-1", type: "clock-weather", config: {} },

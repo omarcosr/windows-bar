@@ -134,10 +134,11 @@ function AppIcon(props: {
         <View
           style={{
             position: "absolute",
+            // Inset from the slot, so the plate follows the bar height.
             top: 5,
+            bottom: 5,
             left: 2,
-            width: 40,
-            height: 42,
+            right: 2,
             radius: 8,
             background: "rgba(247,99,12,0.32)",
             borderWidth: 1,
@@ -150,10 +151,11 @@ function AppIcon(props: {
         <View
           style={{
             position: "absolute",
+            // Inset from the slot, so the plate follows the bar height.
             top: 5,
+            bottom: 5,
             left: 2,
-            width: 40,
-            height: 42,
+            right: 2,
             radius: 8,
             background: `${taskbarPrefs.accent}2e`,
             borderWidth: 1,
@@ -171,7 +173,13 @@ function AppIcon(props: {
           width={ui.app.icon}
           height={ui.app.icon}
           fit="contain"
-          style={{ position: "absolute", top: 7, left: 9, opacity: 0.4 }}
+          // 3 px up and right of the centred icon, whatever the bar height.
+          style={{
+            position: "absolute",
+            top: (ui.tile.height - ui.app.icon) / 2 - 3,
+            left: (ui.app.slot - ui.app.icon) / 2 + 3,
+            opacity: 0.4,
+          }}
         />
       ) : null}
       {icon ? (

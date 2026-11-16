@@ -1,5 +1,6 @@
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
 import { config, saveConfig } from "./config";
+import { ui } from "./theme";
 import { DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
 import { GalleryView, PREVIEW_PREFIX } from "./gallery/Gallery";
@@ -115,6 +116,7 @@ const nativeOptions = () => ({
   reserveSpace: config.reserveSpace,
   hideNativeTaskbar: config.hideNativeTaskbar,
   bottomMargin: config.bottomMargin,
+  barHeight: ui.dock.height,
   stripOverlap: stripOverlap(),
 });
 dockWindow = DockWindow.attach(app, nativeOptions());

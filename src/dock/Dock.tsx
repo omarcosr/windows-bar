@@ -1,6 +1,6 @@
-import { Pressable, Row, Text, View, Window, darkTheme } from "@tarve/core";
+import { Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/core";
 import { config, type WidgetInstance } from "../config";
-import { darken, dockBackground, ui } from "../theme";
+import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { taskbarPrefs } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
@@ -8,6 +8,62 @@ import { dockUi, removeWidget } from "./state";
 import { openWidgetMenu } from "./widget-menu";
 
 export const DOCK_TITLE = "WindowsBar Dock";
+
+/**
+ * The strip's colour change: the new colour wipes down from the top over the old one.
+ * `base` is what the strip shows; `next` is drawn on top, growing from height 0, and becomes
+ * the base when it has covered the strip. `n` keys the wipe so each change starts from the top.
+ */
+const sweep = store({ base: null as string | null, next: null as string | null, n: 0 });
+const SWEEP_MS = 380;
+
+function followColor(color: string | null) {
+  if (color === sweep.next) return;
+  if (!color || !sweep.next) {
+    // From or to no colour: nothing to wipe over, switch at once.
+    Object.assign(sweep, { base: color, next: color, n: sweep.n + 1 });
+    return;
+  }
+  // A wipe still running settles first, so the new one starts over the colour now on screen.
+  Object.assign(sweep, { base: sweep.next, next: color, n: sweep.n + 1 });
+}
+
+/** Height of the soft edge at the front of the wipe, in logical px. */
+const SWEEP_FEATHER = 48;
+
+/** The same colour fully transparent, so the gradient fades out without darkening. */
+function clear(color: string) {
+  const m = /^rgba?\(([^,]+),([^,]+),([^,)]+)/i.exec(color);
+  return m ? `rgba(${m[1]},${m[2]},${m[3]},0)` : "rgba(0,0,0,0)";
+}
+
+/**
+ * The new colour as a gradient: solid at the top, fading out over SWEEP_FEATHER at its lower
+ * edge. The whole band slides down from above the strip, so its soft edge leads the change.
+ */
+function Sweep(props: { height: number }) {
+  if (!sweep.next || sweep.next === sweep.base) return null;
+  const total = props.height + SWEEP_FEATHER;
+  const solid = Math.round((props.height / total) * 100);
+  return (
+    <View
+      key={`sweep-${sweep.n}`}
+      motionFrom={{ top: -total }}
+      onTransitionEnd={({ property }) => {
+        if (property === "top") sweep.base = sweep.next;
+      }}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: total,
+        background: `linear-gradient(to bottom, ${sweep.next} 0%, ${sweep.next} ${solid}%, ${clear(sweep.next)} 100%)`,
+        transition: { top: { duration: SWEEP_MS, easing: "easeInOut" } },
+      }}
+    />
+  );
+}
 
 function RemoveBadge(props: { onClick: () => void }) {
   return (
@@ -63,6 +119,10 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   const inStrip = docked && !full;
   const strip = inStrip && config.stripFollowsApp;
   const stripMargin = config.bottomMargin;
+  // Read during render, so a new colour renders the dock again.
+  const stripColor = strip ? appColor.color : null;
+  if (strip) queueMicrotask(() => followColor(stripColor));
+  const stripHeight = stripMargin * 2 + 2 + ui.dock.height + 4;
   const widgets = config.widgets;
   // Start and Apps form one group, placed like the Windows taskbar's icons: centred or on the
   // left, following Windows' own taskbar alignment. Other widgets keep their side of the group.
@@ -110,22 +170,19 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
                 align: "center",
                 justify: left ? "start" : "center",
                 // The window reaches 2 px over the app above (stripOverlap); the dock stays put.
-                // A 1 px top edge 15% darker than the strip marks where it starts; it also covers
-                // the frame line the app above draws on its bottom edge.
                 padding: {
                   left: stripMargin,
                   right: stripMargin,
                   bottom: stripMargin,
-                  top: stripMargin + (strip ? 1 : 0),
+                  top: stripMargin + (strip ? 2 : 0),
                 },
-                borderWidth: strip ? { top: 1 } : 0,
-                borderColor: strip && appColor.color ? darken(appColor.color) : "rgba(0,0,0,0)",
-                background: strip ? (appColor.color ?? "rgba(0,0,0,0)") : undefined,
-                transition: { background: { duration: 220, easing: "easeOut" }, borderColor: { duration: 220, easing: "easeOut" } },
+                background: strip ? (sweep.base ?? "rgba(0,0,0,0)") : undefined,
+                overflow: "hidden",
               }
             : { flex: 1, align: "start", justify: "start", direction: "row" }
         }
       >
+        {strip ? <Sweep height={stripHeight} /> : null}
         {/* A free dock's window hugs this box; the edit-mode room for the remove badges is its padding. */}
         <View
           onSize={({ borderBox }) => props.onSize(borderBox.width, borderBox.height)}
@@ -148,10 +205,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
               padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
               radius: full ? 0 : ui.dock.radius,
               background: dockBackground(config.opacity),
-              // The full-width bar gets the same darker top edge as the strip.
-              borderWidth: full ? { top: 1 } : 0,
               boxSizing: "border-box",
-              borderColor: full ? darken(dockBackground(config.opacity)) : "rgba(0,0,0,0)",
               width: full ? "100%" : undefined,
               shrink: 0,
             }}

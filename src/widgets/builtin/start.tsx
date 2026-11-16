@@ -1,6 +1,6 @@
 import { Pressable, View, type SvgNode } from "@tarve/core";
 import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
-import { tapKey, tapKeys, VK } from "../../native/win32";
+import { exePathOf, foregroundWindow, tapKey, tapKeys, VK, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { ui } from "../../theme";
 import { WindowsLogo } from "../ui";
@@ -47,6 +47,29 @@ const glyphs = {
   run: icon(["path", { d: "m5 3 14 9-14 9V3z" }]),
   desktop: icon(["rect", { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ["path", { d: "M3 15h18" }]),
 };
+
+/** The processes that draw the Start menu (and its search) on Windows 11. */
+const START_HOSTS = /\\(SearchHost|StartMenuExperienceHost|SearchApp)\.exe$/i;
+
+const isStartHost = (hwnd: ReturnType<typeof foregroundWindow>) => !!hwnd && START_HOSTS.test(exePathOf(windowPid(hwnd)));
+
+/** When the Start menu was last seen in front (sampled every 100 ms while the widget is up). */
+let startSeenAt = 0;
+
+/**
+ * The Start button toggles the Start menu, as on the taskbar. Clicking the dock takes the focus,
+ * which closes an open Start menu before this runs, so a plain Win tap would open it again:
+ * when Start was in front just before the click, the click only closes it.
+ */
+function toggleStart() {
+  // Pressing the dock closed it a moment ago (or it is still closing).
+  if (isStartHost(foregroundWindow()) || Date.now() - startSeenAt < 500) {
+    if (isStartHost(foregroundWindow())) tapKey(0x1b /* Esc */);
+    startSeenAt = 0;
+    return;
+  }
+  tapKey(VK.LWIN);
+}
 
 const VK_D = 0x44;
 const VK_R = 0x52;
@@ -99,12 +122,17 @@ export default defineWidget({
   description: "Abre o menu Iniciar do Windows.",
   category: "apps",
   defaultConfig: {},
-  setup: () => ({}),
+  setup(ctx) {
+    ctx.every(100, () => {
+      if (isStartHost(foregroundWindow())) startSeenAt = Date.now();
+    });
+    return {};
+  },
   View() {
     // Same slot and icon size as the app icons, so it lines up with them.
     return (
       <Pressable
-        onClick={() => tapKey(VK.LWIN)}
+        onClick={toggleStart}
         onContextMenu={showStartMenu}
         style={{
           width: ui.app.slot,
@@ -128,7 +156,7 @@ export default defineWidget({
             background: "linear-gradient(160deg, #3a3a40, #1b1b1f)",
           }}
         >
-          <WindowsLogo size={15} />
+          <WindowsLogo size={Math.round((ui.app.icon * 15) / 32)} />
         </View>
       </Pressable>
     );
