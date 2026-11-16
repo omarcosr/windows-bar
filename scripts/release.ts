@@ -55,10 +55,14 @@ run([
   "--out",
   "dist/release",
 ]);
+const KEY_FILE = "windows-bar-update.key";
+const keyArgs = !process.env.TARVE_UPDATE_PRIVATE_KEY && existsSync(KEY_FILE) ? ["--key", KEY_FILE] : [];
+if (!process.env.TARVE_UPDATE_PRIVATE_KEY && !keyArgs.length) throw new Error(`no signing key: set TARVE_UPDATE_PRIVATE_KEY or put ${KEY_FILE} here`);
 run([
   "bunx",
   "tarve",
   "release",
+  ...keyArgs,
   "--version",
   version,
   "--artifact",
