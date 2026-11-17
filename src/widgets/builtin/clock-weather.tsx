@@ -5,18 +5,22 @@ import { clockTip } from "../../services/clock-tooltip";
 import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { defineWidget } from "../types";
+import { formatDatePicture, formatTime } from "../../native/locale-format";
 
-const days = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-const pad = (n: number) => String(n).padStart(2, "0");
+/** "seg." → "Seg": Windows' abbreviated weekday, capitalised for the label. */
+const weekday = (d: Date) => {
+  const day = formatDatePicture(d, "ddd").replace(/\.$/, "");
+  return day.charAt(0).toUpperCase() + day.slice(1);
+};
 
 export default defineWidget({
   type: "clock-weather",
   name: "Relógio e clima",
   description: "Hora, dia e temperatura num bloco só.",
   category: "clock",
-  defaultConfig: { hour12: false, showWeather: true },
+  // The time and the weekday follow Windows' regional format.
+  defaultConfig: { showWeather: true },
   settings: [
-    { kind: "toggle", key: "hour12", label: "Formato 12 horas" },
     { kind: "toggle", key: "showWeather", label: "Mostrar temperatura", description: "O círculo com a temperatura atual." },
   ],
   setup(ctx) {
@@ -48,10 +52,8 @@ export default defineWidget({
   },
   View({ state, ctx, preview }) {
     const now = state.now;
-    let h = now.getHours();
-    if (ctx.config.hour12) h = h % 12 || 12;
     const tip = () => [
-      ...clockTip(!!ctx.config.hour12),
+      ...clockTip(),
       weather.ready ? `${weather.city ? `${weather.city}: ` : ""}${weather.temperature}° · ${weatherLabel(weather.code)}` : "",
     ];
     return (
@@ -59,13 +61,13 @@ export default defineWidget({
       <Column style={{ width: 66, height: ui.tile.height, radius: ui.tile.radius, overflow: "hidden", shrink: 0, background: "#000" }}>
         <Row style={{ height: 25, background: ui.red, align: "center", justify: "center" }}>
           <Text size={16} weight={700} color="#fff" style={numeric}>
-            {`${pad(h)}:${pad(now.getMinutes())}`}
+            {formatTime(now)}
           </Text>
         </Row>
         <Row style={{ flex: 1, align: "center", justify: "between", padding: { left: 6, right: 5 } }}>
           <Column style={{ gap: 0 }}>
             <Text size={9} weight={600} color={ui.muted}>
-              {days[now.getDay()]}
+              {weekday(now)}
             </Text>
             <Text size={12} weight={700} color="#fff" style={{ ...numeric, lineHeight: 1 }}>
               {String(now.getDate())}

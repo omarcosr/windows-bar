@@ -7,6 +7,15 @@ const user32 = dlopen("user32.dll", {
 });
 const shell32 = dlopen("shell32.dll", {
   ShellExecuteW: { args: ["ptr", "ptr", "ptr", "ptr", "ptr", "i32"], returns: "i64" },
+  SHParseDisplayName: { args: ["ptr", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  SHOpenFolderAndSelectItems: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
+  ILFree: { args: ["ptr"], returns: "void" },
+});
+const powrprof = dlopen("powrprof.dll", {
+  SetSuspendState: { args: ["i32", "i32", "i32"], returns: "i32" },
+});
+const user32Power = dlopen("user32.dll", {
+  ExitWindowsEx: { args: ["u32", "u32"], returns: "i32" },
 });
 const ole32 = dlopen("ole32.dll", {
   CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
@@ -82,10 +91,10 @@ export function toggleDesktop(): boolean {
  */
 
 /** Opens a URI, program or shortcut through the shell, in-process (no cmd.exe, no quoting), as Explorer does. */
-export function openUri(uri: string, directory?: string): boolean {
+export function openUri(uri: string, directory?: string, verb = "open"): boolean {
   try {
     const dir = directory ? wide(directory) : null;
-    return Number(shell32.symbols.ShellExecuteW(null, wide("open"), wide(uri), null, dir, 1 /* SW_SHOWNORMAL */)) > 32;
+    return Number(shell32.symbols.ShellExecuteW(null, wide(verb), wide(uri), null, dir, 1 /* SW_SHOWNORMAL */)) > 32;
   } catch (error) {
     console.error("[desktop] ShellExecuteW falhou", uri, error);
     return false;
@@ -118,4 +127,28 @@ export function openNotificationCenter() {
 /** Quick settings (network, volume, battery), as clicking those taskbar icons opens it. */
 export function openQuickSettings() {
   if (!openUri("ms-actioncenter:controlcenter/&showFooter=true")) tapKeys(VK.LWIN, 0x41 /* A */);
+}
+
+
+/** "Abrir local do arquivo": Explorer opens the folder with the item selected (SHOpenFolderAndSelectItems). */
+export function showInFolder(path: string): boolean {
+  const out = new Uint8Array(8);
+  if (shell32.symbols.SHParseDisplayName(wide(path), null, out, 0, null) < 0) return false;
+  const pidl = Number(new DataView(out.buffer).getBigUint64(0, true));
+  if (!pidl) return false;
+  try {
+    return shell32.symbols.SHOpenFolderAndSelectItems(pidl, 0, null, 0) >= 0;
+  } finally {
+    shell32.symbols.ILFree(pidl);
+  }
+}
+
+/** "Sair" in Start's power menu: ends the session (ExitWindowsEx, EWX_LOGOFF). */
+export function signOut() {
+  user32Power.symbols.ExitWindowsEx(0 /* EWX_LOGOFF */, 0);
+}
+
+/** "Suspender": sleep, never hibernate (SetSuspendState(FALSE, …)), as Start does. */
+export function sleep() {
+  powrprof.symbols.SetSuspendState(0, 0, 0);
 }

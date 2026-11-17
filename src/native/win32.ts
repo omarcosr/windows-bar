@@ -435,10 +435,9 @@ export function minimizeWindow(hwnd: HWND) {
 }
 
 export function closeWindow(hwnd: HWND) {
-  // Elevated apps may refuse WM_CLOSE from this process; the system menu's Close still works.
-  if (!U.PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, 0, 0)) {
-    U.PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xf060 /* SC_CLOSE */, 0);
-  }
+  // "Fechar janela" on the taskbar is the system menu's Close (SC_CLOSE): the app handles it as if
+  // its own close button was used (apps that close to the tray keep doing so); elevated apps take it too.
+  if (!U.PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xf060 /* SC_CLOSE */, 0)) U.PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, 0, 0);
 }
 
 // ---------- App identity (Store apps share one host exe) ----------

@@ -1,6 +1,6 @@
 import { Pressable, View, type SvgNode } from "@tarve/core";
 import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
-import { openRunDialog, openStartMenu, toggleDesktop } from "../../native/desktop";
+import { openRunDialog, openStartMenu, openUri, signOut, sleep, toggleDesktop } from "../../native/desktop";
 import { exePathOf, foregroundWindow, tapKey, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { ui } from "../../theme";
@@ -74,7 +74,7 @@ function toggleStart() {
   openStartMenu();
 }
 
-/** Runs a command line hidden (shutdown, rundll32, an elevated launch). */
+/** Runs shutdown.exe hidden (restart and shut down need its shutdown privilege handling). */
 function run(...args: string[]) {
     runProcess(args);
 }
@@ -94,7 +94,8 @@ export function showStartMenu() {
     {
       label: "Terminal (Admin)",
       icon: glyphs.shield,
-      onSelect: () => run("powershell.exe", "-NoProfile", "-Command", "Start-Process wt.exe -Verb RunAs"),
+      // The shell's "runas" verb: the UAC prompt, as "Executar como administrador".
+      onSelect: () => openUri("wt.exe", undefined, "runas"),
     },
   ];
   const shell: DockMenuItem[] = [
@@ -106,10 +107,11 @@ export function showStartMenu() {
   ];
   // "Desligar ou sair" is a submenu on Windows; the dock menu lists its entries.
   const power: DockMenuItem[] = [
-    { label: "Sair", icon: glyphs.logout, onSelect: () => run("shutdown.exe", "/l") },
-    { label: "Suspender", icon: glyphs.moon, onSelect: () => run("rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0") },
+    { label: "Sair", icon: glyphs.logout, onSelect: signOut },
+    { label: "Suspender", icon: glyphs.moon, onSelect: sleep },
     { label: "Reiniciar", icon: glyphs.restart, onSelect: () => run("shutdown.exe", "/r", "/t", "0") },
-    { label: "Desligar", icon: glyphs.power, danger: true, onSelect: () => run("shutdown.exe", "/s", "/t", "0") },
+    // Start's "Desligar" keeps Fast Startup (a hybrid shutdown) when it is on.
+    { label: "Desligar", icon: glyphs.power, danger: true, onSelect: () => run("shutdown.exe", "/s", "/hybrid", "/t", "0") },
   ];
   const desktop: DockMenuItem[] = [{ label: "Área de Trabalho", icon: glyphs.desktop, onSelect: () => toggleDesktop() }];
   showDockMenu({ title: "Iniciar", subtitle: "Menu de link rápido", sections: [tools, shell, power, desktop] });

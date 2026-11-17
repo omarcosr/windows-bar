@@ -12,9 +12,9 @@ import {
   type HWND,
 } from "../native/win32";
 import { windowAppId } from "../native/app-id";
-import { openUri } from "../native/desktop";
+import { openUri, showInFolder } from "../native/desktop";
+import { fileDescription } from "../native/version-info";
 import { createPoller } from "./poller";
-import { run } from "../runtime/proc";
 
 export interface AppWindow {
   hwnd: HWND;
@@ -73,7 +73,10 @@ function appPathOf(hwnd: HWND, exe: string, pid: number) {
   return id ? `shell:AppsFolder\\${id}` : exe;
 }
 
+/** The program's name as the taskbar shows it (its FileDescription); the file name only without one. */
 export const prettyName = (exe: string) => {
+  const described = /\.exe$/i.test(exe) ? fileDescription(exe) : "";
+  if (described) return described;
   const raw = basename(exe).replace(/\.(exe|lnk)$/i, "");
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 };
@@ -203,7 +206,7 @@ export function focusWindow(hwnd: HWND) {
 }
 
 export function openFileLocation(path: string) {
-    run(["explorer.exe", `/select,${path}`]);
+  if (!showInFolder(path)) console.error("[windows] Não foi possível abrir o local de", path);
 }
 
 export function closeApp(key: string) {
