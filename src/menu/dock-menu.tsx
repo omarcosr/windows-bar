@@ -18,6 +18,7 @@ import {
 import { DockWindow } from "../native/dock-window";
 import { foregroundWindow, isWindowVisible, popupMenuVisible, windowPid } from "../native/win32";
 import { ui } from "../theme";
+import { onShellEvent, watchMenuPopups } from "../native/shell-events";
 
 export interface DockMenuItem {
   label: string;
@@ -285,10 +286,17 @@ function place() {
   handle.setBounds({ x, y: top - gap - height, width, height, physical: true });
 }
 
+/** True from an open until the new content's size is known (onSize only fires on a change). */
+let awaitingSize = false;
+/** Shows the opening menu once both its screen and its size are known. */
+let reveal: (() => void) | null = null;
+
 function resize(width: number, height: number) {
   if (width <= 0 || height <= 0) return;
   size = { width, height };
-  if (menu.spec) place();
+  awaitingSize = false;
+  if (reveal) reveal();
+  else if (menu.spec) place();
 }
 
 function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
@@ -312,11 +320,11 @@ export async function initDockMenu(app: AppHandle) {
 }
 
 /** Opens the dock's popup menu above the pointer. */
-let hold: { timer: ReturnType<typeof setInterval>; owner: number; seen: boolean; until: number } | null = null;
+let hold: { owner: number; seen: boolean; until: number; stop: () => void } | null = null;
 
 function stopHold() {
   if (!hold) return;
-  clearInterval(hold.timer);
+  hold.stop();
   hold = null;
 }
 
@@ -329,29 +337,51 @@ function stopHold() {
 export function holdDockMenu(ownerPid: number) {
   stopHold();
   if (!menu.spec) return;
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  const check = () => {
+    if (!menu.spec || hold !== state) return stopHold();
+    if (popupMenuVisible()) {
+      state.seen = true;
+      return;
+    }
+    // No standard menu yet: the app may still be building it, or draws a custom one.
+    if (!state.seen && Date.now() < state.until) return;
+    const fg = foregroundWindow();
+    const pid = fg ? windowPid(fg) : 0;
+    if (pid === process.pid) {
+      stopHold();
+      handle?.activate();
+    } else if (fg && pid === state.owner && (!state.seen || !isWindowVisible(fg))) {
+      // Menu dismissed without a choice (or a custom menu still up): stay open.
+    } else {
+      closeDockMenu();
+    }
+  };
+  // A menu closing and the foreground moving on arrive as a burst: decide once it settles.
+  const soon = () => {
+    clearTimeout(settle);
+    settle = setTimeout(check, 50);
+  };
+  // EVENT_SYSTEM_MENUPOPUPSTART/END and EVENT_SYSTEM_FOREGROUND from the shell-events worker, plus one
+  // timer at the end of the grace period an app gets to show its menu.
+  const releaseMenus = watchMenuPopups();
+  const off = onShellEvent((event) => {
+    if (event.type === "menuPopup") {
+      if (event.start) state.seen = true;
+      soon();
+    } else if (event.type === "foreground") soon();
+  });
+  const grace = setTimeout(check, 1500);
   const state = {
     owner: ownerPid,
     seen: false,
     until: Date.now() + 1500,
-    timer: setInterval(() => {
-      if (!menu.spec || hold !== state) return stopHold();
-      if (popupMenuVisible()) {
-        state.seen = true;
-        return;
-      }
-      // No standard menu yet: the app may still be building it, or draws a custom one.
-      if (!state.seen && Date.now() < state.until) return;
-      const fg = foregroundWindow();
-      const pid = fg ? windowPid(fg) : 0;
-      if (pid === process.pid) {
-        stopHold();
-        handle?.activate();
-      } else if (fg && pid === state.owner && (!state.seen || !isWindowVisible(fg))) {
-        // Menu dismissed without a choice (or a custom menu still up): stay open.
-      } else {
-        closeDockMenu();
-      }
-    }, 100),
+    stop: () => {
+      clearTimeout(settle);
+      clearTimeout(grace);
+      off();
+      releaseMenus();
+    },
   };
   hold = state;
 }
@@ -362,19 +392,31 @@ export function showDockMenu(spec: DockMenuSpec) {
   stopHold();
   const ticket = ++opening;
   pending = true;
+  awaitingSize = true;
+  reveal = null;
   menu.spec = spec;
   void h.screens().then(({ screens, cursor }) => {
     if (ticket !== opening) return;
-    pending = false;
     const screen = screenAt(screens, cursor);
     if (screen) {
       scale = screen.scale || 1;
       area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
     }
     anchorX = cursor?.x ?? area.x + area.width / 2;
-    place();
-    h.show();
-    h.activate();
+    // Shown at the old menu's size, the window jumped when the new size came in a frame later:
+    // wait for it. A menu of the same size reports none, so a short timeout shows it anyway.
+    const show = () => {
+      if (reveal !== show) return;
+      reveal = null;
+      if (ticket !== opening) return;
+      pending = false;
+      place();
+      h.show();
+      h.activate();
+    };
+    reveal = show;
+    if (!awaitingSize) show();
+    else setTimeout(show, 50);
   });
 }
 
@@ -414,6 +456,7 @@ export function closeDockMenu() {
   stopHold();
   opening++;
   pending = false;
+  reveal = null;
   if (!menu.spec) return;
   if (menu.spec.id) lastClosed = { id: menu.spec.id, at: Date.now() };
   menu.spec = null;

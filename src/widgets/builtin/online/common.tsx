@@ -12,9 +12,11 @@ export function refreshNow(state: object) {
   void refreshers.get(toRaw(state))?.();
 }
 
+const compactFormat = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+
 /** Compact pt-BR number: 1,2 mil, 3,4 mi. */
 export function compact(n: number) {
-  return new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  return compactFormat.format(n);
 }
 
 export function errorText(error: unknown) {

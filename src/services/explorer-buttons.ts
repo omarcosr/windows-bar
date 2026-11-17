@@ -1,6 +1,8 @@
 import { store } from "@tarve/core";
 import { programOfAppId } from "../native/shell-item";
 import { readExplorerButtons, type ExplorerButton } from "../native/taskbar-buttons";
+import { HSHELL, onShellEvent, onWatchChange } from "../native/shell-events";
+import { dockCovered, onDockCoveredChange } from "./poller";
 
 /**
  * Badges and progress as Explorer shows them on its own taskbar buttons (native/taskbar-buttons.ts).
@@ -19,19 +21,60 @@ export interface ButtonState {
 export const explorerButtons = store({ list: [] as ExplorerButton[] });
 
 /**
- * A UIA search of Explorer's taskbar costs 15–20 ms in the app (130 ms under Bun). There is no event
- * to wait for instead: UIA change handlers call back on UIA's own threads, which the JS runtime's FFI
- * cannot take. So it runs every 2 s while a button shows progress, every 5 s while one shows a
- * badge, and otherwise backs off (doubling) to 30 s.
+ * A UIA search of Explorer's taskbar costs 15–20 ms in the app (130 ms under Bun). Explorer has no
+ * event this runtime can take yet: UIA change handlers call back on UIA's own threads, which the
+ * JS runtime's FFI cannot take (TODO: UIA property-change events with threadsafeComObject from the
+ * next @tarve/core). Meanwhile what usually comes with a new badge or progress triggers a read at
+ * once (debounced, never closer than FAST to the last one): an app's button redrawn or flashing
+ * (HSHELL_REDRAW, HSHELL_FLASH), windows opening, closing or coming forward, a toast arriving (the
+ * notifications folder). Between them it reads every 2 s while a button shows progress (it moves by
+ * the second, with no event), every 15 s while one shows a badge, and otherwise backs off
+ * (doubling) to 2 min. Nothing runs while the dock cannot be seen (covered, locked, screen off).
  */
 const FAST = 2000;
-const BADGES = 5000;
-const SLOW = 30_000;
+const BADGES = 15_000;
+const SLOW = 120_000;
+const SETTLE = 400;
 let delay = FAST;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let users = 0;
+let lastRead = 0;
+let offEvents: (() => void) | undefined;
+
+/** True while a flyout is open (set by main.tsx): the blocking UIA read waits, so it never stalls it. */
+let busy: () => boolean = () => false;
+export function pauseExplorerButtonsWhile(check: () => boolean) {
+  busy = check;
+}
+
+/** A read skipped while the dock could not be seen; done when it can again. */
+let waiting = false;
+onDockCoveredChange(() => {
+  if (dockCovered() || !waiting || !users) return;
+  waiting = false;
+  clearTimeout(timer);
+  tick();
+});
+
+const TRIGGERS: number[] = [HSHELL.REDRAW, HSHELL.FLASH, HSHELL.WINDOWCREATED, HSHELL.WINDOWDESTROYED];
+
+/** Something that often changes a button happened: read soon instead of at the next period. */
+function soon() {
+  if (!users || waiting) return;
+  clearTimeout(timer);
+  timer = setTimeout(tick, Math.max(SETTLE, FAST - (Date.now() - lastRead)));
+}
 
 function tick() {
+  if (dockCovered()) {
+    waiting = true;
+    return;
+  }
+  if (busy()) {
+    if (users) timer = setTimeout(tick, 1000);
+    return;
+  }
+  lastRead = Date.now();
   try {
     const buttons = readExplorerButtons();
     const list = buttons ? buttons.filter((b) => b.help.trim()) : [];
@@ -52,13 +95,26 @@ function tick() {
 export function acquireExplorerButtons(): () => void {
   if (users++ === 0) {
     delay = FAST;
+    waiting = false;
+    const offShell = onShellEvent((event) => {
+      if ((event.type === "shell" && TRIGGERS.includes(event.code)) || event.type === "foreground") soon();
+    });
+    const offToasts = onWatchChange(["notifications"], soon, 300);
+    offEvents = () => {
+      offShell();
+      offToasts();
+    };
     tick();
   }
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    if (--users === 0) clearTimeout(timer);
+    if (--users === 0) {
+      clearTimeout(timer);
+      offEvents?.();
+      offEvents = undefined;
+    }
   };
 }
 

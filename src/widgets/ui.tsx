@@ -155,11 +155,12 @@ export const glyphs = {
 };
 
 /** Four rounded squares, silver on graphite, like the lumabar start tile. */
-export function WindowsLogo(props: { size: number }) {
+export function WindowsLogo(props: { size: number; color?: string }) {
   const s = props.size;
+  const fill = props.color ?? "#e9e9ee";
   const q = s * 0.44;
   const g = s - q * 2;
-  const square = (x: number, y: number) => <SvgRect x={x} y={y} width={q} height={q} rx={s * 0.05} fill="#e9e9ee" stroke="none" />;
+  const square = (x: number, y: number) => <SvgRect x={x} y={y} width={q} height={q} rx={s * 0.05} fill={fill} stroke="none" />;
   return (
     <Svg width={s} height={s} viewBox={[0, 0, s, s]}>
       {square(0, 0)}

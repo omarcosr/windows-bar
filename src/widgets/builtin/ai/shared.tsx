@@ -1,8 +1,9 @@
-import { Row, Text, View, store } from "@tarve/core";
+import { Row, Text, View, store, toRaw } from "@tarve/core";
 import { numeric, ui } from "../../../theme";
 import { Meter } from "../../ui";
 import type { WidgetContext } from "../../types";
-import { resetLabel, type LimitUsage, type LocalUsage, type UsageWindow } from "../../../services/ai-usage";
+import { onClock, type ClockSubscription } from "../../../services/clock";
+import { aiUsage, resetLabel, type LimitUsage, type LocalUsage, type UsageWindow } from "../../../services/ai-usage";
 
 export const brand = {
   claude: { color: "#d97757", letter: "C", name: "Claude" },
@@ -15,10 +16,43 @@ export type Brand = keyof typeof brand;
 /** Meter colour after how much of the window is gone. */
 export const tone = (used: number) => (used >= 90 ? ui.danger : used >= 70 ? "#ff9f0a" : ui.green);
 
-/** A per-instance store whose tick re-renders the countdowns every 30 s. */
+/**
+ * The next moment a "resets in" label (resetLabel) changes, over every reset time in `aiUsage`:
+ * whole minutes below a day ("2h 13min", "5min", "agora"), the weekday and time above.
+ */
+function nextLabelChange(now: number): number | null {
+  let next = Infinity;
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key !== "resetsAt") visit(item);
+      else if (typeof item === "number" && item > now) {
+        const minutes = Math.ceil((item - now) / 60_000);
+        const at = item - (Math.min(minutes, 24 * 60) - 1) * 60_000;
+        if (at < next) next = at;
+      }
+    }
+  };
+  visit(toRaw(aiUsage));
+  return next === Infinity ? null : next;
+}
+
+/**
+ * A per-instance store whose `tick` re-renders the countdowns exactly when a shown "resets in"
+ * label changes (the shared clock, not a 30 s check). New usage data renders the widget, and the
+ * read of `tick` in that render re-plans the wake for the new reset times.
+ */
 export function ticker<C extends object>(ctx: WidgetContext<C>) {
-  const state = store({ tick: 0 });
-  ctx.every(30_000, () => state.tick++);
+  let sub: ClockSubscription | undefined;
+  const state = store({
+    count: 0,
+    get tick(): number {
+      sub?.update();
+      return this.count;
+    },
+  });
+  sub = onClock((now, covered) => (covered ? null : nextLabelChange(now)), () => state.count++);
+  ctx.onDispose(sub.cancel);
   return state;
 }
 

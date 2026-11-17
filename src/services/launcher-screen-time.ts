@@ -4,23 +4,24 @@ import { join } from "node:path";
 import { configDir } from "../config";
 import { idleMs } from "../native/launcher-idle";
 import { desktop, windowsPoller } from "./windows";
-import { createPoller } from "./poller";
 import { onExit } from "./exit";
-import { onShellEvent } from "../native/shell-events";
+import { awaitInput, onShellEvent } from "../native/shell-events";
 
 /**
  * Screen time: which app is in front while the user is at the computer. Time is credited to the
- * app in front when the foreground changes (shell events) and once a minute while it stays.
+ * app in front when the foreground changes (shell events), and by one timer set for the moment the
+ * user would count as away (last input from GetLastInputInfo + 5 min): when it fires with input since,
+ * the time so far is credited and it is set again; with none, the user is away and nothing counts
+ * until the next input (cursor/caret WinEvent), foreground change, unlock or display on.
  * The app is the one the dock's app list marks active (desktop.activeKey), so it carries the same
- * identity the taskbar groups by (AppUserModelID, package or exe). Away (no input for 5 min) counts
- * nothing. Daily totals live in screen-time.json next to the dock's config.
+ * identity the taskbar groups by (AppUserModelID, package or exe). Away (no input for 5 min, the
+ * session locked or the display off) counts nothing. Daily totals live in screen-time.json next to
+ * the dock's config.
  */
 
-/** Credits the app that stays in front, and refreshes the views, once a minute. */
-const TICK_MS = 60_000;
 const IDLE_MS = 5 * 60_000;
 /** A gap longer than this between two samples (sleep, a stalled loop) is not counted. */
-const MAX_STEP_S = 90;
+const MAX_STEP_S = IDLE_MS / 1000 + 90;
 const KEEP_DAYS = 14;
 const filePath = join(configDir, "screen-time.json");
 
@@ -83,52 +84,115 @@ function save() {
   }
 }
 
-function sample() {
-  const now = Date.now();
-  const step = lastSample ? (now - lastSample) / 1000 : 0;
-  lastSample = now;
-  const app = desktop.activeKey ? desktop.apps.find((a) => a.key === desktop.activeKey) : undefined;
-  const away = idleMs() > IDLE_MS;
-  screenTime.current = !away && app ? app.key : "";
-  if (!app || away || step <= 0 || step > MAX_STEP_S) return;
-  const date = new Date(now);
+/** Two pieces of the same app this close (s) join into one span of the timeline. */
+const SPAN_GAP_S = 90;
+
+/** Adds [from, to) (ms) to the app, split at hour (and so day) boundaries. */
+function credit(app: { key: string; name: string; exe: string }, from: number, to: number) {
   const all = allDays();
-  const day = (all[dayKey(date)] ??= emptyDay());
-  const secOfDay = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
-  const seconds = Math.min(step, secOfDay || step);
-  day.total += seconds;
-  day.hours[date.getHours()] = (day.hours[date.getHours()] ?? 0) + seconds;
-  const usage = (day.apps[app.key] ??= { name: app.name, exe: app.exe, seconds: 0 });
-  usage.seconds += seconds;
-  usage.name = app.name || usage.name;
-  usage.exe = app.exe || usage.exe;
-  const last = day.spans[day.spans.length - 1];
-  const start = Math.max(0, Math.round(secOfDay - seconds));
-  if (last && last[2] === app.key && start - last[1] <= MAX_STEP_S) last[1] = Math.round(secOfDay);
-  else day.spans.push([start, Math.round(secOfDay), app.key]);
+  for (let t = from; t < to; ) {
+    const date = new Date(t);
+    const hourEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours() + 1).getTime();
+    const end = Math.min(to, hourEnd);
+    const seconds = (end - t) / 1000;
+    const day = (all[dayKey(date)] ??= emptyDay());
+    const start = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+    day.total += seconds;
+    day.hours[date.getHours()] = (day.hours[date.getHours()] ?? 0) + seconds;
+    const usage = (day.apps[app.key] ??= { name: app.name, exe: app.exe, seconds: 0 });
+    usage.seconds += seconds;
+    usage.name = app.name || usage.name;
+    usage.exe = app.exe || usage.exe;
+    const last = day.spans[day.spans.length - 1];
+    const stop = Math.round(start + seconds);
+    if (last && last[2] === app.key && start - last[1] <= SPAN_GAP_S) last[1] = stop;
+    else day.spans.push([start, stop, app.key]);
+    t = end;
+  }
+}
+
+/**
+ * Credits the app in front since the last sample, up to when the user stopped counting as present
+ * (last input + 5 min). Away, the baseline is dropped: the time until the user is back never counts.
+ */
+function sample(away = false) {
+  const now = Date.now();
+  const prev = lastSample;
+  const idle = idleMs();
+  away ||= idle > IDLE_MS;
+  lastSample = away ? 0 : now;
+  const app = desktop.activeKey ? desktop.apps.find((a) => a.key === desktop.activeKey) : undefined;
+  screenTime.current = !away && app ? app.key : "";
+  if (!app || !prev || now - prev > MAX_STEP_S * 1000) return;
+  const end = Math.min(now, now - idle + IDLE_MS);
+  if (end <= prev) return;
+  credit(app, prev, end);
   dirty = true;
   screenTime.rev++;
   if (now - lastSave > 60_000) save();
 }
 
-const poller = createPoller(TICK_MS, sample);
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Sets the one timer at the moment the user would count as away; away, waits for the next input. */
+function scheduleIdle() {
+  clearTimeout(idleTimer);
+  const idle = idleMs();
+  if (idle > IDLE_MS) return awaitInput();
+  idleTimer = setTimeout(() => {
+    sample();
+    scheduleIdle();
+  }, IDLE_MS - idle + 1000);
+}
+
 let stopExitHook: (() => void) | null = null;
 
 /**
  * Starts tracking (and the window list it reads); returns the release function. A foreground
  * change credits the app that was in front up to now: the shell event comes before the app list
  * moves on to the new one (scheduleRefresh), so desktop.activeKey is still the previous app.
+ * Keeps counting behind a full-screen app: that app (a game, a video) is the one in front.
  */
 export function acquireScreenTime(): () => void {
+  if (users++ === 0) startTracking();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--users === 0) stopTracking?.();
+  };
+}
+
+let users = 0;
+let stopTracking: (() => void) | null = null;
+
+function startTracking() {
   const releaseWindows = windowsPoller.acquire();
-  const release = poller.acquire();
+  let locked = false;
+  let screenOff = false;
+  lastSample = 0;
+  sample();
+  scheduleIdle();
   const off = onShellEvent((event) => {
-    if (event.type === "foreground") sample();
+    if (event.type === "foreground" || event.type === "input") {
+      sample(locked || screenOff);
+      if (!locked && !screenOff) scheduleIdle();
+    } else if (event.type === "session" || event.type === "screen") {
+      if (event.type === "session") locked = event.locked;
+      else screenOff = !event.on;
+      // Going away credits up to now; coming back starts counting again.
+      sample(locked || screenOff);
+      if (!locked && !screenOff) scheduleIdle();
+      else clearTimeout(idleTimer);
+    }
   });
   stopExitHook ??= onExit(save);
-  return () => {
+  stopTracking = () => {
+    stopTracking = null;
     off();
-    release();
+    clearTimeout(idleTimer);
+    sample();
+    lastSample = 0;
     releaseWindows();
     save();
   };

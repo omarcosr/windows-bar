@@ -6,23 +6,19 @@ import { launch } from "../../../services/windows";
 import { numeric, ui } from "../../../theme";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import type { WidgetContext } from "../../types";
+import { every, onClock, type ClockUnit } from "../../../services/clock";
+import { onConfigSaved } from "../../../config";
 
-/** A store with `now`, refreshed on each second (or minute) boundary while the widget is mounted. */
-export function clockState<C extends object>(ctx: WidgetContext<C>, seconds: () => boolean) {
+/**
+ * A store with `now`, moved on the shared clock at each `unit` boundary (the coarsest the face
+ * shows: seconds, minutes, or the day for date-only faces) while the dock is visible.
+ */
+export function clockState<C extends object>(ctx: WidgetContext<C>, unit: () => ClockUnit) {
   const state = store({ now: new Date() });
-  let timer: ReturnType<typeof setTimeout>;
-  const schedule = () => {
-    const step = seconds() ? 1000 : 60_000;
-    timer = setTimeout(
-      () => {
-        state.now = new Date();
-        schedule();
-      },
-      step - (Date.now() % step) + 20,
-    );
-  };
-  schedule();
-  ctx.onDispose(() => clearTimeout(timer));
+  const sub = onClock(every(unit), (now) => (state.now = new Date(now)));
+  // "Show seconds" toggled in the settings: re-plan at once instead of at the next minute.
+  ctx.onDispose(onConfigSaved(sub.update));
+  ctx.onDispose(sub.cancel);
   return state;
 }
 
@@ -150,9 +146,12 @@ const SEGMENTS: Record<string, string> = {
   "9": "abcdfg",
 };
 
-/** One seven-segment digit, `h` tall, lit segments in `color` over faint unlit ones. */
-export function SegmentDigit(props: { digit: string; h: number; color: string }) {
-  const h = props.h;
+const segmentShapes = new Map<number, [string, string][]>();
+
+/** The seven segment polygons of a digit `h` tall (the same every tick: built once per size). */
+function shapesFor(h: number) {
+  let cached = segmentShapes.get(h);
+  if (cached) return cached;
   const w = h * 0.55;
   const t = Math.max(2, h * 0.12);
   const g = t * 0.18;
@@ -168,10 +167,19 @@ export function SegmentDigit(props: { digit: string; h: number; color: string })
     e: vt(t / 2, mid, h - t / 2),
     c: vt(w - t / 2, mid, h - t / 2),
   };
+  cached = Object.entries(shapes);
+  segmentShapes.set(h, cached);
+  return cached;
+}
+
+/** One seven-segment digit, `h` tall, lit segments in `color` over faint unlit ones. */
+export function SegmentDigit(props: { digit: string; h: number; color: string }) {
+  const h = props.h;
+  const w = h * 0.55;
   const lit = SEGMENTS[props.digit] ?? "";
   return (
     <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
-      {Object.entries(shapes).map(([k, pts]) => (
+      {shapesFor(h).map(([k, pts]) => (
         <Polygon points={pts} fill={lit.includes(k) ? props.color : "rgba(255,255,255,0.06)"} stroke="none" />
       ))}
     </Svg>

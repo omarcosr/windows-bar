@@ -42,7 +42,7 @@ export const analog = defineWidget({
     },
   ],
   setup(ctx) {
-    return clockState(ctx, () => ctx.config.showSeconds);
+    return clockState(ctx, () => (ctx.config.showSeconds ? "second" : "minute"));
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -76,7 +76,7 @@ export const worldClocks = defineWidget({
     { kind: "choice", key: "zone3", label: "Fuso 3", options: zoneChoices },
   ],
   setup(ctx) {
-    return clockState(ctx, () => false);
+    return clockState(ctx, () => "minute");
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -124,7 +124,7 @@ export const worldTime = defineWidget({
     hourFormatSetting,
   ],
   setup(ctx) {
-    return clockState(ctx, () => false);
+    return clockState(ctx, () => "minute");
   },
   menu: clockMenu,
   hidden({ ctx }) {

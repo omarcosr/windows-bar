@@ -7,6 +7,8 @@ import { HoverTip } from "../../menu/hover-tip";
 import { clockTip } from "../../services/clock-tooltip";
 import { defineWidget } from "../types";
 import { clockShowsSeconds, formatDate, formatTime } from "../../native/locale-format";
+import { onWatchChange } from "../../native/shell-events";
+import { every, onClock } from "../../services/clock";
 
 /** Time over date, right-aligned, as at the end of the Windows 11 taskbar. */
 export default defineWidget({
@@ -19,21 +21,20 @@ export default defineWidget({
   settings: [{ kind: "toggle", key: "showDate", label: "Mostrar data" }],
   setup(ctx) {
     const state = store({ now: new Date(), seconds: clockShowsSeconds() });
-    let timer: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      const step = state.seconds ? 1000 : 60_000;
-      timer = setTimeout(
-        () => {
-          state.now = new Date();
-          // Windows' "show seconds" setting, re-read as it may change while the dock runs.
-          if (state.now.getSeconds() < 1 || state.seconds) state.seconds = clockShowsSeconds();
-          schedule();
-        },
-        step - (Date.now() % step) + 20,
-      );
-    };
-    schedule();
-    ctx.onDispose(() => clearTimeout(timer));
+    // One wake per shown minute (or second), on the shared clock, as Explorer's clock does.
+    const sub = onClock(every(() => (state.seconds ? "second" : "minute")), (now) => (state.now = new Date(now)));
+    // Windows' "show seconds" (Explorer\Advanced ShowSecondsInSystemClock), re-read when the key
+    // changes (RegNotifyChangeKeyValue in the shell-events worker) instead of on every tick.
+    ctx.onDispose(
+      onWatchChange(["advanced"], () => {
+        const seconds = clockShowsSeconds();
+        if (seconds === state.seconds) return;
+        state.seconds = seconds;
+        state.now = new Date();
+        sub.update();
+      }),
+    );
+    ctx.onDispose(sub.cancel);
     return state;
   },
   menu() {

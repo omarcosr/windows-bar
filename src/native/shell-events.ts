@@ -21,7 +21,13 @@ import type { RuntimeWorker } from "../runtime/worker.ts";
  * MsgWaitForMultipleObjectsEx: nothing is polled, the worker sleeps until Windows has something to say.
  */
 
-/** Registry keys (HKCU) and folders watched for changes, by id. */
+const HOME = process.env.USERPROFILE ?? process.env.HOME ?? "";
+
+/**
+ * Registry keys (HKCU) and folders watched for changes, by id. A `lazy` watch is waited on only while
+ * acquireWatch() holds it; `rest` (ms) is the least time between two of its events (a log appended to
+ * many times a second reports once, then the change waiting in the handle when the rest ends).
+ */
 const WATCHES = {
   taskband: { reg: "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskband" },
   pinned: { dir: `${process.env.APPDATA}\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar` },
@@ -31,6 +37,10 @@ const WATCHES = {
   dwm: { reg: "Software\\Microsoft\\Windows\\DWM" },
   notifyIcons: { reg: "Control Panel\\NotifyIconSettings", subtree: true },
   notifications: { dir: `${process.env.LOCALAPPDATA}\\Microsoft\\Windows\\Notifications` },
+  // The local logs the AI widgets read (ai-usage.ts): Claude Code transcripts, Codex sessions, OpenCode's database.
+  claudeProjects: { dir: `${process.env.CLAUDE_CONFIG_DIR || `${HOME}\\.claude`}\\projects`, subtree: true, lazy: true, rest: 10_000 },
+  codexSessions: { dir: `${process.env.CODEX_HOME || `${HOME}\\.codex`}\\sessions`, subtree: true, lazy: true, rest: 10_000 },
+  opencode: { dir: `${process.env.XDG_DATA_HOME || `${HOME}\\.local\\share`}\\opencode`, lazy: true, rest: 10_000 },
 } as const;
 export type WatchId = keyof typeof WATCHES;
 
@@ -45,11 +55,40 @@ export type ShellEvent =
   | { type: "setting"; action: number; area: string }
   /** The power source or the battery's charge changed. */
   | { type: "power" }
+  /** The built-in panel's brightness changed (GUID_VIDEO_CURRENT_MONITOR_BRIGHTNESS), 0..100. */
+  | { type: "brightness"; level: number }
+  /** The console display turned off or on (GUID_CONSOLE_DISPLAY_STATE; dimmed counts as on). */
+  | { type: "screen"; on: boolean }
+  /** The session was locked or unlocked (WM_WTSSESSION_CHANGE). */
+  | { type: "session"; locked: boolean }
+  /** Something went into or out of the Recycle Bin (SHChangeNotify on CSIDL_BITBUCKET). */
+  | { type: "recycleBin" }
+  /** A drive's free space changed, or a drive or medium came or went (SHCNE_FREESPACE, SHCNE_DRIVE*). */
+  | { type: "freeSpace" }
+  /** A window passed to watchDestroyed() was destroyed (EVENT_OBJECT_DESTROY). */
+  | { type: "destroyed"; hwnd: number }
+  /** A standard popup menu opened or closed, while watchMenuPopups() holds it (EVENT_SYSTEM_MENUPOPUPSTART/END). */
+  | { type: "menuPopup"; start: boolean }
+  /** The pointer moved off the top-level window given to watchPointerLeave(). */
+  | { type: "pointerLeft"; owner: number }
+  /** The first pointer or caret movement after awaitInput(). */
+  | { type: "input" }
   | { type: "display" }
   /** Explorer restarted (a new Explorer process announced TaskbarCreated). */
   | { type: "explorerRestarted" }
   /** Explorer showed its own taskbar window. */
   | { type: "trayShown" }
+  /** The system time or time zone was set (WM_TIMECHANGE). */
+  | { type: "time" }
+  /** The PC woke from sleep or hibernation (PBT_APMRESUMEAUTOMATIC / PBT_APMRESUMESUSPEND; both may arrive). */
+  | { type: "resume" }
+  /** An IP address was added, removed or changed (NotifyAddrChange): a network came or went. */
+  | { type: "network" }
+  /**
+   * The foreground window scrolled its content (EVENT_OBJECT_CONTENTSCROLLED, EVENT_SYSTEM_SCROLLINGEND),
+   * while watchScrolled() holds it; at most one every 100 ms plus the last of a burst.
+   */
+  | { type: "scrolled" }
   | { type: "changed"; id: WatchId };
 
 export const HSHELL = {
@@ -58,6 +97,8 @@ export const HSHELL = {
   WINDOWACTIVATED: 4,
   REDRAW: 6,
   LANGUAGE: 8,
+  /** A WM_APPCOMMAND no window handled (media, volume and microphone keys); hwnd carries its lParam. */
+  APPCOMMAND: 12,
   RUDEAPPACTIVATED: 0x8004,
   FLASH: 0x8006,
 } as const;
@@ -113,13 +154,125 @@ export function followForeground(test: (hwnd: number) => boolean, current: numbe
   };
 }
 
+// Requests to the worker: thread messages its loop reads before dispatching (WM_APP + 0x60..).
+const CTL_DESTROY = 0x8060, CTL_POINTER = 0x8061, CTL_INPUT = 0x8062, CTL_WATCH = 0x8063, CTL_MENU = 0x8064, CTL_SCROLL = 0x8065;
+let threadId = 0;
+let user: ReturnType<typeof openUser> | undefined;
+const openUser = () => dlopen("user32.dll", { PostThreadMessageW: { args: ["u32", "u32", "u64", "i64"], returns: "i32" } });
+const destroyWatched = new Set<number>();
+const pointerOwners = new Map<number, number>();
+const watchUsers = new Map<WatchId, number>();
+let menuUsers = 0;
+let scrollUsers = 0;
+let awaitingInput = false;
+
+function send(msg: number, wParam: number, lParam: number) {
+  if (threadId && user) user.symbols.PostThreadMessageW(threadId, msg, BigInt(wParam), BigInt(lParam));
+}
+
+/** Tells a worker that just started (or restarted) everything asked of it so far. */
+function resend() {
+  for (const hwnd of destroyWatched) send(CTL_DESTROY, hwnd, 1);
+  for (const owner of pointerOwners.keys()) send(CTL_POINTER, owner, 1);
+  for (const id of watchUsers.keys()) send(CTL_WATCH, Object.keys(WATCHES).indexOf(id), 1);
+  if (menuUsers) send(CTL_MENU, 0, 1);
+  if (scrollUsers) send(CTL_SCROLL, 0, 1);
+  if (awaitingInput) send(CTL_INPUT, 0, 1);
+}
+
+/**
+ * The windows whose destruction should be reported ({ type: "destroyed" }): the worker hooks
+ * EVENT_OBJECT_DESTROY only while the set is not empty and filters it, so the JS thread wakes only
+ * for these. Hidden windows count too, which the shell hook never reports.
+ */
+export function watchDestroyed(hwnds: Iterable<number>) {
+  const next = new Set([...hwnds].filter((h) => h > 0));
+  for (const h of destroyWatched) if (!next.has(h)) send(CTL_DESTROY, h, 0);
+  for (const h of next) if (!destroyWatched.has(h)) send(CTL_DESTROY, h, 1);
+  destroyWatched.clear();
+  for (const h of next) destroyWatched.add(h);
+}
+
+onShellEvent((event) => {
+  if (event.type === "destroyed") destroyWatched.delete(event.hwnd);
+  else if (event.type === "pointerLeft") pointerOwners.delete(event.owner);
+  else if (event.type === "input") awaitingInput = false;
+});
+
+/**
+ * Reports { type: "pointerLeft", owner } once the pointer moves over another top-level window: an
+ * out-of-context EVENT_OBJECT_LOCATIONCHANGE hook on OBJID_CURSOR, installed only while someone
+ * waits. Returns the cancel function.
+ */
+export function watchPointerLeave(owner: number): () => void {
+  pointerOwners.set(owner, (pointerOwners.get(owner) ?? 0) + 1);
+  if (pointerOwners.get(owner) === 1) send(CTL_POINTER, owner, 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    const n = (pointerOwners.get(owner) ?? 0) - 1;
+    if (n > 0) return void pointerOwners.set(owner, n);
+    if (pointerOwners.delete(owner)) send(CTL_POINTER, owner, 0);
+  };
+}
+
+/** Reports { type: "input" } once, at the next pointer or caret movement (cursor/caret WinEvents). */
+export function awaitInput() {
+  if (awaitingInput) return;
+  awaitingInput = true;
+  send(CTL_INPUT, 0, 1);
+}
+
+/** Holds the { type: "menuPopup" } events (EVENT_SYSTEM_MENUPOPUPSTART/END); returns the release function. */
+export function watchMenuPopups(): () => void {
+  if (menuUsers++ === 0) send(CTL_MENU, 0, 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    if (--menuUsers === 0) send(CTL_MENU, 0, 0);
+  };
+}
+
+/**
+ * Holds the { type: "scrolled" } events: the worker hooks EVENT_OBJECT_CONTENTSCROLLED and
+ * EVENT_SYSTEM_SCROLLINGEND only while someone holds them and keeps those of the foreground window.
+ * Returns the release function.
+ */
+export function watchScrolled(): () => void {
+  if (scrollUsers++ === 0) send(CTL_SCROLL, 0, 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    if (--scrollUsers === 0) send(CTL_SCROLL, 0, 0);
+  };
+}
+
+/** Waits on a lazy watch (WATCHES[id].lazy) while held; returns the release function. */
+export function acquireWatch(id: WatchId): () => void {
+  const n = (watchUsers.get(id) ?? 0) + 1;
+  watchUsers.set(id, n);
+  if (n === 1) send(CTL_WATCH, Object.keys(WATCHES).indexOf(id), 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    const left = (watchUsers.get(id) ?? 0) - 1;
+    if (left > 0) return void watchUsers.set(id, left);
+    watchUsers.delete(id);
+    send(CTL_WATCH, Object.keys(WATCHES).indexOf(id), 0);
+  };
+}
+
 export function startShellEvents(onEvent: (event: ShellEvent) => void) {
   if (worker) return;
-  let threadId = 0;
-  const user = dlopen("user32.dll", { PostThreadMessageW: { args: ["u32", "u32", "u64", "i64"], returns: "i32" } });
+  user ??= openUser();
   worker = startWorker<ShellEvent | { type: "ready"; threadId: number }>(shellWorkerSource(), data => {
     if (data.type === "ready") {
       threadId = data.threadId;
+      resend();
       return;
     }
     onEvent(data);
@@ -131,9 +284,15 @@ export function startShellEvents(onEvent: (event: ShellEvent) => void) {
       }
     }
   }, error => console.error("[shell-events]", error), () => {
-    if (threadId) user.symbols.PostThreadMessageW(threadId, 0x12, 0n, 0n);
+    if (threadId) user?.symbols.PostThreadMessageW(threadId, 0x12, 0n, 0n);
   });
-  onExit(() => { worker?.terminate(); worker = undefined; user.close(); });
+  onExit(() => {
+    worker?.terminate();
+    worker = undefined;
+    threadId = 0;
+    user?.close();
+    user = undefined;
+  });
 }
 /** Self-contained JS: workers cannot import the application's TypeScript facade. */
 export function shellWorkerFfi(target: typeof runtime): string {
@@ -184,8 +343,25 @@ const u = dlopen("user32.dll", {
   UnhookWinEvent: { args: ["ptr"], returns: "i32" },
   DeregisterShellHookWindow: { args: ["ptr"], returns: "i32" },
   RegisterPowerSettingNotification: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
+  GetCursorPos: { args: ["ptr"], returns: "i32" },
+  WindowFromPoint: { args: ["u64"], returns: "ptr" },
+  GetAncestor: { args: ["ptr", "u32"], returns: "ptr" },
 }).symbols;
-const shell = dlopen("shell32.dll", { SHAppBarMessage: { args: ["u32", "ptr"], returns: "u64" } }).symbols;
+const shell = dlopen("shell32.dll", {
+  SHAppBarMessage: { args: ["u32", "ptr"], returns: "u64" },
+  SHGetSpecialFolderLocation: { args: ["ptr", "i32", "ptr"], returns: "i32" },
+  SHChangeNotifyRegister: { args: ["ptr", "i32", "i32", "u32", "i32", "ptr"], returns: "u32" },
+  SHChangeNotifyDeregister: { args: ["u32"], returns: "i32" },
+  ILCreateFromPathW: { args: ["ptr"], returns: "ptr" },
+}).symbols;
+const wts = dlopen("wtsapi32.dll", {
+  WTSRegisterSessionNotification: { args: ["ptr", "u32"], returns: "i32" },
+  WTSUnRegisterSessionNotification: { args: ["ptr"], returns: "i32" },
+}).symbols;
+const ip = dlopen("iphlpapi.dll", {
+  NotifyAddrChange: { args: ["ptr", "ptr"], returns: "u32" },
+  CancelIPChangeNotify: { args: ["ptr"], returns: "i32" },
+}).symbols;
 const k = dlopen("kernel32.dll", {
   GetModuleHandleW: { args: ["ptr"], returns: "ptr" },
   GetCurrentThreadId: { args: [], returns: "u32" },
@@ -193,6 +369,8 @@ const k = dlopen("kernel32.dll", {
   FindFirstChangeNotificationW: { args: ["ptr", "i32", "u32"], returns: "ptr" },
   FindNextChangeNotification: { args: ["ptr"], returns: "i32" },
   lstrlenW: { args: ["ptr"], returns: "i32" },
+  GetLogicalDrives: { args: [], returns: "u32" },
+  GetDriveTypeW: { args: ["ptr"], returns: "u32" },
   RtlMoveMemory: { args: ["ptr", "ptr", "u64"], returns: "void" },
 }).symbols;
 const reg = dlopen("advapi32.dll", {
@@ -223,7 +401,10 @@ function explorerPid() {
   return pidBuf[0];
 }
 const APPBAR_CALLBACK = 0x8000 + 0x51;
-const WM_SETTINGCHANGE = 0x1a, WM_POWERBROADCAST = 0x218, WM_DISPLAYCHANGE = 0x7e;
+const WM_SETTINGCHANGE = 0x1a, WM_POWERBROADCAST = 0x218, WM_DISPLAYCHANGE = 0x7e, WM_WTSSESSION_CHANGE = 0x2b1, WM_TIMECHANGE = 0x1e;
+// SHChangeNotifyRegister callback messages: the Recycle Bin, and drives' free space.
+const MSG_RECYCLE = 0x8070, MSG_FREESPACE = 0x8071;
+const setting = new Uint8Array(24), settingView = new DataView(setting.buffer);
 let shellHook = 0;
 const taskbarCreated = u.RegisterWindowMessageW(wide("TaskbarCreated"));
 let explorer = 0;
@@ -257,9 +438,35 @@ const proc = new JSCallback((hwnd, msg, wParam, lParam) => {
     return 0n;
   }
   if (msg === WM_POWERBROADCAST) {
-    // PBT_APMPOWERSTATUSCHANGE, PBT_POWERSETTINGCHANGE (battery percentage, AC/DC source).
-    if (Number(wParam) === 0xa || Number(wParam) === 0x8013) postMessage({ type: "power" });
+    const code = Number(wParam);
+    if (code === 0xa /* PBT_APMPOWERSTATUSCHANGE */) postMessage({ type: "power" });
+    else if (code === 0x12 /* PBT_APMRESUMEAUTOMATIC */ || code === 0x7 /* PBT_APMRESUMESUSPEND */) postMessage({ type: "resume" });
+    else if (code === 0x8013 /* PBT_POWERSETTINGCHANGE */ && lParam) {
+      // POWERBROADCAST_SETTING: PowerSetting (GUID), DataLength, Data (a DWORD for these settings).
+      k.RtlMoveMemory(setting, Number(lParam), 24n);
+      const id = settingView.getUint32(0, true), value = settingView.getUint32(20, true);
+      if (id === 0x8ffee2c6) postMessage({ type: "brightness", level: value });
+      else if (id === 0x6fe69556) postMessage({ type: "screen", on: value !== 0 });
+      else postMessage({ type: "power" });
+    }
     return 1n;
+  }
+  if (msg === WM_WTSSESSION_CHANGE) {
+    const code = Number(wParam);
+    if (code === 7 || code === 8) postMessage({ type: "session", locked: code === 7 }); // WTS_SESSION_LOCK / UNLOCK
+    return 0n;
+  }
+  if (msg === MSG_RECYCLE) {
+    postMessage({ type: "recycleBin" });
+    return 0n;
+  }
+  if (msg === MSG_FREESPACE) {
+    postMessage({ type: "freeSpace" });
+    return 0n;
+  }
+  if (msg === WM_TIMECHANGE) {
+    postMessage({ type: "time" });
+    return 0n;
   }
   if (msg === WM_DISPLAYCHANGE) postMessage({ type: "display" });
   // Our own tray host broadcasts TaskbarCreated too: only a new Explorer process counts.
@@ -316,49 +523,205 @@ const guid = (s) => {
   for (let i = 0; i < 8; i++) b[8 + i] = parseInt(h.slice(16 + i * 2, 18 + i * 2), 16);
   return b;
 };
-const powerGuids = [guid("A7AD8041-B45A-4CAE-87A3-EECBB468A9E1"), guid("5D3E9A59-E9D5-4B00-A6BD-FF34FF516548")];
+// Then the panel brightness the quick settings slider follows, and the display turning off or on.
+// Windows sends each setting's current value right away, then every change.
+const powerGuids = [
+  guid("A7AD8041-B45A-4CAE-87A3-EECBB468A9E1"), // GUID_BATTERY_PERCENTAGE_REMAINING
+  guid("5D3E9A59-E9D5-4B00-A6BD-FF34FF516548"), // GUID_ACDC_POWER_SOURCE
+  guid("8FFEE2C6-2D01-46BE-ADB9-398ADDC5B4FF"), // GUID_VIDEO_CURRENT_MONITOR_BRIGHTNESS
+  guid("6FE69556-704A-47A0-8F24-C28D936FDA47"), // GUID_CONSOLE_DISPLAY_STATE
+];
 for (const g of powerGuids) u.RegisterPowerSettingNotification(hwnd, g, 0 /* DEVICE_NOTIFY_WINDOW_HANDLE */);
+// Lock and unlock of this session.
+wts.WTSRegisterSessionNotification(hwnd, 0 /* NOTIFY_FOR_THIS_SESSION */);
+const winEventArgs = { args: ["ptr", "u32", "ptr", "i32", "i32", "u32", "u32"], returns: "void" };
+// Hooks installed only while the JS thread asks for them (thread messages, see control()).
+const destroyWatch = new Set();
+let destroyHook = null;
+const onDestroy = new JSCallback((hook, event, target, idObject) => {
+  if (idObject !== 0 || !target) return;
+  const h = Number(target);
+  if (!destroyWatch.delete(h)) return;
+  postMessage({ type: "destroyed", hwnd: h });
+  syncHooks();
+}, winEventArgs);
+let menuWanted = false, menuHook = null;
+const onMenu = new JSCallback((hook, event) => { postMessage({ type: "menuPopup", start: event === 6 }); }, winEventArgs);
+const pointerOwners = new Set();
+let awaitingInput = false, pointerHook = null;
+const cursor = new Int32Array(2);
+const onPointer = new JSCallback((hook, event, target, idObject) => {
+  // OBJID_CURSOR, OBJID_CARET: the pointer moved, or the user typed somewhere.
+  if (idObject !== -9 && idObject !== -8) return;
+  if (awaitingInput) {
+    awaitingInput = false;
+    postMessage({ type: "input" });
+  }
+  if (idObject === -9 && pointerOwners.size) {
+    u.GetCursorPos(new Uint8Array(cursor.buffer));
+    const at = u.WindowFromPoint((BigInt(cursor[1] >>> 0) << 32n) | BigInt(cursor[0] >>> 0));
+    const root = at ? Number(u.GetAncestor(at, 2 /* GA_ROOT */)) : 0;
+    for (const owner of pointerOwners) {
+      if (owner === root) continue;
+      pointerOwners.delete(owner);
+      postMessage({ type: "pointerLeft", owner });
+    }
+  }
+  syncHooks();
+}, winEventArgs);
+// Scrolling reports many events a second: one now, then the last of the burst once SCROLL_REST passed
+// (the wait loop's timeout flushes it).
+const SCROLL_REST = 100;
+let scrollWanted = false, scrollHooks = null, scrollLast = 0, scrollPending = false;
+const onScroll = new JSCallback((hook, event, target) => {
+  if (!target) return;
+  const fg = Number(u.GetForegroundWindow());
+  if (!fg || (Number(target) !== fg && Number(u.GetAncestor(target, 2 /* GA_ROOT */)) !== fg)) return;
+  if (Date.now() - scrollLast >= SCROLL_REST) postScroll();
+  else scrollPending = true;
+}, winEventArgs);
+function postScroll() {
+  scrollLast = Date.now();
+  scrollPending = false;
+  postMessage({ type: "scrolled" });
+}
+function syncHook(hook, want, install) {
+  if (want && !hook) return install();
+  if (!want && hook) u.UnhookWinEvent(hook);
+  return want ? hook : null;
+}
+function syncHooks() {
+  // EVENT_OBJECT_DESTROY; EVENT_SYSTEM_MENUPOPUPSTART..END; EVENT_OBJECT_LOCATIONCHANGE, own process included.
+  destroyHook = syncHook(destroyHook, destroyWatch.size > 0, () => u.SetWinEventHook(0x8001, 0x8001, null, onDestroy.ptr, 0, 0, 0x2));
+  menuHook = syncHook(menuHook, menuWanted, () => u.SetWinEventHook(0x0006, 0x0007, null, onMenu.ptr, 0, 0, 0x2));
+  pointerHook = syncHook(pointerHook, awaitingInput || pointerOwners.size > 0, () => u.SetWinEventHook(0x800b, 0x800b, null, onPointer.ptr, 0, 0, 0));
+  // EVENT_OBJECT_CONTENTSCROLLED; EVENT_SYSTEM_SCROLLINGEND (two hooks: one range would take every event between).
+  if (scrollWanted && !scrollHooks) scrollHooks = [u.SetWinEventHook(0x8015, 0x8015, null, onScroll.ptr, 0, 0, 0x2), u.SetWinEventHook(0x0013, 0x0013, null, onScroll.ptr, 0, 0, 0x2)];
+  else if (!scrollWanted && scrollHooks) {
+    for (const h of scrollHooks) if (h) u.UnhookWinEvent(h);
+    scrollHooks = null;
+    scrollPending = false;
+  }
+}
+/** A request from the JS thread (watchDestroyed, watchPointerLeave, awaitInput, acquireWatch, watchMenuPopups, watchScrolled). */
+function control(m, w, l) {
+  if (m === 0x8060) l ? destroyWatch.add(w) : destroyWatch.delete(w);
+  else if (m === 0x8061) l ? pointerOwners.add(w) : pointerOwners.delete(w);
+  else if (m === 0x8062) awaitingInput = !!l;
+  else if (m === 0x8063) { for (const x of watches) if (x.index === w) x.enabled = !!l; }
+  else if (m === 0x8064) menuWanted = !!l;
+  else if (m === 0x8065) scrollWanted = !!l;
+  syncHooks();
+}
 // Change notifications: one auto-reset event per registry key, one change handle per folder.
 const watches = [];
 const out8 = new BigUint64Array(1);
 const armKey = (w) => reg.RegNotifyChangeKeyValue(w.key, w.subtree ? 1 : 0, 0x5 /* NAME | LAST_SET */, w.handle, 1) === 0;
-for (const w of ${JSON.stringify(watches)}) {
+${JSON.stringify(watches)}.forEach((w, index) => {
+  const base = { id: w.id, index, enabled: !w.lazy, rest: w.rest || 0, restUntil: 0 };
   if (w.reg) {
     out8[0] = 0n;
-    if (reg.RegOpenKeyExW(0x80000001n, wide(w.reg), 0, 0x20019 /* KEY_READ */, new Uint8Array(out8.buffer)) !== 0) continue;
-    const item = { id: w.id, key: Number(out8[0]), subtree: !!w.subtree, handle: k.CreateEventW(null, 0, 0, null) };
+    if (reg.RegOpenKeyExW(0x80000001n, wide(w.reg), 0, 0x20019 /* KEY_READ */, new Uint8Array(out8.buffer)) !== 0) return;
+    const item = { ...base, key: Number(out8[0]), subtree: !!w.subtree, handle: k.CreateEventW(null, 0, 0, null) };
     if (valid(item.handle) && armKey(item)) watches.push(item);
   } else {
     // FILE_NOTIFY_CHANGE_FILE_NAME | SIZE | LAST_WRITE
-    const handle = k.FindFirstChangeNotificationW(wide(w.dir), 0, 0x19);
-    if (valid(handle)) watches.push({ id: w.id, handle });
+    const handle = k.FindFirstChangeNotificationW(wide(w.dir), w.subtree ? 1 : 0, 0x19);
+    if (valid(handle)) watches.push({ ...base, handle });
   }
+});
+// The shell's own change notifications (SHChangeNotifyRegister), as Explorer's Recycle Bin and This PC
+// follow them. Recycling reports SHCNE_DELETE of the file and SHCNE_CREATE of its copy under the drive's
+// $Recycle.Bin folder (a file system path, not the CSIDL_BITBUCKET namespace), so each fixed drive's
+// $Recycle.Bin is registered, recursive, for SHCNE_RENAMEITEM | CREATE | DELETE | MKDIR | RMDIR |
+// UPDATEDIR | UPDATEITEM | UPDATEIMAGE | RENAMEFOLDER; the bin itself too, for emptying it.
+// SHCNE_FREESPACE | DRIVEADD | DRIVEREMOVED | MEDIAINSERTED | MEDIAREMOVED from anywhere.
+const notifyIds = [];
+function changeNotify(pidl, sources, events, message) {
+  if (!pidl) return;
+  const entry = new Uint8Array(16), e = new DataView(entry.buffer);
+  e.setBigUint64(0, BigInt(pidl), true);
+  e.setInt32(8, 1, true); // fRecursive
+  const id = shell.SHChangeNotifyRegister(hwnd, sources, events, message, 1, entry);
+  if (id) notifyIds.push(id);
+}
+function folder(csidl) {
+  out8[0] = 0n;
+  return shell.SHGetSpecialFolderLocation(null, csidl, new Uint8Array(out8.buffer)) === 0 ? Number(out8[0]) : 0;
+}
+const drives = k.GetLogicalDrives();
+for (let i = 0; i < 26; i++) {
+  if (!(drives & (1 << i))) continue;
+  const root = String.fromCharCode(65 + i) + ":\\\\";
+  if (k.GetDriveTypeW(wide(root)) !== 3 /* DRIVE_FIXED */) continue;
+  changeNotify(shell.ILCreateFromPathW(wide(root + "$Recycle.Bin")), 0x3 /* InterruptLevel | ShellLevel */, 0x2b01f, MSG_RECYCLE);
+}
+changeNotify(folder(0x000a /* CSIDL_BITBUCKET */), 0x2 /* ShellLevel */, 0x2b01f, MSG_RECYCLE);
+changeNotify(folder(0x0000 /* CSIDL_DESKTOP */), 0x2 /* ShellLevel */, 0x401e0, MSG_FREESPACE);
+// IP address changes (a network came or went): NotifyAddrChange with an OVERLAPPED completes by
+// signalling its event, waited with the watches; it is asked again after each signal. The OVERLAPPED
+// lives as long as the worker (CancelIPChangeNotify at the end).
+const overlapped = new Uint8Array(32), addrHandle = new BigUint64Array(1);
+const armAddr = () => ip.NotifyAddrChange(new Uint8Array(addrHandle.buffer), overlapped) === 997 /* ERROR_IO_PENDING */;
+const addrEvent = k.CreateEventW(null, 0, 0, null);
+let addrArmed = false;
+if (valid(addrEvent)) {
+  new DataView(overlapped.buffer).setBigUint64(24, BigInt(addrEvent), true); // hEvent
+  addrArmed = armAddr();
+  if (addrArmed) watches.push({ id: null, network: true, enabled: true, rest: 0, restUntil: 0, handle: addrEvent });
 }
 const handles = new BigUint64Array(Math.max(1, watches.length));
-watches.forEach((w, i) => (handles[i] = BigInt(w.handle)));
 const handleBytes = new Uint8Array(handles.buffer);
 postMessage({ type: "ready", threadId: k.GetCurrentThreadId() });
 const msg = new Uint8Array(48);
 const mv = new DataView(msg.buffer);
 let running = true;
 while (running) {
+  if (scrollPending && Date.now() - scrollLast >= SCROLL_REST) postScroll();
+  // Lazy watches nobody holds and watches resting after an event are left out of the wait.
+  const now = Date.now();
+  const live = [];
+  let timeout = 0xffffffff;
+  if (scrollPending) timeout = Math.max(0, scrollLast + SCROLL_REST - now);
+  for (const w of watches) {
+    if (!w.enabled) continue;
+    if (w.restUntil > now) { timeout = Math.min(timeout, w.restUntil - now); continue; }
+    handles[live.length] = BigInt(w.handle);
+    live.push(w);
+  }
   // QS_ALLINPUT, MWMO_INPUTAVAILABLE: wakes for a signalled handle or any message (sent ones too).
-  const r = u.MsgWaitForMultipleObjectsEx(watches.length, watches.length ? handleBytes : null, 0xffffffff, 0x4ff, 0x4);
-  if (r < watches.length) {
-    const w = watches[r];
+  const r = u.MsgWaitForMultipleObjectsEx(live.length, live.length ? handleBytes : null, timeout, 0x4ff, 0x4);
+  if (r === 0x102 /* WAIT_TIMEOUT: a rest ended */) continue;
+  if (r < live.length) {
+    const w = live[r];
+    if (w.network) {
+      armAddr();
+      postMessage({ type: "network" });
+      continue;
+    }
     if (w.key !== undefined) armKey(w);
     else k.FindNextChangeNotification(w.handle);
+    if (w.rest) w.restUntil = Date.now() + w.rest;
     postMessage({ type: "changed", id: w.id });
     continue;
   }
-  if (r !== watches.length) break;
+  if (r !== live.length) break;
   while (u.PeekMessageW(msg, null, 0, 0, 1)) {
-    if (mv.getUint32(8, true) === 0x12 /* WM_QUIT */) { running = false; break; }
+    const m = mv.getUint32(8, true);
+    if (m === 0x12 /* WM_QUIT */) { running = false; break; }
+    if (mv.getBigUint64(0, true) === 0n && m >= 0x8060 && m <= 0x806f) {
+      control(m, Number(mv.getBigUint64(16, true)), Number(mv.getBigInt64(24, true)));
+      continue;
+    }
     u.TranslateMessage(msg);
     u.DispatchMessageW(msg);
   }
 }
 for (const h of hooks) u.UnhookWinEvent(h);
+for (const h of [destroyHook, menuHook, pointerHook, ...(scrollHooks ?? [])]) if (h) u.UnhookWinEvent(h);
+if (addrArmed) ip.CancelIPChangeNotify(overlapped);
+for (const id of notifyIds) shell.SHChangeNotifyDeregister(id);
+wts.WTSUnRegisterSessionNotification(hwnd);
 if (showHook) u.UnhookWinEvent(showHook);
 shell.SHAppBarMessage(1, abd);
 u.DeregisterShellHookWindow(hwnd);

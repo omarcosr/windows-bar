@@ -33,6 +33,8 @@ const kernel32 = dlopen("kernel32.dll", {
   DeviceIoControl: { args: ["i64", "u32", "ptr", "u32", "ptr", "u32", "ptr", "ptr"], returns: "i32" },
   CloseHandle: { args: ["i64"], returns: "i32" },
   GetSystemPowerStatus: { args: ["ptr"], returns: "i32" },
+  GetLogicalDrives: { args: [], returns: "u32" },
+  GetDriveTypeW: { args: ["ptr"], returns: "u32" },
 });
 const advapi32 = dlopen("advapi32.dll", {
   RegGetValueW: { args: ["i64", "ptr", "ptr", "u32", "ptr", "ptr", "ptr"], returns: "i32" },
@@ -362,6 +364,18 @@ export function recycleBinInfo(): { items: number; bytes: number } | null {
   view.setUint32(0, 24, true);
   if (shell32.symbols.SHQueryRecycleBinW(null, info) !== 0) return null;
   return { bytes: Number(view.getBigInt64(8, true)), items: Number(view.getBigInt64(16, true)) };
+}
+
+/** Roots of the fixed drives ("C:\\"), the ones that keep a Recycle Bin folder. */
+export function fixedDrives(): string[] {
+  const mask = kernel32.symbols.GetLogicalDrives();
+  const roots: string[] = [];
+  for (let i = 0; i < 26; i++) {
+    if (!(mask & (1 << i))) continue;
+    const root = `${String.fromCharCode(65 + i)}:\\`;
+    if (kernel32.symbols.GetDriveTypeW(encodeWide(root)) === 3 /* DRIVE_FIXED */) roots.push(root);
+  }
+  return roots;
 }
 
 /** "Esvaziar Lixeira": with Explorer's confirmation, progress and sound (flags 0). */

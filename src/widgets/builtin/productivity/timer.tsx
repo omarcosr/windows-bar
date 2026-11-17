@@ -4,6 +4,7 @@ import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget } from "../../types";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { clock, flashBackground, minuteOptions, ring, Ring } from "./shared";
+import { onClock } from "../../../services/clock";
 
 const PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 45, 60];
 
@@ -26,18 +27,32 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
   ],
   setup(ctx) {
     const state = makeState();
-    // Ticks only while counting down or flashing "time's up"; an idle timer wakes nothing.
-    const tick = ctx.ticker(250, () => {
-      const now = Date.now();
+    // On the shared clock, only when the shown value changes: the next whole second of the countdown
+    // (its end rings even behind a full-screen app) and each half-second frame of the end flash.
+    // An idle one wakes nothing.
+    const sub = onClock((now, covered) => {
+      const left = state.endsAt - now;
+      if (state.running) return covered || left <= 0 ? state.endsAt : now + (left % 1000 || 1000);
+      if (state.now < state.flashUntil) return covered ? null : Math.min(Math.floor(now / 500) * 500 + 500, state.flashUntil);
+      return null;
+    }, (now) => {
       if (state.running && now >= state.endsAt) {
         state.running = false;
         state.active = false;
         state.left = 0;
         ring(state, ctx.config.sound);
       }
-      if (state.running || now < state.flashUntil + 600) state.now = now;
-      else tick.stop();
+      // While counting, redraw when the shown second changes; while flashing, each frame and its end.
+      if (state.running) {
+        if (Math.ceil((state.endsAt - now) / 1000) !== Math.ceil((state.endsAt - state.now) / 1000)) state.now = now;
+      } else if (state.now < state.flashUntil) state.now = now;
     });
+    ctx.onDispose(sub.cancel);
+    /** Runs an action, then re-plans the wake (started, paused, cancelled). */
+    const replan = <A extends unknown[]>(fn: (...args: A) => void) => (...args: A) => {
+      fn(...args);
+      sub.update();
+    };
     const startFor = (min: number) => {
       state.total = state.left = min * 60_000;
       state.endsAt = Date.now() + state.left;
@@ -45,7 +60,6 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       state.active = true;
       state.flashUntil = 0;
       state.now = Date.now();
-      tick.start();
     };
     const toggle = () => {
       if (!state.active) return startFor(Number(ctx.config.preset) || 5);
@@ -55,32 +69,31 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       } else {
         state.endsAt = Date.now() + state.left;
         state.running = true;
-        tick.start();
       }
       state.now = Date.now();
     };
     actions.set(toRaw(state), {
-      click: () => {
+      click: replan(() => {
         if (Date.now() < state.flashUntil) {
           state.flashUntil = 0;
           state.now = Date.now();
         } else toggle();
-      },
-      toggle,
-      startFor,
-      add: (min) => {
+      }),
+      toggle: replan(toggle),
+      startFor: replan(startFor),
+      add: replan((min: number) => {
         if (!state.active) return startFor(min);
         state.total += min * 60_000;
         if (state.running) state.endsAt += min * 60_000;
         else state.left += min * 60_000;
         state.now = Date.now();
-      },
-      cancel: () => {
+      }),
+      cancel: replan(() => {
         state.running = false;
         state.active = false;
         state.flashUntil = 0;
         state.now = Date.now();
-      },
+      }),
     });
     return state;
   },

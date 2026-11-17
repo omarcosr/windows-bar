@@ -61,17 +61,29 @@ export function refreshLanguage() {
  * Volume and network are read every second: their change events (IAudioEndpointVolumeCallback,
  * NotifyNetworkConnectivityHintChange) call back on a system thread pool, which the JS runtime's FFI
  * cannot take. The battery follows WM_POWERBROADCAST instead (shell-events.ts).
+ * TODO: the next @tarve/core (native ABI 8) adds threadsafeCallback/threadsafeComObject: register an
+ * IAudioEndpointVolumeCallback sink and NotifyNetworkConnectivityHintChange with them, and drop this poll.
  */
 const volumePoller = createPoller(1000, refreshStatus);
 
 export const statusPoller = {
   acquire(): () => void {
     refreshBattery();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const off = onShellEvent((event) => {
       if (event.type === "power") refreshBattery();
+      // A volume key no app handled reaches the shell hook (HSHELL_APPCOMMAND) as it reaches Explorer,
+      // which changes the volume: read it right after instead of at the next second.
+      else if (event.type === "shell" && event.code === HSHELL.APPCOMMAND) {
+        const command = (event.hwnd >>> 16) & 0x0fff;
+        if (command < 8 || command > 10) return; // APPCOMMAND_VOLUME_MUTE / DOWN / UP
+        clearTimeout(timer);
+        timer = setTimeout(refreshStatus, 100);
+      }
     });
     const release = volumePoller.acquire();
     return () => {
+      clearTimeout(timer);
       off();
       release();
     };

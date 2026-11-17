@@ -1,11 +1,20 @@
 import { Column, Text } from "@tarve/core";
-import { tapKeys, VK } from "../../native/win32";
-import { launch } from "../../services/windows";
+import { nextKeyboardLayout } from "../../native/status";
+import { foregroundApp, launch } from "../../services/windows";
 import { languagePoller, refreshLanguage, status } from "../../services/status";
 import { ui } from "../../theme";
 import { Tile } from "../ui";
 import { HoverTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
+
+/**
+ * Switches the app in front to the next input language, as Win+Space and the taskbar's language
+ * button do: WM_INPUTLANGCHANGEREQUEST to its window (native/status.ts nextKeyboardLayout). The
+ * indicator follows from HSHELL_LANGUAGE; the re-read is for a change the shell does not announce.
+ */
+function switchLanguage() {
+  if (nextKeyboardLayout(foregroundApp())) setTimeout(refreshLanguage, 250);
+}
 
 /** The input language indicator ("POR / PTB2"); a click switches layouts like Win+Space. */
 export default defineWidget({
@@ -21,7 +30,7 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Trocar idioma do teclado", icon: "chevron-right", onSelect: () => tapKeys(VK.LWIN, 0x20 /* Space */) },
+        { label: "Trocar idioma do teclado", icon: "chevron-right", onSelect: switchLanguage },
         { label: "Configurações de idioma", icon: "settings", onSelect: () => launch("ms-settings:regionlanguage") },
       ],
     ];
@@ -32,10 +41,7 @@ export default defineWidget({
       <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
       <Tile
         padding={{ left: 10, right: 10 }}
-        onClick={() => {
-          tapKeys(VK.LWIN, 0x20 /* Space */);
-          setTimeout(refreshLanguage, 250);
-        }}
+        onClick={switchLanguage}
       >
         <Column style={{ align: "center", gap: ui.tile.lines.gap }}>
           <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ lineHeight: ui.tile.lines.lineHeight }}>

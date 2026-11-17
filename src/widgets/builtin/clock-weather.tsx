@@ -6,6 +6,7 @@ import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { defineWidget } from "../types";
 import { formatDatePicture, formatTime } from "../../native/locale-format";
+import { every, onClock } from "../../services/clock";
 
 /** "seg." → "Seg": Windows' abbreviated weekday, capitalised for the label. */
 const weekday = (d: Date) => {
@@ -25,20 +26,8 @@ export default defineWidget({
   ],
   setup(ctx) {
     const state = store({ now: new Date() });
-    // Tick on the minute boundary so the clock never lags a full minute.
-    const tick = () => (state.now = new Date());
-    let timer: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      timer = setTimeout(
-        () => {
-          tick();
-          schedule();
-        },
-        60_000 - (Date.now() % 60_000) + 50,
-      );
-    };
-    schedule();
-    ctx.onDispose(() => clearTimeout(timer));
+    // Moves on the minute boundary (the shared clock), so the time never lags a full minute.
+    ctx.onDispose(onClock(every("minute"), (now) => (state.now = new Date(now))).cancel);
     ctx.onDispose(weatherPoller.acquire());
     return state;
   },

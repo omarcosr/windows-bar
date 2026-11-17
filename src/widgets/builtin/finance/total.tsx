@@ -104,8 +104,11 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
   setup(ctx) {
     const state = store({ daily: demoDaily(260, 3), demo: true, error: "", failed: [] as string[] });
     let seq = 0;
+    /** Every provider failed (one failing among others still shows the rest): the refresh backs off. */
+    let allFailed = false;
     const load = async () => {
       const id = ++seq;
+      allFailed = false;
       const c = ctx.config;
       const days = historyDays(asPeriod(c.period), c.compare !== false);
       const list = sources(c, days);

@@ -18,7 +18,7 @@ import {
   type BrightnessSource,
 } from "../native/actions-native";
 import { openUri } from "../native/desktop";
-import { onShellEvent, SPI_SETDESKWALLPAPER } from "../native/shell-events";
+import { HSHELL, onShellEvent, SPI_SETDESKWALLPAPER } from "../native/shell-events";
 import { createPoller } from "./poller";
 
 /** Shared state of the "actions" widgets, polled only while one of them is placed. */
@@ -45,10 +45,39 @@ function assign(next: Partial<typeof actions>) {
 
 // ---------- Microphone ----------
 
-export const micPoller = createPoller(1000, () => {
+function readMic() {
   const mic = readMicrophone();
   assign({ hasMic: !!mic, micMuted: mic?.muted ?? false, micLevel: mic?.level ?? 0, micDevice: mic?.device ?? "" });
-});
+}
+
+/**
+ * The input level is a meter (IAudioMeterInformation peak): sampled every second while the widget is
+ * placed, resting while the dock is covered or the session is away. Mute and device changes have only
+ * COM callbacks (IAudioEndpointVolumeCallback, IMMNotificationClient) on a system thread, which the JS
+ * runtime cannot take yet; a microphone key (WM_APPCOMMAND reaching the shell hook as HSHELL_APPCOMMAND)
+ * is read at once.
+ */
+const micSampler = createPoller(1000, readMic);
+
+export const micPoller = {
+  acquire(): () => void {
+    const release = micSampler.acquire();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = onShellEvent((event) => {
+      if (event.type !== "shell" || event.code !== HSHELL.APPCOMMAND) return;
+      const command = (event.hwnd >>> 16) & 0x0fff;
+      // APPCOMMAND_MICROPHONE_VOLUME_MUTE / DOWN / UP, MIC_ON_OFF_TOGGLE
+      if (command < 24 || (command > 26 && command !== 44)) return;
+      clearTimeout(timer);
+      timer = setTimeout(readMic, 100);
+    });
+    return () => {
+      clearTimeout(timer);
+      off();
+      release();
+    };
+  },
+};
 
 export function toggleMicMute() {
   if (setMicrophoneMuted(!actions.micMuted)) assign({ micMuted: !actions.micMuted });
@@ -56,11 +85,40 @@ export function toggleMicMute() {
 
 // ---------- Brightness ----------
 
-/** DDC/CI answers in tens of milliseconds over I2C: read once a minute, the shown value follows our own sets. */
-export const brightnessPoller = createPoller(60_000, () => {
+/**
+ * The built-in panel's brightness follows GUID_VIDEO_CURRENT_MONITOR_BRIGHTNESS (RegisterPowerSettingNotification
+ * in shell-events.ts), the setting the quick settings slider follows: every change, keys and auto-brightness
+ * included. An external monitor over DDC/CI has no change notification (its own buttons change it inside
+ * the monitor), and DDC answers in tens of milliseconds over I2C: it is read again once a minute, the shown
+ * value follows our own sets.
+ */
+const ddcPoller = createPoller(60_000, () => {
   const b = readBrightness();
   assign({ brightnessSource: b?.source ?? "none", brightness: b?.level ?? 0 });
 });
+
+export const brightnessPoller = {
+  acquire(): () => void {
+    const b = readBrightness();
+    assign({ brightnessSource: b?.source ?? "none", brightness: b?.level ?? 0 });
+    let releaseDdc = b?.source === "ddc" ? ddcPoller.acquire() : null;
+    const off = onShellEvent((event) => {
+      if (event.type !== "brightness") return;
+      if (actions.brightnessSource === "panel") assign({ brightness: event.level });
+      else if (actions.brightnessSource !== "ddc") {
+        // A panel that answered nothing before (driver loaded late): read it now.
+        const next = readBrightness();
+        assign({ brightnessSource: next?.source ?? "none", brightness: next?.level ?? 0 });
+        if (next?.source === "ddc") releaseDdc ??= ddcPoller.acquire();
+      }
+    });
+    return () => {
+      off();
+      releaseDdc?.();
+      releaseDdc = null;
+    };
+  },
+};
 
 export function changeBrightness(level: number) {
   const source = actions.brightnessSource;
@@ -109,10 +167,32 @@ export function toggleKeyboard() {
 
 // ---------- Recycle Bin ----------
 
-export const recyclePoller = createPoller(4000, () => {
+function readRecycleBin() {
   const info = recycleBinInfo();
   assign({ recycleItems: info?.items ?? 0, recycleBytes: info?.bytes ?? 0 });
-});
+}
+
+/**
+ * The Recycle Bin is read when the shell reports a change in it (SHChangeNotifyRegister on each drive's
+ * $Recycle.Bin and on CSIDL_BITBUCKET, see shell-events.ts) or a drive comes or goes, as Explorer's
+ * Recycle Bin icon follows it. SHQueryRecycleBinW walks every item (66 ms with ~1000 items, on the JS
+ * thread), so a burst (recycling a folder of files) is read once, after it settles.
+ */
+export const recyclePoller = {
+  acquire(): () => void {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    readRecycleBin();
+    const off = onShellEvent((event) => {
+      if (event.type !== "recycleBin" && event.type !== "freeSpace") return;
+      clearTimeout(timer);
+      timer = setTimeout(readRecycleBin, 300);
+    });
+    return () => {
+      clearTimeout(timer);
+      off();
+    };
+  },
+};
 
 export function emptyRecycle() {
   // After the menu closes: the confirmation dialog is modal.

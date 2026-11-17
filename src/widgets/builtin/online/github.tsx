@@ -1,6 +1,7 @@
 import { Column, Row, Text, View, store } from "@tarve/core";
 import { launch } from "../../../services/windows";
-import { getJson, graphql, nextLink } from "../../../services/online-http";
+import { graphql } from "../../../services/online-http";
+import { nextLinkOf, refreshWidget, remoteJson as getJson } from "../../../services/remote";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
@@ -29,7 +30,7 @@ async function unreadNotifications(token: string) {
   for (let page = 0; url && page < 10; page++) {
     const { body, res } = await getJson<unknown[]>(url, headers(token), "GitHub");
     count += body.length;
-    url = nextLink(res);
+    url = nextLinkOf(res);
   }
   return count;
 }
@@ -64,7 +65,7 @@ const github = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(2 * 60_000, load);
+    refreshWidget(ctx, 2 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {
@@ -123,7 +124,7 @@ const overview = defineWidget({
             for (let page = 0; url && page < 20; page++) {
               const { body, res } = await getJson<{ stargazers_count: number }[]>(url, h, "GitHub");
               for (const repo of body) total += repo.stargazers_count;
-              url = nextLink(res);
+              url = nextLinkOf(res);
             }
             return total;
           })(),
@@ -134,7 +135,7 @@ const overview = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(5 * 60_000, load);
+    refreshWidget(ctx, 5 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {
@@ -246,7 +247,7 @@ const activity = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(30 * 60_000, load);
+    refreshWidget(ctx, 30 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {

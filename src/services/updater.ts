@@ -1,6 +1,7 @@
 import { canInstallUpdate, checkForUpdate, cleanupUpdate, downloadUpdate, installUpdate, store, type Update } from "@tarve/core";
 import pkg from "../../package.json" with { type: "json" };
 import { config } from "../config";
+import { refreshLoop, remoteGet } from "./remote";
 
 /**
  * Self-updates from GitHub Releases, the Tarve way: `bun run release` builds, signs (tarve release)
@@ -92,7 +93,25 @@ export async function updateNow(): Promise<void> {
   if (updater.status === "ready") restartToUpdate();
 }
 
-/** Removes what the previous update left, then checks a minute after start and every 6 h. */
+/**
+ * The scheduled check: the manifest is asked for conditionally first (ETag / Last-Modified of the
+ * release asset); a 304 means the release is the one already checked, so nothing is verified again.
+ */
+let checkedOnce = false;
+async function scheduledCheck() {
+  const probe = await remoteGet(UPDATE_URL, {}, "Atualização").catch(() => null);
+  if (probe?.notModified && checkedOnce && updater.status !== "error") {
+    updater.checkedAt = Date.now();
+    return;
+  }
+  await checkNow();
+  checkedOnce = updater.status !== "error";
+}
+
+/**
+ * Removes what the previous update left, then checks a minute after start and every 6 h (a failed
+ * check, e.g. offline, backs off and is retried when the network answers again).
+ */
 export function startUpdater() {
   if (!updatesSupported()) {
     updater.status = "unsupported";
@@ -103,6 +122,5 @@ export function startUpdater() {
   } catch {
     // Nothing left behind, or not removable yet.
   }
-  setTimeout(() => void checkNow(), 60_000);
-  setInterval(() => void checkNow(), CHECK_EVERY);
+  setTimeout(() => refreshLoop(scheduledCheck, { every: CHECK_EVERY, failed: () => updater.status === "error", label: "[updater]" }), 60_000);
 }

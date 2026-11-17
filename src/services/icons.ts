@@ -6,13 +6,15 @@ import { shellIconPixels, systemScale } from "../native/shell-icon";
  * 256 px frame and shrinks it on the GPU without mipmaps, so the edges come out jagged. The icon is
  * read here at the exact pixel size it is drawn at instead; the path stays as the fallback.
  */
-const cache = new Map<string, ImageRgbaSource | string>();
+/** null: the shell had no icon for it (remembered, so a render does not ask again for 7–16 ms). */
+const cache = new Map<string, ImageRgbaSource | string | null>();
 
 export function iconFor(exe: string, size = 32): ImageRgbaSource | string | undefined {
   if (!exe) return undefined;
   const px = Math.round(size * systemScale());
   const key = `${exe.toLowerCase()}|${px}`;
   let icon = cache.get(key);
+  if (icon === null) return undefined;
   if (!icon) {
     let pixels = null;
     try {
@@ -23,7 +25,10 @@ export function iconFor(exe: string, size = 32): ImageRgbaSource | string | unde
     // <Image> cannot load a shell: path (Store apps): no icon then, the caller draws its placeholder.
     // Nor a bare file name ("mygo music.exe", a process whose path could not be read): the runtime
     // resolves it next to the dock's exe, fails, and logs the error again on every render.
-    if (!pixels && (/^shell:/i.test(exe) || !/^([a-z]:)?[\\/]/i.test(exe))) return undefined;
+    if (!pixels && (/^shell:/i.test(exe) || !/^([a-z]:)?[\\/]/i.test(exe))) {
+      cache.set(key, null);
+      return undefined;
+    }
     icon = pixels ? { ...pixels, cacheKey: `icon:${key}` } : exe;
     cache.set(key, icon);
   }

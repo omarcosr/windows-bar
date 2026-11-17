@@ -44,6 +44,8 @@ function inheritable(path: string, write: boolean): bigint {
  * Runs a console program with no console window and returns its stdout. Tarve's txiki spawn
  * (tjs.spawn) ignores windowsHide, so every reg/netsh call would flash a console; CreateProcessW
  * with CREATE_NO_WINDOW never creates one. stdout goes to a temporary file, read once it exits.
+ * TODO: the next @tarve/core (after 0.13.2) honours windowsHide in the txiki spawn (CreateProcessW
+ * + CREATE_NO_WINDOW, async pipes): then spawn can be used here and this workaround removed.
  */
 async function hiddenOutput(args: readonly string[], timeout = 15_000): Promise<{ code: number; stdout: string }> {
   kernel ??= loadKernel();

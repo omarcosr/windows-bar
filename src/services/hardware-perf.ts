@@ -2,6 +2,7 @@ import { store } from "@tarve/core";
 import { diskSpace, networkOctets, processSnapshot, systemDriveRoot } from "../native/hardware-perf";
 import { exePathOf } from "../native/win32";
 import { createPoller } from "./poller";
+import { onShellEvent } from "../native/shell-events";
 
 const HISTORY = 30;
 
@@ -40,7 +41,7 @@ export const networkPoller = createPoller(1000, () => {
 
 export const storage = store({ root: "C:\\", free: 0, total: 0, ready: false });
 
-export const storagePoller = createPoller(60_000, () => {
+function readStorage() {
   const root = systemDriveRoot();
   const space = diskSpace(root);
   storage.root = root;
@@ -48,7 +49,28 @@ export const storagePoller = createPoller(60_000, () => {
   storage.free = space.free;
   storage.total = space.total;
   storage.ready = true;
-});
+}
+
+/**
+ * Free space is read when the shell reports it changed (SHCNE_FREESPACE: emptying the Recycle Bin, shell
+ * copies and deletes, a drive or medium coming or going; SHChangeNotifyRegister in shell-events.ts), as
+ * Explorer's This PC follows it, instead of once a minute.
+ */
+export const storagePoller = {
+  acquire(): () => void {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    readStorage();
+    const off = onShellEvent((event) => {
+      if (event.type !== "freeSpace") return;
+      clearTimeout(timer);
+      timer = setTimeout(readStorage, 300);
+    });
+    return () => {
+      clearTimeout(timer);
+      off();
+    };
+  },
+};
 
 // ---------- Processes ----------
 
@@ -104,7 +126,9 @@ export const processPoller = createPoller(2000, () => {
     const delta = prev !== undefined && p.cpuTime > prev ? p.cpuTime - prev : 0n;
     // The idle process (pid 0) takes the unused share: all deltas together are the elapsed CPU time.
     total += delta;
-    if (p.pid === 0 || !p.name) continue;
+    // "Memory Compression" is the kernel's store of compressed pages, not an app: Task Manager's
+    // Processes list leaves it out (its RAM is counted as "Compactada" in Desempenho), so do we.
+    if (p.pid === 0 || !p.name || p.name === "Memory Compression") continue;
     deltas.push({ pid: p.pid, name: p.name, delta });
     const group = p.name.toLowerCase();
     const r = ram.get(group) ?? { name: p.name, pid: p.pid, count: 0, value: 0 };
@@ -130,6 +154,14 @@ export const processPoller = createPoller(2000, () => {
 // ---------- Formatting ----------
 
 /** "12,3 MB" style sizes, binary units like Explorer. */
+/** One pt-BR formatter per number of decimals: toLocaleString with options built one per call (~15 µs). */
+const formatters = new Map<number, Intl.NumberFormat>();
+function fixed(value: number, d: number) {
+  let f = formatters.get(d);
+  if (!f) formatters.set(d, (f = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d })));
+  return f.format(value);
+}
+
 export function formatBytes(bytes: number, digits = 1): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
@@ -139,7 +171,7 @@ export function formatBytes(bytes: number, digits = 1): string {
     unit++;
   }
   const d = unit === 0 ? 0 : value >= 100 ? 0 : digits;
-  return `${value.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d })} ${units[unit]}`;
+  return `${fixed(value, d)} ${units[unit]}`;
 }
 
 /** Network rate in bits per second like Task Manager ("2,4 Mbps"). */
@@ -153,5 +185,5 @@ export function formatRate(bytesPerSecond: number): string {
     unit++;
   }
   const d = unit === 0 || value >= 100 ? 0 : 1;
-  return `${value.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d })} ${units[unit]}`;
+  return `${fixed(value, d)} ${units[unit]}`;
 }

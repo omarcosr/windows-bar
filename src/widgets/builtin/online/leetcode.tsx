@@ -5,6 +5,7 @@ import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Badge, errorText, refreshNow, registerRefresh } from "./common";
+import { refreshWidget } from "../../../services/remote";
 
 const QUERY = `query userStats($username: String!) {
   matchedUser(username: $username) {
@@ -78,7 +79,7 @@ export default defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(30 * 60_000, load);
+    refreshWidget(ctx, 30 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state, ctx }) {

@@ -1,5 +1,5 @@
 import { store } from "@tarve/core";
-import { createPoller } from "./poller";
+import { acquireForecast, type MeteoData } from "./weather";
 
 /**
  * Forecast data for the weather-media widgets: the same provider (Open-Meteo) and location
@@ -42,29 +42,6 @@ export const forecast = store({
   days: [] as DayForecast[],
 });
 
-let coords: { lat: number; lon: number; city: string } | undefined;
-
-async function getJson(url: string): Promise<unknown> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
-      return await res.json();
-    } catch (error) {
-      if (attempt >= 1) throw error;
-      await new Promise((r) => setTimeout(r, 2_000));
-    }
-  }
-}
-
-async function locate() {
-  if (coords) return coords;
-  const data = (await getJson("https://ipwho.is/")) as { latitude: number; longitude: number; city: string; success: boolean };
-  if (!data.success) throw new Error("ip lookup failed");
-  coords = { lat: data.latitude, lon: data.longitude, city: data.city };
-  return coords;
-}
-
 /** "2024-05-01T06:12" in the location's zone (timezone=auto) -> epoch ms. */
 function localTime(value: string, offsetSeconds: number) {
   const [d, t = "00:00"] = value.split("T");
@@ -98,14 +75,9 @@ interface Response {
   };
 }
 
-export const forecastPoller = createPoller(15 * 60_000, async () => {
-  const { lat, lon, city } = await locate();
-  const url =
-    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=auto&forecast_days=5` +
-    `&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation` +
-    `&hourly=temperature_2m,weather_code,precipitation_probability` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset`;
-  const data = (await getJson(url)) as Response;
+/** Fills the forecast from the shared Open-Meteo request (services/weather.ts), every 15-minute slot. */
+function apply(raw: MeteoData, city: string) {
+  const data = raw as unknown as Response;
   const off = data.utc_offset_seconds ?? 0;
   const c = data.current;
   const hours = data.hourly.time.map((t, i) => ({
@@ -138,7 +110,9 @@ export const forecastPoller = createPoller(15 * 60_000, async () => {
     hours,
     days,
   });
-});
+}
+
+export const forecastPoller = { acquire: () => acquireForecast(apply) };
 
 /** Hours from the current one on. */
 export function upcomingHours(count: number, now = Date.now()) {

@@ -14,6 +14,8 @@ import {
 } from "../native/win32";
 import { foregroundApp } from "./windows";
 import { onConfigSaved } from "../config";
+import { dockCovered, onDockCoveredChange } from "./poller";
+import { HSHELL, onShellEvent, SPI_SETDESKWALLPAPER, SPI_SETWORKAREA, watchScrolled } from "../native/shell-events";
 
 type RGB = [number, number, number];
 
@@ -36,7 +38,6 @@ function shellFlyoutInFront() {
 export const appColor = store({ color: null as string | null, touching: false });
 
 const DESKTOP_CLASSES = new Set(["Progman", "WorkerW", "Shell_TrayWnd"]);
-let timer: ReturnType<typeof setInterval> | undefined;
 let current: RGB | null = null;
 
 /** Most common colour (in 16-step buckets) when it covers `share` of the samples, else the average. */
@@ -123,18 +124,79 @@ export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, p
     current = next;
     Object.assign(appColor, { color: next ? `rgb(${next[0]},${next[1]},${next[2]})` : null, touching });
   };
-  // Pixels have no change event, so the strip samples on a timer, but only while the option is on
-  // (it is re-checked when the settings are saved); otherwise no timer runs at all.
+  // Pixels have no change event, but what changes them does: the app in front changing, moving or
+  // resizing (EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_LOCATIONCHANGE of the foreground window),
+  // being minimized/restored/cloaked, retitled (HSHELL_REDRAW: a tab or page switch), its content
+  // scrolling (EVENT_OBJECT_CONTENTSCROLLED / EVENT_SYSTEM_SCROLLINGEND, hooked only while this
+  // watches), the display, work area or wallpaper changing. Each burst samples at most every
+  // THROTTLE ms plus once after it ends (animations settle). What still has no event (an app that
+  // repaints its bottom edge without scrolling: video, a page loading) waits for the slow SAFETY
+  // re-check. Only while the option is
+  // on (re-checked when the settings are saved); behind a full-screen app nothing runs (each read
+  // makes DWM copy the screen back, ~4 ms a pixel) and the colour is kept for when the dock returns.
+  const active = () => enabled() && !dockCovered();
+  let last = 0;
+  const run = () => {
+    clearTimeout(trailing);
+    clearTimeout(safety);
+    trailing = undefined;
+    if (!active()) return;
+    last = Date.now();
+    const held = !!dock() && enabled() && (paused() || shellFlyoutInFront());
+    sample();
+    // A popup of the dock or a shell flyout holds the colour: look again soon after it closes.
+    safety = setTimeout(run, held ? HELD : SAFETY);
+  };
+  const poke = () => {
+    if (!active()) return;
+    const wait = THROTTLE - (Date.now() - last);
+    if (wait <= 0) run();
+    clearTimeout(trailing);
+    trailing = setTimeout(run, Math.max(THROTTLE, wait));
+  };
   const sync = () => {
-    if (enabled()) timer ??= setInterval(sample, 150);
-    else {
-      clearInterval(timer);
-      timer = undefined;
-      clear();
+    clearTimeout(trailing);
+    clearTimeout(safety);
+    trailing = safety = undefined;
+    offEvents?.();
+    offEvents = undefined;
+    if (!active()) {
+      if (!enabled()) clear();
+      return;
     }
+    const offScrolled = watchScrolled();
+    const offShell = onShellEvent((event) => {
+      if (
+        event.type === "foreground" ||
+        event.type === "scrolled" ||
+        event.type === "moved" ||
+        event.type === "windowState" ||
+        event.type === "display" ||
+        (event.type === "shell" && event.code === HSHELL.REDRAW && event.hwnd === foregroundWindow()) ||
+        (event.type === "setting" && (event.action === SPI_SETWORKAREA || event.action === SPI_SETDESKWALLPAPER))
+      )
+        poke();
+    });
+    offEvents = () => {
+      offShell();
+      offScrolled();
+    };
+    run();
   };
   offConfig?.();
   offConfig = onConfigSaved(sync);
+  offCovered?.();
+  offCovered = onDockCoveredChange(sync);
   sync();
 }
+/** Burst sampling rate (what the old fixed timer ran at). */
+const THROTTLE = 150;
+/** Re-check for changes no event reports (video or a page repainting the app's bottom edge). */
+const SAFETY = 30_000;
+/** While a popup or flyout holds the colour. */
+const HELD = 400;
+let trailing: ReturnType<typeof setTimeout> | undefined;
+let safety: ReturnType<typeof setTimeout> | undefined;
+let offEvents: (() => void) | undefined;
 let offConfig: (() => void) | undefined;
+let offCovered: (() => void) | undefined;

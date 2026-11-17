@@ -14,6 +14,7 @@ import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, w
 import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
 import { setGalleryOpener } from "./dock/widget-menu";
+import { pauseExplorerButtonsWhile } from "./services/explorer-buttons";
 import { dockAlign, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
 import { readAutostart, setAutostart } from "./services/autostart";
 import { checkNow, restartToUpdate, startUpdater, updateNow, updater } from "./services/updater";
@@ -40,9 +41,17 @@ if (argv.includes("--autostart")) {
 }
 
 // One dock per user: a second launch (exe or bun start) is handed to the running one.
-let instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
+// requestSingleInstance rejects when it can neither reach nor become the first instance (the
+// previous dock still shutting down). Left unhandled, that kept orphan processes alive: it counts
+// as "not primary" here, so the retries below run, and the process exits if it never settles.
+const claimInstance = () =>
+  requestSingleInstance({ id: "WindowsBar.Dock" }).catch((error: unknown) => {
+    console.error("[instance]", error);
+    return null;
+  });
+let instance = await claimInstance();
 if (argv.includes("--quit")) {
-  if (instance.primary) {
+  if (instance?.primary) {
     instance.release();
     exitApp(0);
   }
@@ -53,11 +62,12 @@ if (argv.includes("--quit")) {
 }
 // Right after a dock was killed its pipe can still answer for a few seconds, longer than the
 // ~2.5 s requestSingleInstance retries (seen with 0.13.0): with no dock on screen, ask again.
-for (let i = 0; !instance.primary && !windowExists(DOCK_TITLE) && i < 6; i++) {
+for (let i = 0; !instance?.primary && !windowExists(DOCK_TITLE) && i < 6; i++) {
   await sleep(700);
-  instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
+  instance = await claimInstance();
 }
-if (!instance.primary) exitApp(0);
+if (!instance?.primary) exitApp(instance ? 0 : 1);
+const primary = instance;
 
 let dockWindow: DockWindow | undefined;
 let pendingSize: [number, number] | undefined;
@@ -143,7 +153,7 @@ const app = createApp(
   },
 );
 setWidgetApp(app);
-instance.onSecondInstance(({ args }) => {
+primary.onSecondInstance(({ args }) => {
   if (args.includes("--quit")) {
     app.close();
   }
@@ -232,6 +242,8 @@ watchAppColor(
   () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,
   () => previewOpen() || menuOpen() || mediaFlyoutOpen(),
 );
+// Reading Explorer's buttons blocks the loop for a moment (UIA): not while a flyout is open.
+pauseExplorerButtonsWhile(() => previewOpen() || menuOpen() || mediaFlyoutOpen());
 await initDockMenu(app);
 await initWindowPreview(app);
 await initHoverTip(app);

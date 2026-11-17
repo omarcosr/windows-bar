@@ -6,16 +6,18 @@ import { formatTime } from "../../../native/locale-format";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
+import { every, onClock, type ClockUnit } from "../../../services/clock";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { WeatherIcon, forecastData, weekday } from "./shared";
 
 /** The Windows weather app (MSN Weather), which the taskbar's weather opens. */
 const openWeather = () => launch("msnweather:");
 
-function setup<C extends object>(ctx: WidgetContext<C>): { now: number } {
+/** `now` moves on the shared clock at the coarsest boundary the face shows (none when it shows no time). */
+function setup<C extends object>(ctx: WidgetContext<C>, unit: ClockUnit | null): { now: number } {
   ctx.onDispose(forecastPoller.acquire());
   const state = store({ now: Date.now() });
-  ctx.every(60_000, () => (state.now = Date.now()));
+  if (unit) ctx.onDispose(onClock(every(unit), (now) => (state.now = now)).cancel);
   return state;
 }
 
@@ -41,11 +43,11 @@ const weatherNow = defineWidget({
   description: "Temperatura agora e a máxima e mínima de hoje.",
   category: "clock",
   defaultConfig: {},
-  setup: (ctx) => setup(ctx),
+  setup: (ctx) => setup(ctx, "day"),
   menu,
-  View({ preview }) {
+  View({ state, preview }) {
     const f = forecastData(preview);
-    const today = upcomingDays(1)[0] ?? f.days[0];
+    const today = upcomingDays(1, state.now)[0] ?? f.days[0];
     const icon = Math.round(ui.tile.control * 0.9);
     return (
       <Tile width={100} onClick={preview ? undefined : openWeather} padding={{ left: 8, right: 8 }} gap={6}>
@@ -67,11 +69,11 @@ const weatherDetails = defineWidget({
   description: "Vento, chance de chuva e a variação de temperatura do dia.",
   category: "clock",
   defaultConfig: {},
-  setup: (ctx) => setup(ctx),
+  setup: (ctx) => setup(ctx, "day"),
   menu,
-  View({ preview }) {
+  View({ state, preview }) {
     const f = forecastData(preview);
-    const today = upcomingDays(1)[0] ?? f.days[0];
+    const today = upcomingDays(1, state.now)[0] ?? f.days[0];
     const cell = (label: string, value: string) => (
       <Column style={{ gap: 1, width: 44, minWidth: 0 }}>
         <Small size={9}>{label}</Small>
@@ -96,7 +98,7 @@ const weatherForecast = defineWidget({
   description: "Hoje e os próximos 3 dias, com máxima e mínima.",
   category: "clock",
   defaultConfig: {},
-  setup: (ctx) => setup(ctx),
+  setup: (ctx) => setup(ctx, "day"),
   menu,
   View({ state, preview }) {
     const f = forecastData(preview);
@@ -134,7 +136,7 @@ const weatherStatus = defineWidget({
   category: "clock",
   defaultConfig: { showTemperature: true },
   settings: [{ kind: "toggle", key: "showTemperature", label: "Mostrar temperatura" }],
-  setup: (ctx) => setup(ctx),
+  setup: (ctx) => setup(ctx, null),
   menu,
   View({ ctx, preview }) {
     const f = forecastData(preview);
@@ -162,7 +164,7 @@ const weatherHourly = defineWidget({
   category: "clock",
   defaultConfig: { showRain: false },
   settings: [{ kind: "toggle", key: "showRain", label: "Mostrar chance de chuva", description: "No lugar da temperatura." }],
-  setup: (ctx) => setup(ctx),
+  setup: (ctx) => setup(ctx, "hour"),
   menu,
   View({ state, ctx, preview }) {
     const f = forecastData(preview);
@@ -198,7 +200,7 @@ const weatherSun = defineWidget({
   description: "A posição do sol no céu entre o nascer e o pôr do sol.",
   category: "clock",
   defaultConfig: {},
-  setup: (ctx) => setup(ctx),
+  setup: (ctx) => setup(ctx, "minute"),
   menu,
   View({ state, preview }) {
     const f = forecastData(preview);

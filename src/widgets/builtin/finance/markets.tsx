@@ -199,8 +199,10 @@ export const watchlist = defineWidget<{ tickers: string; display: string; change
   setup(ctx) {
     const state = store<WatchState>({ quotes: DEMO_WATCH, demo: true, error: "" });
     let seq = 0;
+    let allFailed = false;
     const load = async () => {
       const id = ++seq;
+      allFailed = false;
       const c = ctx.config;
       const tickers = tickersOf(String(c.tickers || ""));
       if (tickers.length === 0) return;

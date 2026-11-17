@@ -3,6 +3,7 @@ import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Sparkline, Tile } from "../ui";
 import { defineWidget } from "../types";
+import { refreshWidget } from "../../services/remote";
 
 const DAY = 86_400;
 const refreshers = new WeakMap<object, () => Promise<void>>();
@@ -81,7 +82,7 @@ export default defineWidget({
       }
     };
     refreshers.set(toRaw(state), load);
-    ctx.every(10 * 60_000, load);
+    refreshWidget(ctx, 10 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {

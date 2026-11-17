@@ -1,6 +1,7 @@
 import { Column, Row, Text, View, store } from "@tarve/core";
 import { launch } from "../../../services/windows";
-import { getJson, graphql, postJson } from "../../../services/online-http";
+import { graphql, postJson } from "../../../services/online-http";
+import { refreshWidget, remoteJson as getJson } from "../../../services/remote";
 import { numeric, ui } from "../../../theme";
 import { Sparkline, Tile } from "../../ui";
 import { defineWidget } from "../../types";
@@ -115,7 +116,7 @@ const linear = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(5 * 60_000, load);
+    refreshWidget(ctx, 5 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {
@@ -224,7 +225,7 @@ const supabase = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(5 * 60_000, load);
+    refreshWidget(ctx, 5 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state, ctx }) {
@@ -332,7 +333,7 @@ const resend = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(15 * 60_000, load);
+    refreshWidget(ctx, 15 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {
@@ -416,7 +417,7 @@ const plausible = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(10 * 60_000, load);
+    refreshWidget(ctx, 10 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state, ctx }) {
@@ -496,7 +497,7 @@ const dub = defineWidget({
       }
     };
     registerRefresh(state, load);
-    ctx.every(10 * 60_000, load);
+    refreshWidget(ctx, 10 * 60_000, load, () => !!state.error);
     return state;
   },
   menu({ state }) {

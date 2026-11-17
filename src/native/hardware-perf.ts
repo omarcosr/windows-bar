@@ -10,6 +10,7 @@ import { decodeWide, encodeWide } from "./wide";
 const iphlpapi = dlopen("iphlpapi.dll", {
   GetIfTable2: { args: ["ptr"], returns: "u32" },
   FreeMibTable: { args: ["ptr"], returns: "void" },
+  GetIfEntry2: { args: ["ptr"], returns: "u32" },
 });
 
 const kernel32 = dlopen("kernel32.dll", {
@@ -39,11 +40,15 @@ const IF_OPER_STATUS_UP = 1;
 const FLAG_HARDWARE = 1;
 const FLAG_FILTER = 2;
 
+const OFF_INDEX = 8; // InterfaceIndex, after the 8-byte InterfaceLuid
+/** The whole table is read again this often, so adapters plugged in later are counted too. */
+const RESCAN_MS = 30_000;
+
 /**
- * Total bytes received/sent by the physical interfaces that are up (hardware, not a filter
- * layer, not loopback), as Task Manager's per-adapter graphs count them. Null when the table fails.
+ * The physical interfaces (hardware, not a filter layer, not loopback), from the whole table
+ * (GetIfTable2), up or not: their state is read on every sample. Null when the table fails.
  */
-export function networkOctets(): { received: number; sent: number } | null {
+function scanInterfaces(): { indexes: number[]; at: number } | null {
   const out = new BigUint64Array(1);
   if (I.GetIfTable2(new Uint8Array(out.buffer)) !== 0) return null;
   const table = Number(out[0]);
@@ -51,21 +56,48 @@ export function networkOctets(): { received: number; sent: number } | null {
   try {
     const count = new DataView(toArrayBuffer(table, 0, 4)).getUint32(0, true);
     const view = new DataView(toArrayBuffer(table, 0, TABLE_HEADER + count * ROW));
-    let received = 0n;
-    let sent = 0n;
+    const indexes: number[] = [];
     for (let i = 0; i < count; i++) {
       const row = TABLE_HEADER + i * ROW;
       const flags = view.getUint8(row + OFF_FLAGS);
       if (!(flags & FLAG_HARDWARE) || flags & FLAG_FILTER) continue;
-      if (view.getUint32(row + OFF_OPER, true) !== IF_OPER_STATUS_UP) continue;
       if (view.getUint32(row + OFF_TYPE, true) === IF_TYPE_SOFTWARE_LOOPBACK) continue;
-      received += view.getBigUint64(row + OFF_IN_OCTETS, true);
-      sent += view.getBigUint64(row + OFF_OUT_OCTETS, true);
+      indexes.push(view.getUint32(row + OFF_INDEX, true));
     }
-    return { received: Number(received), sent: Number(sent) };
+    return { indexes, at: Date.now() };
   } finally {
     I.FreeMibTable(table);
   }
+}
+
+let interfaces: { indexes: number[]; at: number } | null = null;
+const ifRow = new Uint8Array(ROW);
+const ifView = new DataView(ifRow.buffer);
+
+/**
+ * Total bytes received/sent by the physical interfaces that are up, as Task Manager's per-adapter
+ * graphs count them. Null when the table fails. The whole table (GetIfTable2) costs ~1 ms (measured,
+ * it asks every interface the system has, virtual and filter layers included); the few physical
+ * ones are found there every 30 s and read one by one (GetIfEntry2, ~6 µs each), the same row.
+ */
+export function networkOctets(): { received: number; sent: number } | null {
+  if (!interfaces || Date.now() - interfaces.at > RESCAN_MS) interfaces = scanInterfaces();
+  if (!interfaces) return null;
+  let received = 0n;
+  let sent = 0n;
+  for (const index of interfaces.indexes) {
+    ifRow.fill(0);
+    ifView.setUint32(OFF_INDEX, index, true);
+    // An interface that went away: the table is read again on the next sample.
+    if (I.GetIfEntry2(ifRow) !== 0) {
+      interfaces.at = 0;
+      continue;
+    }
+    if (ifView.getUint32(OFF_OPER, true) !== IF_OPER_STATUS_UP) continue;
+    received += ifView.getBigUint64(OFF_IN_OCTETS, true);
+    sent += ifView.getBigUint64(OFF_OUT_OCTETS, true);
+  }
+  return { received: Number(received), sent: Number(sent) };
 }
 
 // ---------- Storage ----------
@@ -108,11 +140,13 @@ export interface ProcessSample {
   privateBytes: number;
 }
 
-let procBuf = new Uint8Array(1 << 20);
+/** Made on the first snapshot: 1 MB that only the process widgets need. */
+let procBuf: Uint8Array | null = null;
 
 let names = new Map<string, string>();
 
 export function processSnapshot(): ProcessSample[] {
+  procBuf ??= new Uint8Array(1 << 20);
   const needed = new Uint32Array(1);
   let status = -1;
   for (let attempt = 0; attempt < 4; attempt++) {

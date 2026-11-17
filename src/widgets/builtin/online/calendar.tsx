@@ -5,6 +5,8 @@ import { ui } from "../../../theme";
 import { Dot, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { errorText, refreshNow, registerRefresh } from "./common";
+import { nextBoundary, onClock, type ClockSubscription } from "../../../services/clock";
+import { refreshWidget, remoteGet } from "../../../services/remote";
 
 const DAY = 86_400_000;
 const line = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
@@ -66,7 +68,18 @@ export default defineWidget({
     { kind: "toggle", key: "showAllDay", label: "Mostrar eventos de dia inteiro como próximo" },
   ],
   setup(ctx) {
-    const state = store({ events: demoEvents(), now: Date.now(), demo: true, error: "" });
+    let clock: ClockSubscription | undefined;
+    const state = store({
+      events: demoEvents(),
+      time: Date.now(),
+      demo: true,
+      error: "",
+      /** Read by every render (new events, settings): re-plans the wake for what it now shows. */
+      get now(): number {
+        clock?.update();
+        return this.time;
+      },
+    });
     const load = async () => {
       const urls = urlsOf(String(ctx.config.urls || ""));
       if (!urls.length) {
@@ -77,9 +90,9 @@ export default defineWidget({
       const to = from + 8 * DAY;
       const results = await Promise.allSettled(
         urls.map(async (url) => {
-          const res = await fetch(url, { headers: { Accept: "text/calendar" } });
+          const res = await remoteGet(url, { Accept: "text/calendar" }, "iCal");
           if (!res.ok) throw new Error(`iCal ${res.status}`);
-          return parseIcs(await res.text(), from, to);
+          return parseIcs(res.text, from, to);
         }),
       );
       const events = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
@@ -92,10 +105,29 @@ export default defineWidget({
       Object.assign(state, { events, demo: false, error: failed ? errorText(failed.reason) : "" });
     };
     registerRefresh(state, load);
-    ctx.every(15 * 60_000, load);
-    ctx.every(30_000, () => {
-      state.now = Date.now();
-    });
+    refreshWidget(ctx, 15 * 60_000, load, () => !!state.error);
+    // The line under the title (howSoon) moves on the shared clock only when its text changes: the
+    // rounded minutes ("em 25 min", "em 2 h 10"), the 15 min "soon" colour, the start ("agora"),
+    // the end (next event) and midnight ("amanhã" -> today), not on a 30 s check.
+    clock = onClock((now, covered) => {
+      if (covered) return null;
+      let next = nextBoundary("day", now);
+      const at = (t: number) => {
+        if (t > now && t < next) next = t;
+      };
+      const e = state.events.find((e) => e.end > now && (ctx.config.showAllDay || !e.allDay));
+      if (e) {
+        at(e.end);
+        if (!e.allDay && e.start > now) {
+          at(e.start);
+          at(e.start - 15 * 60_000);
+          const mins = Math.round((e.start - now) / 60_000);
+          at(e.start - (Math.min(mins, 180) - 0.5) * 60_000);
+        }
+      }
+      return next;
+    }, (now) => (state.time = now));
+    ctx.onDispose(clock.cancel);
     return state;
   },
   menu({ state }) {

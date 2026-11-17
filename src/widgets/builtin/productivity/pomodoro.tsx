@@ -4,6 +4,7 @@ import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
 import { clock, flashBackground, minuteOptions, ring, Ring } from "./shared";
 import { onConfigSaved } from "../../../config";
+import { onClock } from "../../../services/clock";
 
 type Phase = "focus" | "short" | "long";
 const PHASE_LABEL: Record<Phase, string> = { focus: "Foco", short: "Pausa", long: "Pausa longa" };
@@ -45,20 +46,33 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
   ],
   setup(ctx) {
     const state = makeState(minutes(ctx, "focus"));
-    // Ticks only while a phase counts down or the end flashes; an idle pomodoro wakes nothing.
-    const tick = ctx.ticker(250, () => {
-      const now = Date.now();
+    // On the shared clock, only when the shown value changes: the next whole second of the countdown
+    // (its end rings even behind a full-screen app) and each half-second frame of the end flash.
+    // An idle one wakes nothing.
+    const sub = onClock((now, covered) => {
+      const left = state.endsAt - now;
+      if (state.running) return covered || left <= 0 ? state.endsAt : now + (left % 1000 || 1000);
+      if (state.now < state.flashUntil) return covered ? null : Math.min(Math.floor(now / 500) * 500 + 500, state.flashUntil);
+      return null;
+    }, (now) => {
       if (state.running && now >= state.endsAt) {
         ring(state, ctx.config.sound);
         next(true);
       }
-      if (state.running || now < state.flashUntil + 600) state.now = now;
-      else tick.stop();
+      // While counting, redraw when the shown second changes; while flashing, each frame and its end.
+      if (state.running) {
+        if (Math.ceil((state.endsAt - now) / 1000) !== Math.ceil((state.endsAt - state.now) / 1000)) state.now = now;
+      } else if (state.now < state.flashUntil) state.now = now;
     });
+    ctx.onDispose(sub.cancel);
+    /** Runs an action, then re-plans the wake (started, paused, cancelled). */
+    const replan = <A extends unknown[]>(fn: (...args: A) => void) => (...args: A) => {
+      fn(...args);
+      sub.update();
+    };
     const start = () => {
       state.endsAt = Date.now() + state.left;
       state.running = true;
-      tick.start();
     };
     const pause = () => {
       state.left = Math.max(0, state.endsAt - Date.now());
@@ -83,28 +97,28 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       }),
     );
     actions.set(toRaw(state), {
-      toggle: () => {
+      toggle: replan(() => {
         state.flashUntil = 0;
         if (state.running) pause();
         else start();
         state.now = Date.now();
-      },
-      skip: () => {
+      }),
+      skip: replan(() => {
         state.flashUntil = 0;
         const was = state.running;
         if (was) pause();
         state.running = was;
         next(false);
         state.now = Date.now();
-      },
-      reset: () => {
+      }),
+      reset: replan(() => {
         state.running = false;
         state.flashUntil = 0;
         state.phase = "focus";
         state.round = 0;
         state.total = state.left = minutes(ctx, "focus");
         state.now = Date.now();
-      },
+      }),
     });
     return state;
   },

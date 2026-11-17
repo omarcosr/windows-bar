@@ -532,7 +532,7 @@ export function iconPixels(hicon: number): { width: number; height: number; rgba
       if (!colorPx) return null;
       const rgba = new Uint8Array(width * height * 4);
       let anyAlpha = false;
-      for (let i = 3; i < colorPx.length; i += 4) if (colorPx[i]) anyAlpha = true;
+      for (let i = 3; i < colorPx.length; i += 4) if (colorPx[i]) { anyAlpha = true; break; }
       for (let i = 0; i < width * height; i++) {
         const o = i * 4;
         rgba[o] = colorPx[o + 2]!;

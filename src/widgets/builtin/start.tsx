@@ -3,7 +3,8 @@ import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { openRunDialog, openStartMenu, openUri, signOut, sleep, toggleDesktop } from "../../native/desktop";
 import { exePathOf, foregroundWindow, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
-import { ui } from "../../theme";
+import { devicePx, ui } from "../../theme";
+import { taskbarPrefs } from "../../services/taskbar-prefs";
 import { WindowsLogo, iconHover } from "../ui";
 import { defineWidget } from "../types";
 import { dockIndex, dockMetrics, magnifyStyles } from "../magnify";
@@ -102,13 +103,51 @@ export default defineWidget({
   name: "Iniciar",
   description: "Abre o menu Iniciar do Windows.",
   category: "apps",
-  defaultConfig: {},
+  defaultConfig: { look: "tile", logoSize: "medium", logoColor: "white" },
+  settings: [
+    {
+      kind: "choice",
+      key: "look",
+      label: "Estilo",
+      description: "Windows: só o logo, como o botão Iniciar do Windows 11. Cartão: o logo sobre um quadrado escuro.",
+      options: [
+        { value: "tile", label: "Cartão" },
+        { value: "windows", label: "Windows" },
+      ],
+    },
+    {
+      kind: "choice",
+      key: "logoSize",
+      label: "Tamanho do logo",
+      options: [
+        { value: "small", label: "Pequeno" },
+        { value: "medium", label: "Médio" },
+        { value: "large", label: "Grande" },
+        { value: "max", label: "Máximo" },
+      ],
+    },
+    {
+      kind: "choice",
+      key: "logoColor",
+      label: "Cor do logo",
+      options: [
+        { value: "white", label: "Branco" },
+        { value: "blue", label: "Azul do Windows" },
+        { value: "accent", label: "Cor de destaque" },
+      ],
+    },
+  ],
   setup() {
     return {};
   },
   View({ ctx }) {
     // Same slot and icon size as the app icons, so it lines up with them.
     const magnify = magnifyStyles("dock", dockIndex(ctx.instanceId, 0), dockMetrics());
+    const tile = ctx.config.look !== "windows";
+    // Share of the icon box the logo fills; on the card it keeps a margin to the card's edge.
+    const sizes = tile ? { small: 0.47, medium: 0.6, large: 0.72, max: 0.82 } : { small: 0.6, medium: 0.75, large: 0.88, max: 1 };
+    const share = sizes[ctx.config.logoSize as keyof typeof sizes] ?? sizes.medium;
+    const color = ctx.config.logoColor === "blue" ? "#4cc2ff" : ctx.config.logoColor === "accent" ? taskbarPrefs.accent : "#e9e9ee";
     return (
       <Pressable
         onClick={toggleStart}
@@ -133,11 +172,11 @@ export default defineWidget({
               radius: 8,
               align: "center",
               justify: "center",
-              background: "linear-gradient(160deg, #3a3a40, #1b1b1f)",
+              background: tile ? "linear-gradient(160deg, #3a3a40, #1b1b1f)" : undefined,
               ...magnify.icon,
             }}
           >
-            <WindowsLogo size={Math.round((magnify.size * 15) / 32)} />
+            <WindowsLogo size={devicePx(magnify.size * share, true)} color={color} />
           </View>
         </View>
       </Pressable>

@@ -2,6 +2,7 @@ import { Column, Row, Svg, SvgRect, Text, View, store, toRaw } from "@tarve/core
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { launch } from "../../../services/windows";
 import { onConfigSaved } from "../../../config";
+import { refreshWidget } from "../../../services/remote";
 import {
   asPeriod,
   errorText,
@@ -155,21 +156,24 @@ export function revenueSettings(options: { original: boolean; gross: boolean }):
 
 /**
  * Loads now, again every config.refresh minutes (default `minutes`), and about a second after
- * any setting changes (debounced so typing a key does not fire a request per keystroke).
+ * any setting changes (debounced so typing a key does not fire a request per keystroke). The period
+ * is services/remote.ts's refreshLoop: it rests while the dock is covered, backs off after a failed
+ * load (`failed`) and, while every quote shown is of a closed market (`closed`), waits an hour.
  */
-export function poll<C extends object>(ctx: WidgetContext<C>, load: () => Promise<void>, minutes: number) {
+export function poll<C extends object>(
+  ctx: WidgetContext<C>,
+  load: () => Promise<void>,
+  minutes: number,
+  options: { failed?: () => boolean; closed?: () => boolean } = {},
+) {
   const signature = () => JSON.stringify(toRaw(ctx.config));
   let applied = signature();
-  let timer: ReturnType<typeof setInterval> | undefined;
   let settle: ReturnType<typeof setTimeout> | undefined;
-  // The refresh period is a real interval (no per-second check), restarted when it changes.
-  const restart = () => {
-    clearInterval(timer);
+  const period = () => {
     const ms = (Number((toRaw(ctx.config) as Record<string, unknown>).refresh) || minutes) * 60_000;
-    timer = setInterval(() => void load(), ms);
+    return options.closed?.() ? Math.max(ms, 60 * 60_000) : ms;
   };
-  void load();
-  restart();
+  const loop = refreshWidget(ctx, period, load, options.failed);
   // Settings are saved as they are typed: reload once they rest for a second.
   const off = onConfigSaved(() => {
     clearTimeout(settle);
@@ -177,13 +181,11 @@ export function poll<C extends object>(ctx: WidgetContext<C>, load: () => Promis
       const sig = signature();
       if (sig === applied) return;
       applied = sig;
-      void load();
-      restart();
+      void loop.now();
     }, 1000);
   });
   ctx.onDispose(() => {
     off();
-    clearInterval(timer);
     clearTimeout(settle);
   });
 }
@@ -372,7 +374,7 @@ export function revenueWidget<C extends { label: string }>(spec: RevenueSpec<C>)
         invalidate(spec.cacheKey);
         return load();
       });
-      poll(ctx, load, 15);
+      poll(ctx, load, 15, { failed: () => !!state.error });
       return state;
     },
     menu({ state }) {
@@ -460,7 +462,7 @@ export function quoteSetup<C extends object>(
     invalidate(cacheKey(ctx.config));
     return load();
   });
-  poll(ctx, load, minutes);
+  poll(ctx, load, minutes, { failed: () => !!state.error, closed: () => !state.demo && !!state.closed });
   return state;
 }
 

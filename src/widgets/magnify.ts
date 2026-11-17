@@ -3,6 +3,7 @@ import { config, type WidgetInstance } from "../config";
 import { taskbarPrefs } from "../services/taskbar-prefs";
 import { ui } from "../theme";
 import { cursorPos, topWindowAt } from "../native/win32";
+import { onShellEvent, watchPointerLeave } from "../native/shell-events";
 
 /**
  * The macOS Dock magnification ("macos" hover effect): the icons near the pointer grow along a
@@ -16,10 +17,10 @@ export type MagnifyRowId = "dock" | "preview";
 const pointer = store({ dock: null as number | null, preview: null as number | null });
 const enteredAt: Record<MagnifyRowId, number> = { dock: 0, preview: 0 };
 const widths: Partial<Record<MagnifyRowId, number>> = {};
-const watchers: Partial<Record<MagnifyRowId, ReturnType<typeof setInterval>>> = {};
+const watchers: Partial<Record<MagnifyRowId, () => void>> = {};
 
 function release(id: MagnifyRowId) {
-  clearInterval(watchers[id]);
+  watchers[id]?.();
   delete watchers[id];
   if (pointer[id] !== null) pointer[id] = null;
 }
@@ -27,17 +28,22 @@ function release(id: MagnifyRowId) {
 /**
  * A pointer that leaves the window fast (off the screen edge, onto another window) may not
  * deliver the row's hover-out, which would leave the icons magnified. While a row is magnified,
- * the real cursor is checked: once it is over another window, the row lets go.
+ * the shell-events worker follows the cursor (EVENT_OBJECT_LOCATIONCHANGE on OBJID_CURSOR, hooked
+ * only meanwhile): once it is over another window, the row lets go.
  */
 function watch(id: MagnifyRowId) {
   if (watchers[id]) return;
   const p = cursorPos();
-  const owner = topWindowAt(p.x, p.y);
+  const owner = Number(topWindowAt(p.x, p.y) ?? 0);
   if (!owner) return;
-  watchers[id] = setInterval(() => {
-    const c = cursorPos();
-    if (topWindowAt(c.x, c.y) !== owner) release(id);
-  }, 50);
+  const stop = watchPointerLeave(owner);
+  const off = onShellEvent((event) => {
+    if (event.type === "pointerLeft" && event.owner === owner) release(id);
+  });
+  watchers[id] = () => {
+    off();
+    stop();
+  };
 }
 
 /** Geometry of one magnifying row. */
@@ -128,14 +134,23 @@ export function magnifyScale(id: MagnifyRowId, index: number, m: MagnifyMetrics)
 export function maxExtra(count: number, m: MagnifyMetrics) {
   if (!magnifying() || count <= 0) return 0;
   const peak = maxScale(m);
+  // Asked several times per render (window room, app slots, reportSize) with the same inputs;
+  // the scan is O(8·count²) cosines, so the last answers are kept.
+  const key = `${count}|${m.slot}|${peak}`;
+  const known = extraCache.get(key);
+  if (known !== undefined) return known;
   let most = 0;
   for (let u = 0; u <= count * m.slot; u += m.slot / 8) {
     let extra = 0;
     for (let i = 0; i < count; i++) extra += m.slot * (bell(u, i, m, peak) - 1);
     most = Math.max(most, extra);
   }
+  if (extraCache.size > 64) extraCache.clear();
+  extraCache.set(key, Math.ceil(most));
   return Math.ceil(most);
 }
+
+const extraCache = new Map<string, number>();
 
 /** Width the magnification adds to a row right now (as laid out, transitions included). */
 export function currentExtra(id: MagnifyRowId, count: number, slot: number, inset = 0) {

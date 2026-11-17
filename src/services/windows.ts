@@ -89,7 +89,9 @@ function identityOf(hwnd: HWND, exe: string, pid: number): { key: string; exe: s
   }
   let own = windowIdCache.get(hwnd);
   if (own === undefined) {
-    own = windowAppId(hwnd);
+    // Not for the dock's own windows (the widgets window): the property store asks the window's
+    // thread, which is this one, busy right then, and it stalled the dock ~300 ms on every open.
+    own = pid === process.pid ? "" : windowAppId(hwnd);
     windowIdCache.set(hwnd, own);
   }
   const id = own || packaged;

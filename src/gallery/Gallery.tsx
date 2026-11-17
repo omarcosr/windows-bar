@@ -17,7 +17,7 @@ import {
 } from "@tarve/core";
 import { glyph } from "../menu/dock-menu";
 import { WindowsLogo } from "../widgets/ui";
-import { config, saveConfig } from "../config";
+import { config, saveConfig, type WidgetInstance } from "../config";
 import { addWidget, dropSide, moveWidget, removeWidget, widgetDrag, widgetDragProps } from "../dock/state";
 import { numeric, ui } from "../theme";
 import { SettingsPage } from "./Settings";
@@ -96,13 +96,21 @@ function SidebarItem(props: { label: string; count?: number; icon?: IconName; ac
   );
 }
 
+/** Each type's preview instance, made once: cloning ~90 default configs on every gallery render was wasted. */
+const previewInstances = new Map<string, WidgetInstance>();
+
 function Preview(props: { definition: WidgetDefinition }) {
   const { definition } = props;
-  const widget = mountWidget({
-    id: PREVIEW_PREFIX + definition.type,
-    type: definition.type,
-    config: structuredClone(definition.defaultConfig) as Record<string, unknown>,
-  });
+  let instance = previewInstances.get(definition.type);
+  if (!instance) {
+    instance = {
+      id: PREVIEW_PREFIX + definition.type,
+      type: definition.type,
+      config: structuredClone(definition.defaultConfig) as Record<string, unknown>,
+    };
+    previewInstances.set(definition.type, instance);
+  }
+  const widget = mountWidget(instance);
   if (!widget) return null;
   const WidgetView = definition.View;
   return <WidgetView state={widget.state} ctx={widget.ctx} preview />;

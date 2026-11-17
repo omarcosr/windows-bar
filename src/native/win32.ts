@@ -1,4 +1,4 @@
-import { CFunction, dlopen, JSCallback, ptr, type Pointer, FfiUnsupported } from "./ffi";
+import { CFunction, dlopen, JSCallback, type Pointer, FfiUnsupported } from "./ffi";
 import { encodeWide, decodeWide } from "./wide";
 
 /** Win32 bindings used by the dock. Everything here is synchronous and cheap enough to poll. */
@@ -12,6 +12,8 @@ const user32 = dlopen("user32.dll", {
   IsZoomed: { args: ["ptr"], returns: "i32" },
   GetWindowTextLengthW: { args: ["ptr"], returns: "i32" },
   GetWindowTextW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  InternalGetWindowText: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  GetSystemMetrics: { args: ["i32"], returns: "i32" },
   GetWindow: { args: ["ptr", "u32"], returns: "ptr" },
   GetWindowLongPtrW: { args: ["ptr", "i32"], returns: "i64" },
   GetWindowRect: { args: ["ptr", "ptr"], returns: "i32" },
@@ -25,6 +27,7 @@ const user32 = dlopen("user32.dll", {
   GetForegroundWindow: { args: [], returns: "ptr" },
   SetForegroundWindow: { args: ["ptr"], returns: "i32" },
   ShowWindow: { args: ["ptr", "i32"], returns: "i32" },
+  ShowWindowAsync: { args: ["ptr", "i32"], returns: "i32" },
   PostMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
   MonitorFromWindow: { args: ["ptr", "u32"], returns: "ptr" },
   GetMonitorInfoW: { args: ["ptr", "ptr"], returns: "i32" },
@@ -53,7 +56,13 @@ const dwmapi = dlopen("dwmapi.dll", {
 });
 
 const gdi32 = dlopen("gdi32.dll", {
-  GetPixel: { args: ["ptr", "i32", "i32"], returns: "u32" },
+  CreateCompatibleDC: { args: ["ptr"], returns: "ptr" },
+  CreateCompatibleBitmap: { args: ["ptr", "i32", "i32"], returns: "ptr" },
+  SelectObject: { args: ["ptr", "ptr"], returns: "ptr" },
+  BitBlt: { args: ["ptr", "i32", "i32", "i32", "i32", "ptr", "i32", "i32", "u32"], returns: "i32" },
+  GetDIBits: { args: ["ptr", "ptr", "u32", "u32", "ptr", "ptr", "u32"], returns: "i32" },
+  DeleteObject: { args: ["ptr"], returns: "i32" },
+  DeleteDC: { args: ["ptr"], returns: "i32" },
 });
 
 const shell32 = dlopen("shell32.dll", {
@@ -74,16 +83,16 @@ export interface Rect {
 }
 
 const wide = (s: string) => encodeWide(s);
+const trayClass = wide("Shell_TrayWnd");
 
 /**
  * Explorer's taskbar window. FindWindow("Shell_TrayWnd") is not enough: the dock's own tray
  * host registers a window of that class on top, so it would be found first.
  */
 export function explorerTray(): HWND | null {
-  const cls = wide("Shell_TrayWnd");
   let h: HWND | null = null;
-  while ((h = U.FindWindowExW(null, h, cls, null) as HWND | null)) {
-    U.GetWindowThreadProcessId(h, new Uint8Array(pidBuf.buffer));
+  while ((h = U.FindWindowExW(null, h, trayClass, null) as HWND | null)) {
+    U.GetWindowThreadProcessId(h, pidBytes);
     if (pidBuf[0] !== process.pid) return h;
   }
   return null;
@@ -154,19 +163,72 @@ export function topWindowAt(x: number, y: number): HWND | null {
 }
 
 export function windowClass(hwnd: HWND): string {
-  const len = U.GetClassNameW(hwnd, new Uint8Array(textBuf.buffer), textBuf.length);
+  const len = U.GetClassNameW(hwnd, textBytes, textBuf.length);
   return len > 0 ? decodeWide(textBuf.buffer, 0, len * 2) : "";
 }
 
-/** Colours on screen at the given physical points, as [r, g, b]; null where unreadable. */
+const pixelInfo = new Uint8Array(40);
+{
+  const v = new DataView(pixelInfo.buffer);
+  v.setUint32(0, 40, true); // BITMAPINFOHEADER: 32 bpp, top-down; width set per row
+  v.setInt32(8, -1, true);
+  v.setUint16(12, 1, true);
+  v.setUint16(14, 32, true);
+}
+
+/**
+ * Colours on screen at the given physical points, as [r, g, b]; null where unreadable (off every
+ * monitor). GetPixel on the screen asks DWM for one pixel per call (~4 ms each, measured: 16 points
+ * 66.7 ms); each row of points is copied once instead (BitBlt + GetDIBits, 16 points ~4 ms), same colours.
+ */
 export function screenPixels(points: { x: number; y: number }[]): ([number, number, number] | null)[] {
-  const dc = U.GetDC(null);
-  if (!dc) return points.map(() => null);
-  const out = points.map(({ x, y }) => {
-    const c = gdi32.symbols.GetPixel(dc, Math.round(x), Math.round(y));
-    return c === 0xffffffff ? null : ([c & 0xff, (c >> 8) & 0xff, (c >> 16) & 0xff] as [number, number, number]);
+  const out: ([number, number, number] | null)[] = points.map(() => null);
+  // The virtual screen (every monitor): GetPixel answered CLR_INVALID outside it.
+  const vx = U.GetSystemMetrics(76 /* SM_XVIRTUALSCREEN */);
+  const vy = U.GetSystemMetrics(77);
+  const vw = U.GetSystemMetrics(78);
+  const vh = U.GetSystemMetrics(79);
+  const rows = new Map<number, number[]>();
+  points.forEach(({ x, y }, i) => {
+    const px = Math.round(x);
+    const py = Math.round(y);
+    if (px < vx || py < vy || px >= vx + vw || py >= vy + vh) return;
+    let row = rows.get(py);
+    if (!row) rows.set(py, (row = []));
+    row.push(i);
   });
-  U.ReleaseDC(null, dc);
+  if (!rows.size) return out;
+  const screen = U.GetDC(null);
+  if (!screen) return out;
+  const G = gdi32.symbols;
+  const mem = G.CreateCompatibleDC(screen);
+  try {
+    for (const [y, indexes] of rows) {
+      const xs = indexes.map((i) => Math.round(points[i]!.x));
+      const left = Math.min(...xs);
+      const width = Math.max(...xs) - left + 1;
+      const bitmap = G.CreateCompatibleBitmap(screen, width, 1);
+      if (!bitmap) continue;
+      const previous = G.SelectObject(mem, bitmap);
+      try {
+        if (!G.BitBlt(mem, 0, 0, width, 1, screen, left, y, 0x00cc0020 /* SRCCOPY */)) continue;
+        G.SelectObject(mem, previous);
+        new DataView(pixelInfo.buffer).setInt32(4, width, true);
+        const bgra = new Uint8Array(width * 4);
+        if (!G.GetDIBits(mem, bitmap, 0, 1, bgra, pixelInfo, 0 /* DIB_RGB_COLORS */)) continue;
+        indexes.forEach((i, n) => {
+          const o = (xs[n]! - left) * 4;
+          out[i] = [bgra[o + 2]!, bgra[o + 1]!, bgra[o]!];
+        });
+      } finally {
+        G.SelectObject(mem, previous);
+        G.DeleteObject(bitmap);
+      }
+    }
+  } finally {
+    G.DeleteDC(mem);
+    U.ReleaseDC(null, screen);
+  }
   return out;
 }
 
@@ -290,7 +352,7 @@ export function fullscreenAppActive(dock?: HWND | null): boolean {
   // auto-hide they are the same). Borderless maximized windows (many games, players) are full screen.
   const WS_CAPTION = 0xc00000;
   if (U.IsZoomed(fg) && (Number(U.GetWindowLongPtrW(fg, -16 /* GWL_STYLE */)) & WS_CAPTION) === WS_CAPTION) return false;
-  U.GetWindowThreadProcessId(fg, new Uint8Array(pidBuf.buffer));
+  U.GetWindowThreadProcessId(fg, pidBytes);
   if (pidBuf[0] === process.pid) return false;
   const cls = windowClass(fg);
   if (cls === "Progman" || cls === "WorkerW" || cls === "Shell_TrayWnd") return false;
@@ -310,6 +372,11 @@ export const SW_MINIMIZE = 6;
 
 export function showWindow(hwnd: HWND, cmd: number) {
   U.ShowWindow(hwnd, cmd);
+}
+
+/** ShowWindow for another process's window without waiting for its thread (it may be busy). */
+export function showWindowAsync(hwnd: HWND, cmd: number) {
+  U.ShowWindowAsync(hwnd, cmd);
 }
 
 // ---------- Top-level windows ----------
@@ -332,6 +399,11 @@ const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 const textBuf = new Uint16Array(512);
 const pidBuf = new Uint32Array(1);
 const cloakBuf = new Uint32Array(1);
+// Byte views made once: the list callback runs for every top-level window (300+), and a view per
+// call is an allocation each time.
+const textBytes = new Uint8Array(textBuf.buffer);
+const pidBytes = new Uint8Array(pidBuf.buffer);
+const cloakBytes = new Uint8Array(cloakBuf.buffer);
 const exeCache = new Map<number, string>();
 
 export function exePathOf(pid: number): string {
@@ -341,7 +413,7 @@ export function exePathOf(pid: number): string {
   const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
   if (handle) {
     const size = new Uint32Array([textBuf.length]);
-    if (K.QueryFullProcessImageNameW(handle, 0, new Uint8Array(textBuf.buffer), new Uint8Array(size.buffer))) {
+    if (K.QueryFullProcessImageNameW(handle, 0, textBytes, new Uint8Array(size.buffer))) {
       path = decodeWide(textBuf.buffer, 0, size[0]! * 2);
     }
     K.CloseHandle(handle);
@@ -350,8 +422,14 @@ export function exePathOf(pid: number): string {
   return path;
 }
 
-function windowTitle(hwnd: HWND): string {
-  const len = U.GetWindowTextW(hwnd, new Uint8Array(textBuf.buffer), textBuf.length);
+/**
+ * A window's title. For another process's window GetWindowText reads the text Windows keeps and
+ * sends nothing (a hung window answered in 0.04 ms, measured). For this process's windows it sends
+ * WM_GETTEXT to their thread, Tarve's UI thread, which waited 31-44 ms while the UI was busy:
+ * InternalGetWindowText reads the kept text for those (it costs ~10 µs a call, so only there).
+ */
+function windowTitle(hwnd: HWND, own: boolean): string {
+  const len = own ? U.InternalGetWindowText(hwnd, textBytes, textBuf.length) : U.GetWindowTextW(hwnd, textBytes, textBuf.length);
   return len > 0 ? decodeWide(textBuf.buffer, 0, len * 2) : "";
 }
 
@@ -387,20 +465,24 @@ export function listTaskbarWindows(): TopWindow[] {
   enumCallback ??= new JSCallback(
     (hwnd: HWND) => {
       if (!U.IsWindowVisible(hwnd)) return 1;
-      if (U.GetWindowTextLengthW(hwnd) === 0) return 1;
+      U.GetWindowThreadProcessId(hwnd, pidBytes);
+      const pid = pidBuf[0]!;
+      const own = pid === process.pid;
+      // GetWindowTextLength would message the dock's own windows (see windowTitle).
+      if (!own && U.GetWindowTextLengthW(hwnd) === 0) return 1;
       const ex = Number(U.GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
       const owned = U.GetWindow(hwnd, GW_OWNER) !== null;
       if (ex & WS_EX_TOOLWINDOW && !(ex & WS_EX_APPWINDOW)) return 1;
       if (owned && !(ex & WS_EX_APPWINDOW)) return 1;
       cloakBuf[0] = 0;
-      dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, new Uint8Array(cloakBuf.buffer), 4);
+      dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, cloakBytes, 4);
       if (cloakBuf[0]) return 1;
-      U.GetWindowThreadProcessId(hwnd, new Uint8Array(pidBuf.buffer));
-      const pid = pidBuf[0]!;
+      const title = windowTitle(hwnd, own);
+      if (!title) return 1;
       // Of this app's own windows only the ones registered (the settings/widgets window) belong on
       // the taskbar: the menu and preview windows look like app windows to Windows too.
-      if (pid === process.pid && !ownTaskbarTitles.has(windowTitle(hwnd))) return 1;
-      collected.push({ hwnd, title: windowTitle(hwnd), pid, exe: exePathOf(pid), minimized: !!U.IsIconic(hwnd) });
+      if (own && !ownTaskbarTitles.has(title)) return 1;
+      collected.push({ hwnd, title, pid, exe: exePathOf(pid), minimized: !!U.IsIconic(hwnd) });
       return 1;
     },
     { args: ["ptr", "ptr"], returns: "i32" },
@@ -425,7 +507,7 @@ export function activateWindow(hwnd: HWND) {
 }
 
 export function windowPid(hwnd: HWND): number {
-  U.GetWindowThreadProcessId(hwnd, new Uint8Array(pidBuf.buffer));
+  U.GetWindowThreadProcessId(hwnd, pidBytes);
   return pidBuf[0]!;
 }
 
@@ -593,11 +675,12 @@ export function memoryStatus() {
 }
 
 const times = new BigUint64Array(3);
+const timeArgs = [0, 8, 16].map((offset) => new Uint8Array(times.buffer, offset, 8));
 let lastTimes: [bigint, bigint, bigint] | null = null;
 
 /** CPU usage 0..100 since the previous call. */
 export function cpuUsage(): number {
-  K.GetSystemTimes(ptr(new Uint8Array(times.buffer, 0, 8)), ptr(new Uint8Array(times.buffer, 8, 8)), ptr(new Uint8Array(times.buffer, 16, 8)));
+  K.GetSystemTimes(timeArgs[0], timeArgs[1], timeArgs[2]);
   const now: [bigint, bigint, bigint] = [times[0]!, times[1]!, times[2]!];
   const prev = lastTimes;
   lastTimes = now;

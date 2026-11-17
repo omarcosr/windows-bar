@@ -1,5 +1,5 @@
 import { CFunction, dlopen, read, toArrayBuffer, type Pointer, FfiUnsupported } from "./ffi";
-import { decodeWide } from "./wide";
+import { decodeWide, encodeWide } from "./wide";
 
 /** Volume (Core Audio over raw COM vtables), network and keyboard layout, through plain FFI. */
 
@@ -16,6 +16,10 @@ const user32 = dlopen("user32.dll", {
   GetKeyboardLayout: { args: ["u32"], returns: "u64" },
   GetKeyboardLayoutList: { args: ["i32", "ptr"], returns: "i32" },
   GetWindowThreadProcessId: { args: ["ptr", "ptr"], returns: "u32" },
+  PostMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
+  ActivateKeyboardLayout: { args: ["u64", "u32"], returns: "u64" },
+  GetClassNameW: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  FindWindowExW: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
 });
 const kernel32 = dlopen("kernel32.dll", {
   GetLocaleInfoW: { args: ["u32", "u32", "ptr", "i32"], returns: "i32" },
@@ -256,7 +260,45 @@ function localeInfo(lcid: number, type: number) {
  * The input language of `hwnd`'s thread as the Windows tray writes it: the ISO 639-2 language
  * ("POR") and the short layout name ("PTB", numbered when the language has several layouts).
  */
+const classBuf = new Uint16Array(64);
+const CORE_WINDOW = encodeWide("Windows.UI.Core.CoreWindow");
+
+/**
+ * The window whose thread takes the keyboard for `hwnd`: a UWP app's frame (ApplicationFrameWindow)
+ * belongs to ApplicationFrameHost, while the app types into its CoreWindow, a child from its own process.
+ */
+function inputWindow(hwnd: Pointer | null): Pointer | null {
+  if (!hwnd) return null;
+  const n = user32.symbols.GetClassNameW(hwnd, new Uint8Array(classBuf.buffer), 64);
+  if (String.fromCharCode(...classBuf.subarray(0, Math.max(0, n))) !== "ApplicationFrameWindow") return hwnd;
+  return user32.symbols.FindWindowExW(hwnd, null, CORE_WINDOW, null) || hwnd;
+}
+
+/**
+ * Switches `hwnd`'s input language to the next one in the list, as Win+Space and the language button
+ * do: WM_INPUTLANGCHANGEREQUEST (INPUTLANGCHANGE_FORWARD) posted to the window (a UWP app's
+ * CoreWindow), whose DefWindowProc activates the layout on its thread. A window of this process gets
+ * ActivateKeyboardLayout directly. Returns the HKL asked for, or null (no window, one layout only).
+ */
+export function nextKeyboardLayout(hwnd: Pointer | null): bigint | null {
+  hwnd = inputWindow(hwnd);
+  if (!hwnd) return null;
+  const pid = new Uint32Array(1);
+  const thread = user32.symbols.GetWindowThreadProcessId(hwnd, new Uint8Array(pid.buffer));
+  if (!thread) return null;
+  const current = BigInt(user32.symbols.GetKeyboardLayout(thread));
+  const list = new BigUint64Array(16);
+  const count = user32.symbols.GetKeyboardLayoutList(16, new Uint8Array(list.buffer));
+  if (count < 2) return null;
+  const layouts = [...list.slice(0, count)];
+  const next = layouts[(layouts.indexOf(current) + 1) % count]!;
+  if (pid[0] === process.pid) user32.symbols.ActivateKeyboardLayout(next, 0);
+  else if (!user32.symbols.PostMessageW(hwnd, 0x50 /* WM_INPUTLANGCHANGEREQUEST */, 0x2n /* INPUTLANGCHANGE_FORWARD */, BigInt.asIntN(64, next))) return null;
+  return next;
+}
+
 export function keyboardLayout(hwnd: Pointer | null): { language: string; layout: string; name: string; hkl: string } {
+  hwnd = inputWindow(hwnd);
   const thread = hwnd ? user32.symbols.GetWindowThreadProcessId(hwnd, null) : 0;
   const hkl = BigInt(user32.symbols.GetKeyboardLayout(thread));
   const langId = Number(hkl & 0xffffn);

@@ -1,8 +1,9 @@
 import { store } from "@tarve/core";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createPoller } from "./poller";
 import { openReadonly, type ReadonlyDatabase } from "../runtime/sqlite";
+import { acquireWatch, onWatchChange, type WatchId } from "../native/shell-events";
 
 /**
  * Usage limits of the AI coding tools the user already has, read from what those tools keep on
@@ -74,6 +75,25 @@ const WEEK = 7 * 24 * HOUR;
 const claudeDir = () => process.env.CLAUDE_CONFIG_DIR || join(HOME, ".claude");
 const codexDir = () => process.env.CODEX_HOME || join(HOME, ".codex");
 const opencodeDb = () => join(process.env.XDG_DATA_HOME || join(HOME, ".local", "share"), "opencode", "opencode.db");
+
+/** Bytes [from, to) of a file, as text. */
+function readRange(path: string, from: number, to: number): Uint8Array {
+  const bytes = new Uint8Array(Math.max(0, to - from));
+  const fd = openSync(path, "r");
+  try {
+    let done = 0;
+    while (done < bytes.length) {
+      const n = readSync(fd, bytes, done, bytes.length - done, from + done);
+      if (n <= 0) break;
+      done += n;
+    }
+    return done < bytes.length ? bytes.subarray(0, done) : bytes;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+const utf8 = new TextDecoder();
 
 function mtime(path: string) {
   try {
@@ -165,15 +185,24 @@ export async function refreshClaude() {
 
 interface ClaudeFile {
   mtime: number;
+  /** Bytes parsed so far (up to the last complete line): a transcript only grows, so a refresh reads what was appended. */
+  offset: number;
   /** [epoch ms, model, tokens] per assistant message. */
   rows: [number, string, number][];
+  seen: Set<string>;
 }
 const claudeFiles = new Map<string, ClaudeFile>();
 
-function parseClaudeTranscript(path: string): ClaudeFile["rows"] {
-  const rows: ClaudeFile["rows"] = [];
-  const seen = new Set<string>();
-  for (const line of (readFileSync(path, "utf8") as string).split("\n")) {
+/** Adds the assistant messages appended to a transcript since the last read (all of it the first time). */
+function parseClaudeTranscript(path: string, file: ClaudeFile) {
+  const size = statSync(path).size;
+  if (size < file.offset) Object.assign(file, { offset: 0, rows: [], seen: new Set() });
+  const bytes = readRange(path, file.offset, size);
+  const end = bytes.lastIndexOf(0x0a) + 1;
+  if (!end) return;
+  file.offset += end;
+  const { rows, seen } = file;
+  for (const line of utf8.decode(bytes.subarray(0, end)).split("\n")) {
     if (!line.includes('"assistant"') || !line.includes('"usage"')) continue;
     try {
       const entry = JSON.parse(line) as {
@@ -192,7 +221,6 @@ function parseClaudeTranscript(path: string): ClaudeFile["rows"] {
       rows.push([Date.parse(entry.timestamp ?? "") || 0, msg.model, tokens]);
     } catch {}
   }
-  return rows;
 }
 
 export function refreshClaudeModels() {
@@ -209,9 +237,12 @@ export function refreshClaudeModels() {
         const m = mtime(path);
         if (m < since) continue;
         live.add(path);
-        if (claudeFiles.get(path)?.mtime === m) continue;
-        try {
-          claudeFiles.set(path, { mtime: m, rows: parseClaudeTranscript(path) });
+        const file = claudeFiles.get(path) ?? { mtime: 0, offset: 0, rows: [], seen: new Set<string>() };
+        if (file.mtime === m) continue;
+          try {
+            parseClaudeTranscript(path, file);
+          file.mtime = m;
+          claudeFiles.set(path, file);
         } catch {}
       }
     }
@@ -239,19 +270,28 @@ const codexWindow = (raw: CodexRateLimits["primary"]): UsageWindow | null =>
 
 let codexSeen = { path: "", mtime: 0 };
 
-/** The latest rate_limits snapshot in a rollout file, newest line first. */
+/**
+ * The latest rate_limits snapshot in a rollout file, newest line first. Rollouts grow to tens of MB
+ * and a token_count event follows every turn: the tail is read first, the whole file only when it
+ * has none.
+ */
 function lastRateLimits(path: string): { limits: CodexRateLimits; at: number } | null {
-  const lines = (readFileSync(path, "utf8") as string).split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]!;
-    if (!line.includes('"rate_limits"') || !line.includes('"token_count"')) continue;
-    try {
-      const entry = JSON.parse(line) as { timestamp?: string; payload?: { rate_limits?: CodexRateLimits | null } };
-      const limits = entry.payload?.rate_limits;
-      if (limits?.primary || limits?.secondary) return { limits, at: Date.parse(entry.timestamp ?? "") || 0 };
-    } catch {}
+  const size = statSync(path).size;
+  for (let tail = 256 * 1024; ; tail *= 8) {
+    const from = Math.max(0, size - tail);
+    const lines = utf8.decode(readRange(path, from, size)).split("\n");
+    // The first line of a tail is cut mid-way.
+    for (let i = lines.length - 1; i >= (from ? 1 : 0); i--) {
+      const line = lines[i]!;
+      if (!line.includes('"rate_limits"') || !line.includes('"token_count"')) continue;
+      try {
+        const entry = JSON.parse(line) as { timestamp?: string; payload?: { rate_limits?: CodexRateLimits | null } };
+        const limits = entry.payload?.rate_limits;
+        if (limits?.primary || limits?.secondary) return { limits, at: Date.parse(entry.timestamp ?? "") || 0 };
+      } catch {}
+    }
+    if (!from) return null;
   }
-  return null;
 }
 
 export function refreshCodex() {
@@ -343,11 +383,37 @@ export async function refreshOpencode() {
 
 /** The usage endpoint is rate limited: every 5 minutes is plenty for a 5 h window. */
 export const claudePoller = createPoller(5 * 60_000, refreshClaude);
-export const claudeModelsPoller = createPoller(5 * 60_000, refreshClaudeModels);
-export const codexPoller = createPoller(60_000, refreshCodex);
-export const opencodePoller = createPoller(2 * 60_000, refreshOpencode);
+
+/**
+ * Local logs are read again when their folder changes: a lazy change notification in the shell-events
+ * worker (FindFirstChangeNotification, subtree), held only while a widget shows them and reporting at
+ * most once per 10 s while a session writes. The 5 h and 7 day windows also age with no new writes:
+ * one slow re-read every 10 minutes moves them along.
+ */
+function fileDriven(id: WatchId, refresh: () => unknown) {
+  const aging = createPoller(10 * 60_000, refresh);
+  return {
+    acquire(): () => void {
+      const releaseAging = aging.acquire();
+      const releaseWatch = acquireWatch(id);
+      const off = onWatchChange([id], () => void refresh(), 500);
+      return () => {
+        off();
+        releaseWatch();
+        releaseAging();
+      };
+    },
+  };
+}
+
+export const claudeModelsPoller = fileDriven("claudeProjects", refreshClaudeModels);
+export const codexPoller = fileDriven("codexSessions", refreshCodex);
+export const opencodePoller = fileDriven("opencode", refreshOpencode);
 
 // ---------------------------------------------------------------- formatting
+
+const weekdayFormat = new Intl.DateTimeFormat("pt-BR", { weekday: "short" });
+const millionsFormat = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 
 /** "2h 13min", "45min", "seg 14:00" (more than a day away), "" when unknown. */
 export function resetLabel(resetsAt: number | null) {
@@ -358,13 +424,13 @@ export function resetLabel(resetsAt: number | null) {
   if (minutes < 60) return `${minutes}min`;
   if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}min`;
   const date = new Date(resetsAt);
-  const day = new Intl.DateTimeFormat("pt-BR", { weekday: "short" }).format(date).replace(".", "");
+  const day = weekdayFormat.format(date).replace(".", "");
   return `${day} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 /** "1,2 mi", "830 mil", "940". */
 export function tokensLabel(n: number) {
-  if (n >= 1e6) return `${(n / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
+  if (n >= 1e6) return `${millionsFormat.format(n / 1e6)} mi`;
   if (n >= 1e3) return `${Math.round(n / 1e3)} mil`;
   return String(Math.round(n));
 }

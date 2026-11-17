@@ -1,6 +1,7 @@
 import type { AppHandle } from "@tarve/core";
 import { saveConfig, type WidgetInstance } from "../config";
 import { getWidget } from "./registry";
+import { onClock } from "../services/clock";
 import type { WidgetContext, WidgetDefinition } from "./types";
 
 export interface MountedWidget {
@@ -29,7 +30,9 @@ export function mountWidget(instance: WidgetInstance): MountedWidget | undefined
     if (!(key in instance.config)) instance.config[key] = structuredClone(value);
   }
 
-  const timers: ReturnType<typeof setInterval>[] = [];
+  // A gallery preview is a still picture with sample data: it reads once and never ticks. Ninety
+  // live previews (clocks, pollers, network refreshes) each re-rendering the gallery made it crawl.
+  const preview = instance.id.startsWith("preview:");
   const disposers: (() => void)[] = [];
   let disposed = false;
   const label = `[widget ${instance.id}]`;
@@ -51,24 +54,43 @@ export function mountWidget(instance: WidgetInstance): MountedWidget | undefined
     save: saveConfig,
     every(ms, fn) {
       run(fn);
-      timers.push(setInterval(() => run(fn), ms));
+      if (preview) return;
+      // On the shared clock (services/clock.ts): one timer for every widget. Behind a full-screen
+      // app nothing shows, so the tick rests and runs once when the dock is back.
+      let due = Date.now() + ms;
+      const sub = onClock(
+        (_now, covered) => (covered ? null : due),
+        (now) => {
+          due = Math.max(due + ms, now + 1);
+          run(fn);
+        },
+      );
+      disposers.push(sub.cancel);
     },
     ticker(ms, fn) {
-      let timer: ReturnType<typeof setInterval> | undefined;
+      let sub: ReturnType<typeof onClock> | undefined;
+      let due = 0;
       const ticker = {
         start() {
-          if (timer || disposed) return;
-          timer = setInterval(() => run(fn), ms);
+          if (sub || disposed || preview) return;
+          due = Date.now() + ms;
+          sub = onClock(
+            () => due,
+            (now) => {
+              due = Math.max(due + ms, now + 1);
+              run(fn);
+            },
+          );
         },
         stop() {
-          clearInterval(timer);
-          timer = undefined;
+          sub?.cancel();
+          sub = undefined;
         },
         get running() {
-          return !!timer;
+          return !!sub;
         },
       };
-      disposers.push(ticker.stop);
+      disposers.push(() => ticker.stop());
       return ticker;
     },
     onDispose(fn) {
@@ -82,11 +104,13 @@ export function mountWidget(instance: WidgetInstance): MountedWidget | undefined
     state: definition.setup(ctx),
     dispose() {
       disposed = true;
-      timers.forEach(clearInterval);
       disposers.forEach((fn) => run(fn));
       mounted.delete(instance.id);
     },
   };
+  // Whatever the preview acquired in setup (shared pollers, hosts) is let go at once: its first
+  // reading is already in the state.
+  if (preview) disposers.splice(0).forEach((fn) => run(fn));
   mounted.set(instance.id, widget);
   return widget;
 }

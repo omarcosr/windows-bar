@@ -5,6 +5,8 @@
  * briefly so several widgets (e.g. Total Revenue and a provider tile) share one request.
  */
 
+import { expireRemote, remoteGet } from "./remote";
+
 const DAY_MS = 86_400_000;
 const UA = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" };
 
@@ -23,6 +25,8 @@ export interface Quote {
   series: number[];
   currency: string;
   name?: string;
+  /** The exchange is outside its regular session: the price stays put until it opens. */
+  closed?: boolean;
 }
 
 // ---------- periods ----------
@@ -104,6 +108,7 @@ export function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promi
 /** Drops cached results whose key starts with prefix ("" = all), for "Atualizar agora". */
 export function invalidate(prefix = "") {
   for (const key of [...cache.keys()]) if (key.startsWith(prefix)) cache.delete(key);
+  expireRemote();
 }
 
 function midnight(ms: number) {
@@ -148,10 +153,29 @@ const ymd = (ms: number) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+/**
+ * GETs go through services/remote.ts (max-age, ETag/Last-Modified revalidation, Retry-After,
+ * one request in flight per URL); other methods are sent as they are.
+ */
 async function json<T>(name: string, url: string, init?: RequestInit): Promise<T> {
+  if (!init?.method || init.method === "GET") {
+    const res = await remoteGet(url, (init?.headers ?? {}) as Record<string, string>, name);
+    if (!res.ok) throw new Error(`${name} ${res.status}`);
+    return JSON.parse(res.text) as T;
+  }
   const res = await fetch(url, init);
   if (!res.ok) throw new Error(`${name} ${res.status}`);
   return (await res.json()) as T;
+}
+
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+/** A pt-BR Intl.NumberFormat, built once per set of options (each costs ~15 µs, the widgets format on every render). */
+function numberFormat(options: Intl.NumberFormatOptions) {
+  const key = JSON.stringify(options);
+  let format = numberFormats.get(key);
+  if (!format) numberFormats.set(key, (format = new Intl.NumberFormat("pt-BR", options)));
+  return format;
 }
 
 export type MoneyFormat = "compact" | "full";
@@ -160,8 +184,7 @@ export type MoneyFormat = "compact" | "full";
 export function money(amount: number, currency: string, format: MoneyFormat = "compact") {
   const big = format === "compact" && Math.abs(amount) >= 10_000;
   try {
-    return new Intl.NumberFormat(
-      "pt-BR",
+    return numberFormat(
       format === "full"
         ? { style: "currency", currency: currency.toUpperCase() }
         : {
@@ -182,13 +205,13 @@ function priceDigits(value: number) {
 }
 
 export function price(value: number, digits = priceDigits(value)) {
-  return new Intl.NumberFormat("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+  return numberFormat({ minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
 }
 
 /** A price with its currency symbol (R$ 1.234,56); plain number when the code is not a currency. */
 export function priceIn(value: number, currency: string, digits = priceDigits(value)) {
   try {
-    return new Intl.NumberFormat("pt-BR", {
+    return numberFormat({
       style: "currency",
       currency: currency.toUpperCase(),
       minimumFractionDigits: digits,
@@ -525,7 +548,14 @@ export type StockChange = "day" | "window";
 const YAHOO_INTERVAL: Record<StockRange, string> = { "1d": "5m", "5d": "30m", "1mo": "60m", "6mo": "1d" };
 
 interface YahooChart {
-  meta: { regularMarketPrice: number; chartPreviousClose?: number; previousClose?: number; currency?: string; shortName?: string };
+  meta: {
+    regularMarketPrice: number;
+    chartPreviousClose?: number;
+    previousClose?: number;
+    currency?: string;
+    shortName?: string;
+    currentTradingPeriod?: { regular?: { start: number; end: number } };
+  };
   series: number[];
 }
 
@@ -565,5 +595,12 @@ export async function stockQuote(ticker: string, range: StockRange = "1d", chang
     series: chart.series,
     currency: chart.meta.currency ?? "USD",
     name: chart.meta.shortName,
+    closed: marketClosed(chart.meta.currentTradingPeriod?.regular),
   };
+}
+
+/** Outside the regular session Yahoo reports (epoch seconds); unknown counts as open. */
+function marketClosed(regular: { start: number; end: number } | undefined, now = Date.now()) {
+  if (!regular?.start || !regular.end) return false;
+  return now < regular.start * 1000 || now >= regular.end * 1000;
 }

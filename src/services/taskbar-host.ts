@@ -19,7 +19,7 @@ import {
   type TaskbandMessage,
 } from "../native/tray-host";
 import { hash } from "../runtime/proc";
-import { HSHELL, onShellEvent, onWatchChange } from "../native/shell-events";
+import { onShellEvent, onWatchChange, watchDestroyed } from "../native/shell-events";
 import { encodeWide, decodeWide } from "../native/wide";
 
 /**
@@ -236,27 +236,48 @@ function applyPromoted() {
   if (icons.some((i, n) => i !== tray.icons[n])) tray.icons = icons;
 }
 
+/** The windows behind icons, badges and progress: the worker reports their destruction (watchDestroyed). */
+function syncWatched() {
+  watchDestroyed([...tray.icons.map((i) => i.hwnd), ...Object.keys(overlays).map(Number), ...Object.keys(progress).map(Number)]);
+}
+
+/** A watched window was destroyed: drop what it owned, hidden tray windows included. */
+function dropWindow(hwnd: number) {
+  const icons = tray.icons.filter((i) => i.hwnd !== hwnd);
+  if (icons.length !== tray.icons.length) tray.icons = icons;
+  delete overlays[String(hwnd)];
+  delete progress[String(hwnd)];
+}
+
 function start() {
   readPromoted();
-  startTrayHost({ onNotifyIcon, onTaskband });
+  startTrayHost({
+    onNotifyIcon: (m) => {
+      onNotifyIcon(m);
+      syncWatched();
+    },
+    onTaskband: (m) => {
+      onTaskband(m);
+      syncWatched();
+    },
+  });
   // Apps (re)apply overlay badges when told their taskbar button exists.
   setTimeout(() => broadcastTaskbarButtonCreated(listTaskbarWindows().map((w) => w.hwnd)), 500);
-  // Settings come from their registry key's change notification. Dead icons are dropped when a
-  // window is destroyed or Explorer restarts, and by a light sweep: an app that quits after hiding
-  // its windows (closed to the tray) or without NIM_DELETE destroys only hidden windows, which the
-  // shell hook never reports. The sweep is one IsWindow per icon every 2 s.
-  const sweep = setInterval(() => tray.icons.length && prune(), 2000);
+  // Settings come from their registry key's change notification. Dead icons are dropped when their
+  // window is destroyed: an out-of-context EVENT_OBJECT_DESTROY hook in the shell-events worker,
+  // filtered there to the windows that own an icon, badge or progress, so hidden windows count too
+  // (an app that quits after closing to the tray, or without NIM_DELETE) and nothing is polled.
+  // After an Explorer restart every icon is checked once.
   offEvents = [
-    () => clearInterval(sweep),
+    () => watchDestroyed([]),
     onWatchChange(["notifyIcons"], applyPromoted),
     onShellEvent((event) => {
-      if (!(event.type === "shell" && event.code === HSHELL.WINDOWDESTROYED) && event.type !== "explorerRestarted") return;
+      if (event.type === "destroyed") return dropWindow(event.hwnd);
+      if (event.type !== "explorerRestarted") return;
       clearTimeout(pruneTimer);
-      // The hook reports the window before it is gone, and the app's hidden tray window often
-      // goes a little later: look soon, then once more.
       pruneTimer = setTimeout(() => {
         prune();
-        pruneTimer = setTimeout(prune, 1000);
+        syncWatched();
       }, 150);
     }),
   ];

@@ -31,7 +31,7 @@ export const date = defineWidget({
   category: "clock",
   defaultConfig: {},
   setup(ctx) {
-    return clockState(ctx, () => false);
+    return clockState(ctx, () => "day");
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -62,7 +62,7 @@ export const dayNumber = defineWidget({
   defaultConfig: { showWeekday: true },
   settings: [{ kind: "toggle", key: "showWeekday", label: "Mostrar dia da semana" }],
   setup(ctx) {
-    return clockState(ctx, () => false);
+    return clockState(ctx, () => "day");
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -103,7 +103,7 @@ export const today = defineWidget({
   settings: [hourFormatSetting, { kind: "toggle", key: "showWeather", label: "Mostrar clima" }],
   setup(ctx) {
     ctx.onDispose(weatherPoller.acquire());
-    return clockState(ctx, () => false);
+    return clockState(ctx, () => "minute");
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -145,7 +145,7 @@ export const week = defineWidget({
   settings: [{ kind: "toggle", key: "showWeather", label: "Mostrar temperatura de hoje" }],
   setup(ctx) {
     ctx.onDispose(weatherPoller.acquire());
-    return clockState(ctx, () => false);
+    return clockState(ctx, () => "day");
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {

@@ -3,14 +3,21 @@ import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { launch } from "../../../services/windows";
+import { every, onClock, type ClockUnit } from "../../../services/clock";
 
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const DAY_MS = 86_400_000;
 
-function ticking(ctx: { every(ms: number, fn: () => unknown): void }) {
-  const state = store({ now: Date.now() });
-  ctx.every(30_000, () => (state.now = Date.now()));
-  return state;
+/**
+ * A store with `now`, moved by the shared clock only on the `unit` boundary the face shows (the
+ * minute, the hour, the day): the year's ~365 dots are redrawn once a day, not on a 30 s check.
+ */
+function ticking(unit: ClockUnit) {
+  return (ctx: { onDispose(fn: () => void): void }) => {
+    const state = store({ now: Date.now() });
+    ctx.onDispose(onClock(every(unit), (now) => (state.now = now)).cancel);
+    return state;
+  };
 }
 
 const percent = (v: number) => `${Math.floor(Math.max(0, Math.min(1, v)) * 100)}%`;
@@ -58,7 +65,7 @@ export const dayProgress = defineWidget({
       ],
     },
   ],
-  setup: ticking,
+  setup: ticking("minute"),
   View({ state, ctx }) {
     const [from, to] = WINDOWS[String(ctx.config.range)] ?? WINDOWS.full!;
     const d = new Date(state.now);
@@ -76,7 +83,8 @@ export const monthProgress = defineWidget({
   description: "Quanto do mês já passou.",
   category: "productivity",
   defaultConfig: {},
-  setup: ticking,
+  // The month's bar moves under 1 px an hour (112 px for ~720 h).
+  setup: ticking("hour"),
   View({ state }) {
     const d = new Date(state.now);
     const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
@@ -115,7 +123,7 @@ export const yearProgress = defineWidget({
       ],
     },
   ],
-  setup: ticking,
+  setup: ticking("day"),
   View({ state, ctx }) {
     const d = new Date(state.now);
     const y = d.getFullYear();

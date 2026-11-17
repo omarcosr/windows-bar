@@ -22,7 +22,7 @@ const ART = 84;
 const GAP = 8;
 const FONT = "Segoe Fluent Icons, Segoe MDL2 Assets";
 
-const flyout = store({ anchor: "", tick: 0, showVolume: true });
+const flyout = store({ anchor: "", showVolume: true });
 
 let handle: AppHandle | undefined;
 let hwnd: HWND | null = null;
@@ -34,7 +34,8 @@ let cursorX = 0;
 let hovered = "";
 let showTimer: ReturnType<typeof setTimeout> | undefined;
 let leaveTimer: ReturnType<typeof setTimeout> | undefined;
-let tickTimer: ReturnType<typeof setInterval> | undefined;
+/** Last bounds sent, so a re-render that changes nothing does not move the window again. */
+let lastBounds = "";
 let releaseStatus: (() => void) | undefined;
 
 const time = (seconds: number) => {
@@ -115,8 +116,8 @@ function Header() {
   );
 }
 
+/** Moves with `mediaClock` (services/media.ts), which mediaPosition() reads: once a second while playing. */
 function Timeline() {
-  void flyout.tick;
   if (!media.duration) return null;
   const position = mediaPosition();
   const ratio = Math.min(1, position / media.duration);
@@ -159,6 +160,16 @@ function Volume() {
 
 function FlyoutView() {
   const active = media.active && !!media.title;
+  // Instead of a 500 ms check: this view renders again when what blocks the flyout changes (a menu,
+  // the window preview, edit mode, a drag) and when the dock lays out again (the tile may move).
+  if (shown) {
+    const block = blocked();
+    queueMicrotask(() => {
+      if (!shown) return;
+      if (block) hideMediaFlyout();
+      else place();
+    });
+  }
   return (
     <Window
       title={TITLE}
@@ -280,7 +291,11 @@ function place() {
   const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(56 * scale);
   const center = DockWindow.nodeCenterX(flyout.anchor) ?? cursorX;
   const x = Math.max(area.x + gap, Math.min(Math.round(center - width / 2), area.x + area.width - width - gap));
-  handle.setBounds({ x, y: Math.max(area.y + gap, top - gap - height), width, height, physical: true });
+  const y = Math.max(area.y + gap, top - gap - height);
+  const key = `${x},${y},${width},${height}`;
+  if (key === lastBounds) return;
+  lastBounds = key;
+  handle.setBounds({ x, y, width, height, physical: true });
 }
 
 function blocked() {
@@ -327,25 +342,18 @@ async function open(id: string) {
     shown = true;
     place();
     handle?.show();
-    tickTimer ??= setInterval(() => {
-      if (!shown) return;
-      if (blocked()) return hideMediaFlyout();
-      flyout.tick++;
-      place();
-    }, 500);
   }, 30);
 }
 
 export function hideMediaFlyout() {
   clearTimeout(showTimer);
   clearTimeout(leaveTimer);
-  clearInterval(tickTimer);
-  tickTimer = undefined;
   releaseStatus?.();
   releaseStatus = undefined;
   flyout.anchor = "";
   if (!shown) return;
   shown = false;
+  lastBounds = "";
   handle?.hide();
 }
 

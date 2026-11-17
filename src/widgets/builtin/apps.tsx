@@ -115,22 +115,29 @@ function AppBadge(props: { exe: string }) {
   );
 }
 
-/** The plate square, centred on the icon in the slot; whole device pixels on every side. */
+/**
+ * The plate behind the icon: as tall as the slot (room for the icon and, under it, the indicator,
+ * like the Windows 11 button), 4 px narrower so neighbouring plates keep a gap. Whole device px.
+ */
 function plateBox() {
-  const size = ui.app.plate;
+  const width = ui.app.plate;
   return {
     position: "absolute" as const,
-    top: (ui.tile.height - size) / 2,
-    left: (ui.app.slot - size) / 2,
-    width: size,
-    height: size,
+    top: 0,
+    left: (ui.app.slot - width) / 2,
+    width,
+    height: ui.tile.height,
     radius: devicePx(8),
   };
 }
 
-/** The running indicator sits inside the plate's bottom edge, as on the Windows 11 taskbar. */
+/**
+ * The running indicator sits under the icon with a 3 px gap, inside the plate's bottom edge, as on
+ * the Windows 11 taskbar; on a short bar it keeps at least 1 px from the edge.
+ */
 function indicatorBottom() {
-  return (ui.tile.height - ui.app.plate) / 2 + devicePx(2);
+  const below = (ui.tile.height - ui.app.icon) / 2;
+  return Math.max(devicePx(1), devicePx(below - devicePx(3) - devicePx(3)));
 }
 
 function AppIcon(props: {

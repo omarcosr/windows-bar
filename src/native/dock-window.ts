@@ -14,6 +14,7 @@ import {
   isWindowVisible,
   setTaskbarState,
   showWindow,
+  showWindowAsync,
   setBehind,
   foregroundWindow,
   SW_HIDE,
@@ -30,6 +31,7 @@ import restoreScript from "../../scripts/restore-taskbar.ps1" with { type: "text
 import { output } from "../runtime/proc";
 import { exitApp, onExit } from "../services/exit";
 import { onShellEvent, SPI_SETWORKAREA, type ShellEvent } from "./shell-events";
+import { setDockCovered } from "../services/poller";
 
 const dwmapi = dlopen("dwmapi.dll", {
   DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
@@ -312,6 +314,8 @@ export class DockWindow {
     const fullscreen = (this.#shellFullscreen && this.#foregroundOnOwnScreen()) || fullscreenAppActive(this.#hwnd);
     if (fullscreen !== this.#hiddenForFullscreen) {
       this.#hiddenForFullscreen = fullscreen;
+      // Nothing the dock draws can be seen now: pollers and timers rest until it returns.
+      setDockCovered(fullscreen);
       // Step behind the full-screen window instead of hiding: a hidden AppBar loses its reserved
       // strip, windows then grow over it, look full-screen themselves and the dock never returns.
       setBehind(this.#hwnd, fullscreen ? foregroundWindow() : null);
@@ -356,8 +360,12 @@ export class DockWindow {
     const tray = explorerTray();
     if (tray && tray !== this.#taskbar.hwnd) this.#taskbar.hwnd = tray;
     if (tray && isWindowVisible(tray)) {
-      setTaskbarState(ABS_AUTOHIDE);
-      showWindow(tray, SW_HIDE);
+      // ABM_SETSTATE is synchronous (up to ~0.5 s) and makes Explorer lay its taskbar out again,
+      // which shows it once more: set it only when it is not auto-hide already, or the two keep
+      // answering each other (26 rounds in 30 s while the widgets window opened).
+      if (!(taskbarState() & ABS_AUTOHIDE)) setTaskbarState(ABS_AUTOHIDE);
+      // Async: a plain ShowWindow on Explorer's window waits for its busy thread (up to ~300 ms).
+      showWindowAsync(tray, SW_HIDE);
     }
   }
 

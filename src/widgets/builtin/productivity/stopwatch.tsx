@@ -4,6 +4,7 @@ import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget } from "../../types";
 import { showDockMenu } from "../../../menu/dock-menu";
 import { clockTenths } from "./shared";
+import { onClock } from "../../../services/clock";
 
 const actions = new WeakMap<object, { toggle(): void; lap(): void; reset(): void; showLaps(): void }>();
 
@@ -27,11 +28,15 @@ export default defineWidget({
   setup(ctx) {
     const state = store({ running: false, startAt: 0, acc: 0, laps: [] as number[], now: Date.now() });
     const elapsed = () => state.acc + (state.running ? Date.now() - state.startAt : 0);
-    // Tenths only move while it runs: the clock ticks only then.
-    const tick = ctx.ticker(100, () => {
-      if (state.running) state.now = Date.now();
-      else tick.stop();
-    });
+    // Tenths only move while it runs and the dock is visible: the shared clock wakes on the next
+    // tenth of the elapsed time only then (a covered dock catches up once when it is back).
+    const sub = onClock(
+      (now, covered) => (state.running && !covered ? now + 100 - ((state.acc + now - state.startAt) % 100) : null),
+      (now) => {
+        if (state.running) state.now = now;
+      },
+    );
+    ctx.onDispose(sub.cancel);
     actions.set(toRaw(state), {
       toggle: () => {
         if (state.running) {
@@ -40,9 +45,9 @@ export default defineWidget({
         } else {
           state.startAt = Date.now();
           state.running = true;
-          tick.start();
         }
         state.now = Date.now();
+        sub.update();
       },
       lap: () => {
         if (state.running) state.laps = [...state.laps, elapsed()];
@@ -52,6 +57,7 @@ export default defineWidget({
         state.acc = 0;
         state.laps = [];
         state.now = Date.now();
+        sub.update();
       },
       showLaps: () => {
         const laps = state.laps;

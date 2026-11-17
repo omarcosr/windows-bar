@@ -17,7 +17,7 @@ export const clock = defineWidget({
   defaultConfig: { hourFormat: "system", showSeconds: true, showDate: true },
   settings: [hourFormatSetting, { kind: "toggle", key: "showSeconds", label: "Mostrar segundos" }, { kind: "toggle", key: "showDate", label: "Mostrar data" }],
   setup(ctx) {
-    return clockState(ctx, () => ctx.config.showSeconds);
+    return clockState(ctx, () => (ctx.config.showSeconds ? "second" : "minute"));
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -65,7 +65,7 @@ export const flip = defineWidget({
   defaultConfig: { hourFormat: "system", showSeconds: false },
   settings: [hourFormatSetting, { kind: "toggle", key: "showSeconds", label: "Mostrar segundos" }],
   setup(ctx) {
-    return clockState(ctx, () => ctx.config.showSeconds);
+    return clockState(ctx, () => (ctx.config.showSeconds ? "second" : "minute"));
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {
@@ -122,7 +122,7 @@ export const segment = defineWidget({
     },
   ],
   setup(ctx) {
-    return clockState(ctx, () => ctx.config.showSeconds);
+    return clockState(ctx, () => (ctx.config.showSeconds ? "second" : "minute"));
   },
   menu: clockMenu,
   View({ state, ctx, preview }) {

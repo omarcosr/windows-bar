@@ -9,6 +9,9 @@ import { basename } from "node:path";
 import { itemStrings, PKEY, programOfAppId } from "../native/shell-item";
 import { desktop, focusWindow, launch } from "./windows";
 import { iconFor } from "./icons";
+import { HSHELL, onShellEvent } from "../native/shell-events";
+import { dockCovered, onDockCoveredChange } from "./poller";
+import { onClock, type ClockSubscription } from "./clock";
 
 /** One app's media session, as the Windows media flyout pages through them. */
 export interface MediaSource {
@@ -114,25 +117,56 @@ async function poll() {
   }
 }
 
-/** Each poll asks Windows for every media session (~8 ms): every second while playing, else every 2 s. */
+/**
+ * Each poll asks Windows for every media session (~8 ms). The GSMTC change events
+ * (SessionsChanged, MediaPropertiesChanged, PlaybackInfoChanged) call back on WinRT's own threads,
+ * which this runtime's FFI cannot take yet. TODO: the next @tarve/core (native ABI 8) adds
+ * onSystemMediaSessionsChange(listener), driven by them: subscribe with it and drop this poll
+ * (position still advances locally). Meanwhile what usually comes with a new track or player
+ * triggers a poll at once: a window retitled (HSHELL_REDRAW: players put the track in the title),
+ * opened or closed, or brought forward. Between them: every second while playing, every 5 s while
+ * a session is paused, every 10 s with none. Nothing runs while nothing shows (dock covered,
+ * session locked, screen off).
+ */
 let generation = 0;
 function schedule() {
   const run = generation;
+  clearTimeout(timer);
   timer = setTimeout(async () => {
-    await poll();
+    if (!dockCovered()) await poll();
     if (users && run === generation) schedule();
-  }, media.playing ? 1000 : 2000);
+  }, media.playing ? 1000 : media.active ? 5000 : 10_000);
+}
+
+const TRIGGERS: number[] = [HSHELL.REDRAW, HSHELL.WINDOWCREATED, HSHELL.WINDOWDESTROYED];
+let soonTimer: ReturnType<typeof setTimeout> | undefined;
+let offShell: (() => void) | undefined;
+
+/** A shell event that often means a new track or player: poll shortly (once per burst) and restart the period. */
+function soon() {
+  clearTimeout(soonTimer);
+  soonTimer = setTimeout(async () => {
+    if (!users || dockCovered()) return;
+    await poll();
+    if (users) schedule();
+  }, 250);
 }
 
 export function useMedia(): () => void {
   if (users++ === 0) {
     void poll();
     schedule();
+    offShell = onShellEvent((event) => {
+      if ((event.type === "shell" && TRIGGERS.includes(event.code)) || event.type === "foreground") soon();
+    });
   }
   return () => {
     if (--users === 0) {
       generation++;
       clearTimeout(timer);
+      clearTimeout(soonTimer);
+      offShell?.();
+      offShell = undefined;
       syncClock();
       timer = undefined;
     }
@@ -154,17 +188,37 @@ export const mediaControls = {
 };
 
 /** Seconds played now, extrapolated from the last sample while playing. */
-/** Ticks once a second only while something plays, so progress bars move between polls. */
+/**
+ * Ticks when the position played reaches its next whole second, only while something plays, so
+ * progress bars and times move between polls. One wake of the shared clock (services/clock.ts),
+ * re-planned from each new sample (a seek or a new track moves the next second).
+ */
 export const mediaClock = store({ tick: 0 });
-let clockTimer: ReturnType<typeof setInterval> | undefined;
+let clockSub: ClockSubscription | undefined;
+
+/** The epoch ms at which the extrapolated position reaches its next whole second. */
+function nextSecond(now: number): number | null {
+  if (!media.playing) return null;
+  const position = media.position + (now - media.sampledAt) / 1000;
+  const next = Math.floor(position) + 1;
+  if (media.duration && next > media.duration) return null;
+  return media.sampledAt + (next - media.position) * 1000;
+}
 
 function syncClock() {
-  if (media.playing && users) clockTimer ??= setInterval(() => mediaClock.tick++, 1000);
-  else {
-    clearInterval(clockTimer);
-    clockTimer = undefined;
+  if (media.playing && users && !dockCovered()) {
+    if (clockSub) clockSub.update();
+    else clockSub = onClock((now, covered) => (covered ? null : nextSecond(now)), () => mediaClock.tick++);
+  } else {
+    clockSub?.cancel();
+    clockSub = undefined;
   }
 }
+
+onDockCoveredChange(() => {
+  syncClock();
+  if (!dockCovered() && users) void poll();
+});
 
 export function mediaPosition() {
   void mediaClock.tick; // a render that shows the position follows the clock
