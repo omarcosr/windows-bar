@@ -5,7 +5,7 @@ import { exePathOf, foregroundWindow, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { devicePx, ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
-import { WindowsLogo, iconHover } from "../ui";
+import { HitReach, WindowsLogo, iconHover } from "../ui";
 import { defineWidget } from "../types";
 import { dockIndex, dockMetrics, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
@@ -165,6 +165,7 @@ export default defineWidget({
           ...magnify.slot,
         }}
       >
+        <HitReach height={ui.tile.height} onClick={toggleStart} onContextMenu={showStartMenu} />
         {/* Grows up from its bottom edge with the macOS effect. */}
         <View style={magnify.box}>
           <View

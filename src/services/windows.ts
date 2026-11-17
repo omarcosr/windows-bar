@@ -9,6 +9,9 @@ import {
   listTaskbarWindows,
   minimizeWindow,
   closeWindow,
+  appProcessOf,
+  exePathOf,
+  terminateProcess,
   type HWND,
 } from "../native/win32";
 import { windowAppId } from "../native/app-id";
@@ -261,6 +264,21 @@ export function focusWindow(hwnd: HWND) {
 
 export function openFileLocation(path: string) {
   if (!showInFolder(path)) console.error("[windows] Não foi possível abrir o local de", path);
+}
+
+/**
+ * "Encerrar tarefa": ends the processes behind the app's windows at once, as the taskbar does
+ * with End task on. File Explorer windows are left alone: their process is the shell itself.
+ */
+export function endTask(key: string) {
+  const app = desktop.apps.find((a) => a.key === key);
+  if (!app) return;
+  const pids = new Set(app.windows.map((w) => appProcessOf(w.hwnd)));
+  for (const pid of pids) {
+    if (!pid || pid === process.pid || /\\explorer\.exe$/i.test(exePathOf(pid))) continue;
+    if (!terminateProcess(pid)) console.error("[windows] Não foi possível encerrar o processo", pid);
+  }
+  setTimeout(refreshWindows, 300);
 }
 
 export function closeApp(key: string) {

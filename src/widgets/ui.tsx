@@ -224,6 +224,27 @@ const alpha = (a: number) =>
     .padStart(2, "0");
 
 /**
+ * The taskbar's buttons answer over the bar's whole height (Fitts's law: the pointer pushed against
+ * the screen's bottom edge still hits the icon). A button in the dock is the tile's height, inside
+ * the bar's padding: this transparent child reaches from the bar's top to its bottom edge and takes
+ * the same press, right-click and hover. Place it as the button's first child (`position:
+ * "relative"` button); `height` is the button's own height.
+ */
+export function HitReach(props: { height: number; onClick?: () => void; onContextMenu?: () => void; onHover?: (hovered: boolean) => void }) {
+  const reach = Math.max(0, (ui.dock.height - props.height) / 2);
+  if (!reach) return null;
+  return (
+    <Pressable
+      aria-hidden
+      onClick={props.onClick}
+      onContextMenu={props.onContextMenu}
+      onHover={props.onHover}
+      style={{ position: "absolute", top: -reach, bottom: -reach, left: 0, right: 0, cursor: "pointer" }}
+    />
+  );
+}
+
+/**
  * `magnified`: the icon sits in a magnifying row (Start and the apps), which draws the "macos"
  * effect itself; elsewhere (tray) "macos" falls back to a plain zoom.
  */

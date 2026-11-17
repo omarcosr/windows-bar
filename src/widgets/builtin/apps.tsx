@@ -3,14 +3,14 @@ import { acquireBadges, badgeFor } from "../../services/badges";
 import { iconFor } from "../../services/icons";
 import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { clickApp, hidePreview, hoverApp } from "../../menu/window-preview";
-import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
+import { activateApp, closeApp, desktop, endTask, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
 import { config } from "../../config";
 import { devicePx, ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
 import { taskbarPins, unpinFromTaskbar, watchTaskbarPins, type TaskbarPin } from "../../services/taskbar-pins";
 import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
 import { explorerStateFor } from "../../services/explorer-buttons";
-import { iconHover } from "../ui";
+import { HitReach, iconHover } from "../ui";
 import { appRoom, dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
 
@@ -152,19 +152,22 @@ function AppIcon(props: {
   // A pin shows its shortcut's icon, as the taskbar does (it can differ from the program's).
   const icon = iconFor(item.pin?.path ?? item.exe, magnifying() ? peakSize(dockMetrics()) : ui.app.icon);
   const magnify = magnifyStyles("dock", props.dockIndex, dockMetrics());
+  // Several windows: the list of them opens, as on the Windows taskbar.
+  const onClick = () => {
+    if (!clickApp(item.key)) props.onClick();
+  };
+  const onContextMenu = () => {
+    hidePreview(true);
+    props.onContextMenu();
+  };
+  const onHover = (hovered: boolean) => hoverApp(item.key, hovered);
   return (
     <Pressable
       // The window preview anchors above the icon by this id.
       id={"app:" + item.key}
-      onClick={() => {
-        // Several windows: the list of them opens, as on the Windows taskbar.
-        if (!clickApp(item.key)) props.onClick();
-      }}
-      onContextMenu={() => {
-        hidePreview(true);
-        props.onContextMenu();
-      }}
-      onHover={(hovered) => hoverApp(item.key, hovered)}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      onHover={onHover}
       style={{
         position: "relative",
         width: ui.app.slot,
@@ -177,6 +180,7 @@ function AppIcon(props: {
         ...magnify.slot,
       }}
     >
+      <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} onHover={onHover} />
       {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;
           an app asking for attention gets an orange plate until its window is activated. */}
       {/* The macOS effect draws no plate, as on the Dock: the grown icon would spill over it. The
@@ -306,6 +310,7 @@ function OverflowButton(props: { items: Item[]; dockIndex: number; onContextMenu
         ...magnify.slot,
       }}
     >
+      <HitReach height={ui.tile.height} onClick={open} />
       <Text size={16} color={attention ? "#ff9f0a" : ui.text} style={{ fontFamily: "Segoe Fluent Icons, Segoe MDL2 Assets", lineHeight: 1 }}>
         {String.fromCharCode(0xe712)}
       </Text>
@@ -429,6 +434,10 @@ export default defineWidget({
       ];
       const close: DockMenuItem[] = windows.length
         ? [
+            // Settings > System > For developers > End task: above "Close", as on the taskbar.
+            ...(taskbarPrefs.endTask
+              ? [{ label: "Encerrar tarefa", icon: glyph.endTask, danger: true, onSelect: () => endTask(item.key) }]
+              : []),
             {
               label: windows.length > 1 ? `Fechar ${windows.length} janelas` : "Fechar janela",
               icon: "x",

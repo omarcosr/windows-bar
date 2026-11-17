@@ -45,6 +45,7 @@ const kernel32 = dlopen("kernel32.dll", {
   LoadLibraryW: { args: ["ptr"], returns: "ptr" },
   GetProcAddress: { args: ["ptr", "u64"], returns: "ptr" },
   GetApplicationUserModelId: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  TerminateProcess: { args: ["ptr", "u32"], returns: "i32" },
 });
 
 const dwmapi = dlopen("dwmapi.dll", {
@@ -565,6 +566,30 @@ export function storeAppId(frame: HWND): string {
   }
 }
 
+
+/**
+ * The process that owns what a window shows: for a Store app frame (ApplicationFrameHost), the app
+ * in its CoreWindow, not the frame host shared by every Store app; otherwise the window's own.
+ */
+export function appProcessOf(hwnd: HWND): number {
+  const core = U.FindWindowExW(hwnd, null, wide("Windows.UI.Core.CoreWindow"), null) as HWND | null;
+  return windowPid(core ?? hwnd);
+}
+
+/**
+ * Ends a process at once, as the taskbar's "End task" (Settings > System > For developers) does:
+ * TerminateProcess, no close request, so a hung app goes too. False when Windows refuses (an
+ * elevated app from a normal dock).
+ */
+export function terminateProcess(pid: number): boolean {
+  const handle = K.OpenProcess(0x1 /* PROCESS_TERMINATE */, 0, pid);
+  if (!handle) return false;
+  try {
+    return !!K.TerminateProcess(handle, 1);
+  } finally {
+    K.CloseHandle(handle);
+  }
+}
 
 /**
  * The AppUserModelID of a packaged process (MSIX desktop apps such as ChatGPT), or "" for a plain

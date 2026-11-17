@@ -5,7 +5,7 @@ import { acquireTaskbarHost, clickTrayIcon, tray, type TrayIcon } from "../../se
 import { launch, prettyName } from "../../services/windows";
 import { config } from "../../config";
 import { ui } from "../../theme";
-import { iconHover, Tile } from "../ui";
+import { HitReach, iconHover, Tile } from "../ui";
 import { HoverTip, hideTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
@@ -16,19 +16,22 @@ const trayIcon = () => Math.round((18 * Math.max(0.7, Math.min(1.3, Number(confi
 
 function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
   const { icon } = props;
+  const onClick = () => {
+    hideTip();
+    clickTrayIcon(icon, "left");
+  };
+  const onContextMenu = () => {
+    hideTip();
+    clickTrayIcon(icon, "right");
+  };
   // The app's own tip text, shown by the taskbar on hover.
   return (
     <HoverTip id={`tip:tray:${icon.key}`} tip={() => icon.tip.split("\n").map((l) => l.trim())} disabled={props.preview}>
     <Pressable
-      onClick={() => {
-        hideTip();
-        clickTrayIcon(icon, "left");
-      }}
-      onContextMenu={() => {
-        hideTip();
-        clickTrayIcon(icon, "right");
-      }}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
       style={{
+        position: "relative",
         width: 30,
         height: 36,
         radius: 7,
@@ -39,6 +42,7 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
         ...iconHover(),
       }}
     >
+      <HitReach height={36} onClick={onClick} onContextMenu={onContextMenu} />
       <Image src={icon.image} width={trayIcon()} height={trayIcon()} fit="contain" />
     </Pressable>
     </HoverTip>

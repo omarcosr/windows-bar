@@ -31,7 +31,8 @@ const HOME = process.env.USERPROFILE ?? process.env.HOME ?? "";
 const WATCHES = {
   taskband: { reg: "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskband" },
   pinned: { dir: `${process.env.APPDATA}\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar` },
-  advanced: { reg: "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" },
+  // Subtree: the developer settings (End task) live in Advanced\TaskbarDeveloperSettings.
+  advanced: { reg: "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", subtree: true },
   search: { reg: "Software\\Microsoft\\Windows\\CurrentVersion\\Search" },
   personalize: { reg: "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" },
   dwm: { reg: "Software\\Microsoft\\Windows\\DWM" },

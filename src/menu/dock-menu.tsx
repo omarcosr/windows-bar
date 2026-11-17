@@ -77,6 +77,8 @@ export const glyph = {
   activity: fluent(0xe9d9),
   eye: fluent(0xe7b3),
   bar: fluent(0xe7f4),
+  /** "Encerrar tarefa": the circle with a slash the taskbar menu shows (Blocked). */
+  endTask: fluent(0xe733),
   /** Settings sliders, as a menu entry. */
   settings: fluent(0xe9e9),
   /** Settings badge on widgets (an outline drawing: it reads at 12 px where a glyph blurs). */

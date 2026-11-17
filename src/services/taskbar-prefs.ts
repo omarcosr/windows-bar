@@ -15,7 +15,13 @@ export const taskbarPrefs = store({
   height: 48,
   /** Taskbar items > Search: 0 hidden, 1 icon, 2 box, 3 icon and label (SearchboxTaskbarMode). */
   search: 1 as 0 | 1 | 2 | 3,
+  /** System > For developers > End task: "Encerrar tarefa" in the taskbar's right-click menu. */
+  endTask: false,
 });
+
+function readEndTask(): boolean {
+  return readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings", "TaskbarEndTask", "dword") === 1;
+}
 
 function readSearchMode(): 0 | 1 | 2 | 3 {
   const v = readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Search", "SearchboxTaskbarMode", "dword");
@@ -77,6 +83,7 @@ export function watchTaskbarPrefs() {
       set("height", readTaskbarHeight());
       set("accent", readAccent());
       set("search", readSearchMode());
+      set("endTask", readEndTask());
     } catch (error) {
       console.error("[taskbar-prefs]", error);
     }
