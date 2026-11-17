@@ -394,17 +394,13 @@ export function foregroundWindow(): HWND | null {
 }
 
 export function activateWindow(hwnd: HWND) {
+  // As the taskbar does it: no synthetic keys. The click on the dock makes this process the one
+  // that received the last input, so Windows lets it hand the foreground over. (An ALT tap here
+  // would make the app show focus rectangles and keyboard cues on its controls.)
   if (U.IsIconic(hwnd)) U.ShowWindow(hwnd, SW_RESTORE);
   // Windows of elevated apps (run as administrator) refuse ShowWindow from this process;
   // SwitchToThisWindow goes through the shell, restores them and brings them forward.
-  if (U.IsIconic(hwnd)) {
-    U.SwitchToThisWindow(hwnd, 1);
-    return;
-  }
-  // An ALT tap lifts the foreground lock so SetForegroundWindow is honoured.
-  U.keybd_event(0x12, 0, 0, 0);
-  U.keybd_event(0x12, 0, 2, 0);
-  if (!U.SetForegroundWindow(hwnd)) U.SwitchToThisWindow(hwnd, 1);
+  if (U.IsIconic(hwnd) || !U.SetForegroundWindow(hwnd)) U.SwitchToThisWindow(hwnd, 1);
 }
 
 export function windowPid(hwnd: HWND): number {
@@ -433,11 +429,9 @@ export function peekWindow(target: HWND | null, keepOnTop: HWND | null = null) {
 }
 
 export function minimizeWindow(hwnd: HWND) {
-  // Windows of elevated apps (run as administrator) refuse ShowWindow from this process, but
-  // still take the system menu's Minimize command.
-  if (!U.ShowWindow(hwnd, SW_MINIMIZE) && !U.IsIconic(hwnd)) {
-    U.PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xf020 /* SC_MINIMIZE */, 0);
-  }
+  // The system menu's Minimize, as the taskbar sends it: the app minimizes itself (with its own
+  // animation and state handling) and Windows activates the next window. Also works for elevated apps.
+  if (!U.PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xf020 /* SC_MINIMIZE */, 0)) U.ShowWindow(hwnd, SW_MINIMIZE);
 }
 
 export function closeWindow(hwnd: HWND) {

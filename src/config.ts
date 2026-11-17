@@ -9,7 +9,7 @@ export interface WidgetInstance {
   config: Record<string, unknown>;
 }
 
-export type HoverEffect = "zoom" | "lift" | "glow" | "highlight" | "none";
+export type HoverEffect = "zoom" | "macos" | "lift" | "glow" | "highlight" | "none";
 
 export type GlowColor = "accent" | "white" | "blue" | "purple" | "green" | "orange";
 

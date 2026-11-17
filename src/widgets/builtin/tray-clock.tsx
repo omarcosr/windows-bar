@@ -1,5 +1,5 @@
 import { Column, Text, store } from "@tarve/core";
-import { tapKeys, VK } from "../../native/win32";
+import { openNotificationCenter } from "../../native/desktop";
 import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Tile } from "../ui";
@@ -41,7 +41,7 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Notificações e calendário", icon: "bell", onSelect: () => tapKeys(VK.LWIN, 0x4e /* N */) },
+        { label: "Notificações e calendário", icon: "bell", onSelect: openNotificationCenter },
         { label: "Ajustar data e hora", icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
         { label: "Abrir Relógio do Windows", icon: "bell", onSelect: () => launch("ms-clock:") },
       ],
@@ -55,7 +55,7 @@ export default defineWidget({
     const date = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={() => clockTip(!!ctx.config.hour12)} disabled={preview}>
-      <Tile padding={{ left: 12, right: 12 }} onClick={() => tapKeys(VK.LWIN, 0x4e /* N */)}>
+      <Tile padding={{ left: 12, right: 12 }} onClick={openNotificationCenter}>
         <Column style={{ align: "end", gap: 2 }}>
           <Text size={13} weight={600} color={ui.text} style={numeric}>
             {time}

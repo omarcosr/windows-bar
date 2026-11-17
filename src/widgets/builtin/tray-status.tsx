@@ -1,5 +1,5 @@
 import { Path, Row, Svg, SvgRect } from "@tarve/core";
-import { tapKeys, VK } from "../../native/win32";
+import { openQuickSettings } from "../../native/desktop";
 import { launch } from "../../services/windows";
 import { status, statusPoller } from "../../services/status";
 import { ui } from "../../theme";
@@ -109,7 +109,7 @@ export default defineWidget({
   },
   menu() {
     return [
-      [{ label: "Configurações rápidas", icon: "settings", onSelect: () => tapKeys(VK.LWIN, 0x41 /* A */) }],
+      [{ label: "Configurações rápidas", icon: "settings", onSelect: openQuickSettings }],
       [
         { label: "Rede e internet", icon: "settings", onSelect: () => launch("ms-settings:network") },
         { label: "Som", icon: "settings", onSelect: () => launch("ms-settings:sound") },
@@ -121,7 +121,7 @@ export default defineWidget({
     // Each icon has its own tip, as on the taskbar.
     const id = (part: string) => `tip:${ctx.instanceId}:${part}`;
     return (
-      <Tile padding={{ left: 12, right: 12 }} onClick={() => tapKeys(VK.LWIN, 0x41 /* A */)}>
+      <Tile padding={{ left: 12, right: 12 }} onClick={openQuickSettings}>
         <Row style={{ align: "center", gap: 10 }}>
           <HoverTip id={id("net")} tip={networkTip} disabled={preview}>
             <NetworkGlyph />

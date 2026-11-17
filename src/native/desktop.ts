@@ -1,8 +1,12 @@
 import { CFunction, dlopen, read } from "./ffi";
-import { explorerTray } from "./win32";
+import { explorerTray, tapKey, tapKeys, VK } from "./win32";
 
 const user32 = dlopen("user32.dll", {
   SendMessageTimeoutW: { args: ["ptr", "u32", "u64", "i64", "u32", "u32", "ptr"], returns: "i64" },
+  PostMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
+});
+const shell32 = dlopen("shell32.dll", {
+  ShellExecuteW: { args: ["ptr", "ptr", "ptr", "ptr", "ptr", "i32"], returns: "i64" },
 });
 const ole32 = dlopen("ole32.dll", {
   CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
@@ -10,6 +14,13 @@ const ole32 = dlopen("ole32.dll", {
   CLSIDFromString: { args: ["ptr", "ptr"], returns: "i32" },
   CoCreateInstance: { args: ["ptr", "ptr", "u32", "ptr", "ptr"], returns: "i32" },
 });
+
+function wide(value: string) {
+  const bytes = new Uint8Array((value.length + 1) * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < value.length; i++) view.setUint16(i * 2, value.charCodeAt(i), true);
+  return bytes;
+}
 
 function guid(value: string) {
   const wide = new Uint8Array((value.length + 1) * 2);
@@ -61,4 +72,50 @@ export function toggleDesktop(): boolean {
     console.error("[desktop] Não foi possível alternar a área de trabalho", error);
     return false;
   }
+}
+
+
+/*
+ * Shell surfaces opened the way the taskbar opens them: through Explorer or a shell URI, never with
+ * synthetic shortcuts. A faked Win+N / Win+A / ALT counts as keyboard use, so Windows and the XAML
+ * flyouts draw focus rectangles on whatever they focus (the "outline" bug).
+ */
+
+/** Opens a URI, program or shortcut through the shell, in-process (no cmd.exe, no quoting), as Explorer does. */
+export function openUri(uri: string, directory?: string): boolean {
+  try {
+    const dir = directory ? wide(directory) : null;
+    return Number(shell32.symbols.ShellExecuteW(null, wide("open"), wide(uri), null, dir, 1 /* SW_SHOWNORMAL */)) > 32;
+  } catch (error) {
+    console.error("[desktop] ShellExecuteW falhou", uri, error);
+    return false;
+  }
+}
+
+/** Sends a command to Explorer's taskbar window; success is delivery. */
+function trayCommand(id: number): boolean {
+  const tray = explorerTray();
+  const result = new Uint8Array(8);
+  return !!tray && !!user32.symbols.SendMessageTimeoutW(tray, 0x111 /* WM_COMMAND */, BigInt(id), 0n, 0x2 | 0x20, 500, result);
+}
+
+/** The Start menu, as the Start button opens it (SC_TASKLIST is what the shell handles for it). */
+export function openStartMenu() {
+  const tray = explorerTray();
+  if (!tray || !user32.symbols.PostMessageW(tray, 0x112 /* WM_SYSCOMMAND */, 0xf130n /* SC_TASKLIST */, 0n)) tapKey(VK.LWIN);
+}
+
+/** The Run dialog (Explorer's own File > Run command). */
+export function openRunDialog() {
+  if (!trayCommand(401)) tapKeys(VK.LWIN, 0x52 /* R */);
+}
+
+/** Notification center with the calendar, as clicking the taskbar clock opens it. */
+export function openNotificationCenter() {
+  if (!openUri("ms-actioncenter:")) tapKeys(VK.LWIN, 0x4e /* N */);
+}
+
+/** Quick settings (network, volume, battery), as clicking those taskbar icons opens it. */
+export function openQuickSettings() {
+  if (!openUri("ms-actioncenter:controlcenter/&showFooter=true")) tapKeys(VK.LWIN, 0x41 /* A */);
 }

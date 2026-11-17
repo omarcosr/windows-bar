@@ -6,6 +6,7 @@ import { launch } from "../services/windows";
 import { taskbarPrefs } from "../services/taskbar-prefs";
 import { BAR_HEIGHT_MAX, BAR_HEIGHT_MIN, dockBackground, numeric, ui } from "../theme";
 import { glowColors, hoverEffects, iconHover } from "../widgets/ui";
+import { magnifyRowProps, magnifyStyles, type MagnifyMetrics } from "../widgets/magnify";
 import { iconFor } from "../services/icons";
 import { desktop } from "../services/windows";
 
@@ -156,24 +157,30 @@ function HoverPreview() {
     .map((a) => a.exe)
     .filter(Boolean)
     .slice(0, 4);
+  // The row is right-aligned in its setting, so the macOS effect grows it to the left (anchor 1).
+  const metrics: MagnifyMetrics = { slot: 44, icon: 30, height: 44, headroom: 14 };
+  const row = magnifyRowProps("preview", () => ({ count: exes.length, slot: 44, inset: 6, anchor: 1 }));
   return (
-    <Row style={{ gap: 0, padding: 6, radius: 14, background: dockBackground(config.opacity), align: "center" }}>
-      {exes.map((exe) => {
-        const icon = iconFor(exe, 30);
-        return (
-          <Pressable
-            key={exe}
-            style={{ width: 44, height: 44, radius: 10, align: "center", justify: "center", cursor: "pointer", ...iconHover() }}
-          >
-            {icon ? (
-              <Image src={icon} width={30} height={30} fit="contain" />
-            ) : (
-              <View style={{ width: 30, height: 30, radius: 8, background: "#3a3a40" }} />
-            )}
-          </Pressable>
-        );
-      })}
-    </Row>
+      <Row {...row} style={{ gap: 0, padding: 6, radius: 14, background: dockBackground(config.opacity), align: "center" }}>
+        {exes.map((exe, index) => {
+          const icon = iconFor(exe, 30);
+          const magnify = magnifyStyles("preview", index, metrics);
+          return (
+            <Pressable
+              key={exe}
+              style={{ width: 44, height: 44, radius: 10, align: "center", justify: "center", cursor: "pointer", position: "relative", ...iconHover({ magnified: true }), ...magnify.slot }}
+            >
+              <View style={magnify.box}>
+                {icon ? (
+                  <Image src={icon} width={30} height={30} fit="contain" style={magnify.icon} />
+                ) : (
+                  <View style={{ radius: 8, background: "#3a3a40", ...magnify.icon }} />
+                )}
+              </View>
+            </Pressable>
+          );
+        })}
+      </Row>
   );
 }
 
@@ -364,6 +371,7 @@ export function SettingsPage() {
           description={
             {
               zoom: "Quanto o ícone cresce.",
+              macos: "Quanto os ícones crescem perto do ponteiro (até a altura da barra).",
               lift: "Quanto o ícone sobe.",
               glow: "Força do brilho.",
               highlight: "Quão claro fica o fundo.",

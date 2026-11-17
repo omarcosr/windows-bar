@@ -10,6 +10,8 @@ import {
   closeWindow,
   type HWND,
 } from "../native/win32";
+import { windowAppId } from "../native/app-id";
+import { openUri } from "../native/desktop";
 import { createPoller } from "./poller";
 import { run } from "../runtime/proc";
 
@@ -50,10 +52,11 @@ let seenCounter = 0;
 const appIdCache = new Map<HWND, string>();
 function appPathOf(hwnd: HWND, exe: string) {
   if (!/\\ApplicationFrameHost\.exe$/i.test(exe)) return exe;
-  // A minimized Store app has no app window inside its frame yet: retry until one shows up.
+  // As the taskbar does, the frame's own AppUserModelID first: it is there even while the app is
+  // minimized and its CoreWindow (the process asked by storeAppId) is gone.
   let id = appIdCache.get(hwnd);
   if (!id) {
-    id = storeAppId(hwnd);
+    id = windowAppId(hwnd) || storeAppId(hwnd);
     if (id) appIdCache.set(hwnd, id);
   }
   return id ? `shell:AppsFolder\\${id}` : exe;
@@ -141,11 +144,13 @@ function countsAsApp(hwnd: HWND) {
   return windowPid(hwnd) !== process.pid || desktop.apps.some((a) => a.windows.some((w) => w.hwnd === hwnd));
 }
 
-/** Starts a program, a document or a ms-settings: link, from the program's own folder. */
+/**
+ * Starts a program, a pinned shortcut, a document or a URI (ms-settings:, shell:AppsFolder\\…) with
+ * ShellExecute, as the taskbar does; a bare program starts in its own folder.
+ */
 export function launch(path: string) {
-  const isFile = /^[a-z]:\\/i.test(path);
-  const args = isFile ? ["cmd.exe", "/c", "start", "", "/D", dirname(path), path] : ["cmd.exe", "/c", "start", "", path];
-  run(args);
+  const directory = /^[a-z]:\\.*\.exe$/i.test(path) ? dirname(path) : undefined;
+  if (!openUri(path, directory)) console.error("[windows] Não foi possível abrir", path);
 }
 
 /** Taskbar click: open, bring forward, cycle windows or minimize, as Windows does. */

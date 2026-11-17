@@ -1,10 +1,12 @@
 import { Pressable, View, type SvgNode } from "@tarve/core";
 import { showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
-import { exePathOf, foregroundWindow, tapKey, tapKeys, VK, windowPid } from "../../native/win32";
+import { openRunDialog, openStartMenu, toggleDesktop } from "../../native/desktop";
+import { exePathOf, foregroundWindow, tapKey, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { ui } from "../../theme";
 import { WindowsLogo, iconHover } from "../ui";
 import { defineWidget } from "../types";
+import { dockIndex, dockMetrics, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
 
 const icon = (...nodes: SvgNode[]) => nodes as readonly SvgNode[];
@@ -69,12 +71,8 @@ function toggleStart() {
     startSeenAt = 0;
     return;
   }
-  tapKey(VK.LWIN);
+  openStartMenu();
 }
-
-const VK_D = 0x44;
-const VK_R = 0x52;
-const VK_S = 0x53;
 
 /** Runs a command line hidden (shutdown, rundll32, an elevated launch). */
 function run(...args: string[]) {
@@ -103,8 +101,8 @@ export function showStartMenu() {
     { label: "Gerenciador de Tarefas", icon: glyphs.activity, onSelect: () => launch("taskmgr.exe") },
     { label: "Configurações", icon: "settings", onSelect: () => launch("ms-settings:") },
     { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
-    { label: "Pesquisar", icon: "search", onSelect: () => tapKeys(VK.LWIN, VK_S) },
-    { label: "Executar", icon: glyphs.run, onSelect: () => tapKeys(VK.LWIN, VK_R) },
+    { label: "Pesquisar", icon: "search", onSelect: openStartMenu },
+    { label: "Executar", icon: glyphs.run, onSelect: openRunDialog },
   ];
   // "Desligar ou sair" is a submenu on Windows; the dock menu lists its entries.
   const power: DockMenuItem[] = [
@@ -113,7 +111,7 @@ export function showStartMenu() {
     { label: "Reiniciar", icon: glyphs.restart, onSelect: () => run("shutdown.exe", "/r", "/t", "0") },
     { label: "Desligar", icon: glyphs.power, danger: true, onSelect: () => run("shutdown.exe", "/s", "/t", "0") },
   ];
-  const desktop: DockMenuItem[] = [{ label: "Área de Trabalho", icon: glyphs.desktop, onSelect: () => tapKeys(VK.LWIN, VK_D) }];
+  const desktop: DockMenuItem[] = [{ label: "Área de Trabalho", icon: glyphs.desktop, onSelect: () => toggleDesktop() }];
   showDockMenu({ title: "Iniciar", subtitle: "Menu de link rápido", sections: [tools, shell, power, desktop] });
 }
 
@@ -129,13 +127,15 @@ export default defineWidget({
     });
     return {};
   },
-  View() {
+  View({ ctx }) {
     // Same slot and icon size as the app icons, so it lines up with them.
+    const magnify = magnifyStyles("dock", dockIndex(ctx.instanceId, 0), dockMetrics());
     return (
       <Pressable
         onClick={toggleStart}
         onContextMenu={showStartMenu}
         style={{
+          position: "relative",
           width: ui.app.slot,
           height: ui.tile.height,
           radius: 10,
@@ -143,20 +143,23 @@ export default defineWidget({
           justify: "center",
           cursor: "pointer",
           shrink: 0,
-          ...iconHover(),
+          ...iconHover({ magnified: true }),
+          ...magnify.slot,
         }}
       >
-        <View
-          style={{
-            width: ui.app.icon,
-            height: ui.app.icon,
-            radius: 8,
-            align: "center",
-            justify: "center",
-            background: "linear-gradient(160deg, #3a3a40, #1b1b1f)",
-          }}
-        >
-          <WindowsLogo size={Math.round((ui.app.icon * 15) / 32)} />
+        {/* Grows up from its bottom edge with the macOS effect. */}
+        <View style={magnify.box}>
+          <View
+            style={{
+              radius: 8,
+              align: "center",
+              justify: "center",
+              background: "linear-gradient(160deg, #3a3a40, #1b1b1f)",
+              ...magnify.icon,
+            }}
+          >
+            <WindowsLogo size={Math.round((magnify.size * 15) / 32)} />
+          </View>
         </View>
       </Pressable>
     );

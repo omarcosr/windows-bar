@@ -8,6 +8,7 @@ import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./s
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { glyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
+import { currentExtra, dockCount, dockMetrics, magnifying, magnifyRowProps, maxExtra } from "../widgets/magnify";
 
 export const DOCK_TITLE = "WindowsBar Dock";
 
@@ -177,6 +178,26 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
   );
 }
 
+/**
+ * The dock's size for its window. With the macOS effect a free-floating dock's window keeps the
+ * room the magnified icons can take, all the time: resizing the window on every frame of the
+ * animation (async, a frame behind the content) made the dock jump and clip. The content is
+ * centred in that room, so it grows on both sides like the Dock.
+ */
+const measured = { width: 0, height: 0 };
+let reserving = false;
+let report: ((width: number, height: number) => void) | null = null;
+
+function reportSize() {
+  if (!report || !measured.width) return;
+  // Counted here, not at render: the apps widget reports its icon count when it renders.
+  const count = dockCount();
+  const m = dockMetrics();
+  const reserve = reserving ? maxExtra(count, m) : 0;
+  const base = measured.width - (reserving ? currentExtra("dock", count, m.slot) : 0);
+  report(base + reserve, measured.height);
+}
+
 export function DockView(props: { onSize: (width: number, height: number) => void; onContextMenu: () => void }) {
   const editing = dockUi.editing;
   const full = config.mode === "full";
@@ -211,8 +232,20 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
     <Row style={{ flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{list.map(slot)}</Row>
   );
   // Start and the app icons share one row with no gap, so their 44 px slots space evenly.
+  // macOS magnification follows the pointer over the whole group. A centred group grows on both
+  // sides, a left-aligned one to the right only.
+  const magnify =
+    magnifying() && !editing
+      ? magnifyRowProps("dock", () => ({ count: dockCount(), slot: ui.app.slot, inset: 0, anchor: left ? 0 : 0.5 }), reportSize)
+      : {};
+  // Only a window that hugs the dock needs the room; the strip and the full bar already span the screen.
+  // Read at render (effect, intensity, bar height), so changing them sizes the window again.
+  reserving = magnifying() && !editing && !docked && !full;
+  if (reserving) maxExtra(1, dockMetrics());
+  report = props.onSize;
+  queueMicrotask(reportSize);
   const groupRow = group.length ? (
-    <Row key="group" style={{ align: "center", gap: 0, shrink: 0 }}>
+    <Row key="group" {...magnify} style={{ align: "center", gap: 0, shrink: 0 }}>
       {group.map(slot)}
     </Row>
   ) : null;
@@ -258,13 +291,17 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
                 background: strip ? (sweep.base ?? "rgba(0,0,0,0)") : undefined,
                 overflow: "hidden",
               }
-            : { flex: 1, align: "start", justify: "start", direction: "row", cursor: "default" }
+            : { flex: 1, align: "start", justify: reserving && !left ? "center" : "start", direction: "row", cursor: "default" }
         }
       >
         {strip ? <Sweep height={stripHeight} /> : null}
         {/* A free dock's window hugs this box; the edit-mode room for the remove badges is its padding. */}
         <View
-          onSize={({ borderBox }) => props.onSize(borderBox.width, borderBox.height)}
+          onSize={({ borderBox }) => {
+            measured.width = borderBox.width;
+            measured.height = borderBox.height;
+            reportSize();
+          }}
           style={{
             ...(full ? { flex: 1 } : { shrink: 0 }),
             padding: {

@@ -188,6 +188,7 @@ export function Spacer() {
 
 export const hoverEffects: { value: HoverEffect; label: string }[] = [
   { value: "zoom", label: "Ampliar" },
+  { value: "macos", label: "macOS" },
   { value: "lift", label: "Elevar" },
   { value: "glow", label: "Brilho" },
   { value: "highlight", label: "Realce" },
@@ -218,7 +219,11 @@ const alpha = (a: number) =>
     .toString(16)
     .padStart(2, "0");
 
-export function iconHover(): Style {
+/**
+ * `magnified`: the icon sits in a magnifying row (Start and the apps), which draws the "macos"
+ * effect itself; elsewhere (tray) "macos" falls back to a plain zoom.
+ */
+export function iconHover(options?: { magnified?: boolean }): Style {
   const effect = config.hoverEffect ?? "zoom";
   // 1 is the default look; the slider goes from a quarter to twice as strong.
   const k = Math.max(0.25, Math.min(2, Number(config.hoverIntensity ?? 100) / 100));
@@ -230,7 +235,9 @@ export function iconHover(): Style {
   };
   const active = config.pressEffect === false ? undefined : { transform: "scale(0.9)" };
   const px = (n: number) => Math.round(n * k * 10) / 10;
+  if (effect === "macos" && options?.magnified) return { active };
   switch (effect) {
+    case "macos":
     case "zoom":
       return { transition, hover: { transform: `translateY(-${px(2)}px) scale(${(1 + 0.14 * k).toFixed(3)})` }, active };
     case "lift":

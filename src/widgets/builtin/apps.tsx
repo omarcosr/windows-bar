@@ -1,5 +1,4 @@
-import { Image, Pressable, Row, Text, View, store } from "@tarve/core";
-import { existsSync } from "node:fs";
+import { Image, Pressable, Row, Text, View } from "@tarve/core";
 import { acquireBadges, badgeFor } from "../../services/badges";
 import { iconFor } from "../../services/icons";
 import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
@@ -8,24 +7,20 @@ import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, 
 import { config } from "../../config";
 import { ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
+import { taskbarPins, unpinFromTaskbar, watchTaskbarPins, type TaskbarPin } from "../../services/taskbar-pins";
 import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
 import { explorerStateFor } from "../../services/explorer-buttons";
 import { iconHover } from "../ui";
+import { dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
-
-const env = process.env;
-const candidates = [
-  "C:\\Windows\\explorer.exe",
-  `${env["ProgramFiles(x86)"]}\\Microsoft\\Edge\\Application\\msedge.exe`,
-  `${env.ProgramFiles}\\Google\\Chrome\\Application\\chrome.exe`,
-  `${env.LOCALAPPDATA}\\Programs\\Microsoft VS Code\\Code.exe`,
-  `${env.ProgramFiles}\\Microsoft VS Code\\Code.exe`,
-  `${env.APPDATA}\\Spotify\\Spotify.exe`,
-];
 
 interface Item {
   key: string;
   exe: string;
+  /** What a click starts when the app is not running: the pinned shortcut, as the taskbar does. */
+  launch: string;
+  /** The Windows taskbar pin it comes from. */
+  pin?: TaskbarPin;
   name: string;
   pinned: boolean;
   running: boolean;
@@ -34,9 +29,6 @@ interface Item {
   /** One of its windows asked for attention (FlashWindowEx). */
   attention: boolean;
 }
-
-/** The icon being dragged and the icon under it, while an icon is dragged to a new place. */
-const drag = store({ source: "", over: "" });
 
 /** Progress the app reports on its button (ITaskbarList3), from the dock's host or Explorer's. */
 function appProgress(exe: string): ButtonProgress | undefined {
@@ -75,8 +67,6 @@ function AppProgress(props: { exe: string }) {
   );
 }
 
-const DRAG_PREFIX = "app:";
-
 /** Unread count (or the app's own overlay picture) on the icon's top-right corner. */
 function AppBadge(props: { exe: string }) {
   const badge = badgeFor(props.exe);
@@ -112,23 +102,19 @@ function AppBadge(props: { exe: string }) {
 
 function AppIcon(props: {
   item: Item;
-  index: number;
-  sourceIndex: number;
+  /** Place in the dock's Start + Apps group, for the macOS magnification. */
+  dockIndex: number;
   onClick: () => void;
   onContextMenu: () => void;
-  onMove: (source: string, target: string) => void;
 }) {
   const { item } = props;
-  const icon = iconFor(item.exe, ui.app.icon);
-  const dragging = drag.source === item.key;
-  const dropHere = drag.over === item.key && drag.source && !dragging;
-  // The marker shows on the side the dragged icon will land.
-  const markerSide = props.sourceIndex >= 0 && props.sourceIndex < props.index ? "right" : "left";
+  // Sharp when magnified: the bitmap is read at the largest size the icon reaches.
+  const icon = iconFor(item.exe, magnifying() ? peakSize(dockMetrics()) : ui.app.icon);
+  const magnify = magnifyStyles("dock", props.dockIndex, dockMetrics());
   return (
     <Pressable
-      id={DRAG_PREFIX + item.key}
-      draggable
-      dropTarget
+      // The window preview anchors above the icon by this id.
+      id={"app:" + item.key}
       onClick={() => {
         // Several windows: the list of them opens, as on the Windows taskbar.
         if (!clickApp(item.key)) props.onClick();
@@ -137,26 +123,7 @@ function AppIcon(props: {
         hidePreview(true);
         props.onContextMenu();
       }}
-      onHover={(hovered) => {
-        if (!drag.source) hoverApp(item.key, hovered);
-      }}
-      onDragStart={() => {
-        hidePreview(true);
-        drag.source = item.key;
-      }}
-      onDragEnter={(source) => {
-        if (source.startsWith(DRAG_PREFIX)) drag.over = item.key;
-      }}
-      onDragLeave={() => {
-        if (drag.over === item.key) drag.over = "";
-      }}
-      onDrop={(event) => {
-        if (event.source.startsWith(DRAG_PREFIX)) props.onMove(event.source.slice(DRAG_PREFIX.length), item.key);
-      }}
-      onDragEnd={() => {
-        drag.source = "";
-        drag.over = "";
-      }}
+      onHover={(hovered) => hoverApp(item.key, hovered)}
       style={{
         position: "relative",
         width: ui.app.slot,
@@ -165,21 +132,23 @@ function AppIcon(props: {
         justify: "center",
         cursor: "pointer",
         radius: 10,
-        opacity: dragging ? 0.35 : 1,
-        ...iconHover(),
+        ...iconHover({ magnified: true }),
+        ...magnify.slot,
       }}
     >
       {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;
           an app asking for attention gets an orange plate until its window is activated. */}
-      {item.attention ? (
+      {/* The macOS effect draws no plate, as on the Dock: the grown icon would spill over it. The
+          indicator below still marks the app in front (accent) and one asking for attention (orange). */}
+      {magnifying() ? null : item.attention ? (
         <View
           style={{
             position: "absolute",
             // Inset from the slot, so the plate follows the bar height.
             top: 5,
             bottom: 5,
-            left: 2,
-            right: 2,
+            left: 2 + magnify.grow,
+            right: 2 + magnify.grow,
             radius: 8,
             background: "rgba(247,99,12,0.32)",
             borderWidth: 1,
@@ -195,8 +164,8 @@ function AppIcon(props: {
             // Inset from the slot, so the plate follows the bar height.
             top: 5,
             bottom: 5,
-            left: 2,
-            right: 2,
+            left: 2 + magnify.grow,
+            right: 2 + magnify.grow,
             radius: 8,
             background: `${taskbarPrefs.accent}2e`,
             borderWidth: 1,
@@ -204,35 +173,35 @@ function AppIcon(props: {
           }}
         />
       ) : null}
-      {dropHere ? (
-        <View style={{ position: "absolute", top: 8, bottom: 8, width: 3, radius: 2, background: ui.blue, [markerSide]: -2 }} />
-      ) : null}
-      {/* Two or more windows: a faded copy of the icon sits just behind it, as Windows does. */}
-      {item.windows > 1 && icon && config.stackedIcons ? (
-        <Image
-          src={icon}
-          width={ui.app.icon}
-          height={ui.app.icon}
-          fit="contain"
-          // 3 px up and right of the centred icon, whatever the bar height.
-          style={{
-            position: "absolute",
-            top: (ui.tile.height - ui.app.icon) / 2 - 3,
-            left: (ui.app.slot - ui.app.icon) / 2 + 3,
-            opacity: 0.4,
-          }}
-        />
-      ) : null}
-      {icon ? (
-        <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" />
-      ) : (
-        <View style={{ width: ui.app.icon, height: ui.app.icon, radius: 8, background: "#3a3a40", align: "center", justify: "center" }}>
-          <Text size={14} weight={700} color="#fff">
-            {item.name.charAt(0)}
-          </Text>
+      {/* The icon grows up from its bottom edge (macOS magnification), with its stacked copy, and
+          the badge follows its corner; the plate and the indicators keep the slot's size. */}
+      <View style={magnify.box}>
+        <View style={{ position: "relative", ...magnify.icon }}>
+          {/* Two or more windows: a faded copy of the icon sits just behind it, as Windows does. */}
+          {item.windows > 1 && icon && config.stackedIcons ? (
+            <Image
+              src={icon}
+              width={ui.app.icon}
+              height={ui.app.icon}
+              fit="contain"
+              // 3 px up and right of the icon, whatever the bar height.
+              style={{ position: "absolute", top: -3, left: 3, opacity: 0.4, ...magnify.icon }}
+            />
+          ) : null}
+          {icon ? (
+            <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" style={magnify.icon} />
+          ) : (
+            <View style={{ radius: 8, background: "#3a3a40", align: "center", justify: "center", ...magnify.icon }}>
+              <Text size={14} weight={700} color="#fff">
+                {item.name.charAt(0)}
+              </Text>
+            </View>
+          )}
         </View>
-      )}
-      <AppBadge exe={item.exe} />
+      </View>
+      <View style={magnify.corner}>
+        <AppBadge exe={item.exe} />
+      </View>
       <AppProgress exe={item.exe} />
       {/* Out of the flow, so the icon stays centred like the Start button. */}
       {/* Running: a short grey pill; in front: a longer one in the accent colour. */}
@@ -260,11 +229,12 @@ function AppIcon(props: {
 export default defineWidget({
   type: "apps",
   name: "Apps",
-  description: "Apps fixados e abertos. Arraste para reordenar; clique direito abre o menu do app.",
+  description: "Os mesmos apps fixados da barra de tarefas do Windows, e os abertos. Clique direito abre o menu do app.",
   category: "apps",
-  defaultConfig: { pinned: candidates.filter((p) => existsSync(p)).slice(0, 5) as string[], showUnpinned: true },
+  defaultConfig: { showUnpinned: true },
   settings: [{ kind: "toggle", key: "showUnpinned", label: "Mostrar apps abertos não fixados" }],
   setup(ctx) {
+    watchTaskbarPins();
     ctx.onDispose(windowsPoller.acquire());
     ctx.onDispose(acquireBadges());
     return {};
@@ -273,60 +243,46 @@ export default defineWidget({
     return [
       [
         { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
+        { label: "Fixar e organizar na barra do Windows", icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
       ],
     ];
   },
   View({ ctx }) {
-    const pinned = ctx.config.pinned;
+    // Pins come from the Windows taskbar itself (same apps, same order); pin, unpin and reorder there.
     const running = new Map(desktop.apps.map((a) => [a.key, a]));
-    const items: Item[] = pinned.map((exe) => {
-      const key = exe.toLowerCase();
-      return {
-        key,
-        exe,
-        name: prettyName(exe),
+    const attention = (key: string) => !!running.get(key)?.windows.some((w) => desktop.flashing.includes(w.hwnd as unknown as number));
+    const items: Item[] = [];
+    for (const pin of taskbarPins.items) {
+      if (items.some((i) => i.key === pin.key)) continue;
+      items.push({
+        key: pin.key,
+        exe: pin.exe,
+        launch: pin.path,
+        pin,
+        name: pin.name || prettyName(pin.exe),
         pinned: true,
-        running: running.has(key),
-        active: desktop.activeKey === key,
-        windows: running.get(key)?.windows.length ?? 0,
-        attention: !!running.get(key)?.windows.some((w) => desktop.flashing.includes(w.hwnd as unknown as number)),
-      };
-    });
+        running: running.has(pin.key),
+        active: desktop.activeKey === pin.key,
+        windows: running.get(pin.key)?.windows.length ?? 0,
+        attention: attention(pin.key),
+      });
+    }
     for (const app of desktop.apps) {
       if (ctx.config.showUnpinned === false) break;
       if (items.some((i) => i.key === app.key)) continue;
       items.push({
         key: app.key,
         exe: app.exe,
+        launch: app.exe,
         name: app.name,
         pinned: false,
         running: true,
         active: desktop.activeKey === app.key,
         windows: app.windows.length,
-        attention: app.windows.some((w) => desktop.flashing.includes(w.hwnd as unknown as number)),
+        attention: attention(app.key),
       });
     }
-    const togglePin = (item: Item) => {
-      const index = pinned.findIndex((p) => p.toLowerCase() === item.key);
-      if (index >= 0) pinned.splice(index, 1);
-      else pinned.push(item.exe);
-      ctx.save();
-    };
-    // Dropping an icon on another puts it there; it is pinned, so the place sticks.
-    const move = (source: string, target: string) => {
-      if (source === target) return;
-      const keys = items.map((i) => i.key);
-      const from = keys.indexOf(source);
-      const to = keys.indexOf(target);
-      if (from < 0 || to < 0) return;
-      const reordered = items.slice();
-      const [moved] = reordered.splice(from, 1);
-      reordered.splice(to, 0, moved!);
-      const next = reordered.filter((i) => i.pinned || i.key === source).map((i) => i.exe);
-      pinned.splice(0, pinned.length, ...next);
-      ctx.save();
-    };
-    const sourceIndex = items.findIndex((i) => i.key === drag.source);
+    setAppCount(ctx.instanceId, items.length);
     // The entries the Windows taskbar offers, in the dock's own menu above the icon.
     const showMenu = (item: Item) => {
       const windows = desktop.apps.find((a) => a.key === item.key)?.windows ?? [];
@@ -337,11 +293,13 @@ export default defineWidget({
         onSelect: () => focusWindow(w.hwnd),
       }));
       const actions: DockMenuItem[] = [
-        { label: windows.length ? "Nova janela" : "Abrir", icon: "plus", onSelect: () => launch(item.exe) },
-        item.pinned
-          ? { label: "Desafixar do dock", icon: glyph.unpin, onSelect: () => togglePin(item) }
-          : { label: "Fixar no dock", icon: glyph.pin, onSelect: () => togglePin(item) },
-        { label: "Abrir local do arquivo", icon: "folder", onSelect: () => openFileLocation(item.exe) },
+        { label: windows.length ? "Nova janela" : "Abrir", icon: "plus", onSelect: () => launch(item.launch) },
+        ...(item.pin
+          ? [{ label: "Desafixar da barra de tarefas", icon: glyph.unpin, onSelect: () => void unpinFromTaskbar(item.pin!) }]
+          : []),
+        ...(/^[a-z]:\\/i.test(item.exe)
+          ? [{ label: "Abrir local do arquivo", icon: "folder" as const, onSelect: () => openFileLocation(item.exe) }]
+          : []),
       ];
       const close: DockMenuItem[] = windows.length
         ? [
@@ -366,11 +324,9 @@ export default defineWidget({
           <AppIcon
             key={item.key}
             item={item}
-            index={index}
-            sourceIndex={sourceIndex}
-            onClick={() => activateApp(item.key, item.exe)}
+            dockIndex={dockIndex(ctx.instanceId, index)}
+            onClick={() => activateApp(item.key, item.launch)}
             onContextMenu={() => showMenu(item)}
-            onMove={move}
           />
         ))}
       </Row>

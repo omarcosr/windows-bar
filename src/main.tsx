@@ -141,7 +141,9 @@ const app = createApp(
 );
 setWidgetApp(app);
 instance.onSecondInstance(({ args }) => {
-  if (args.includes("--quit")) app.close();
+  if (args.includes("--quit")) {
+    app.close();
+  }
   else if (args.includes("--settings")) openSettings();
   else if (args.includes("--update")) void updateNow();
   else openGallery();
