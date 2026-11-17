@@ -52,12 +52,12 @@ export default defineWidget({
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
       <Tile padding={{ left: 12, right: 12 }} onClick={openNotificationCenter}>
-        <Column style={{ align: "end", gap: 2 }}>
-          <Text size={13} weight={600} color={ui.text} style={numeric}>
+        <Column style={{ align: "end", gap: ui.tile.lines.gap }}>
+          <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
             {time}
           </Text>
           {ctx.config.showDate ? (
-            <Text size={12} weight={500} color={ui.muted} style={numeric}>
+            <Text size={ui.tile.lines.secondary + 1} weight={500} color={ui.muted} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
               {date}
             </Text>
           ) : null}

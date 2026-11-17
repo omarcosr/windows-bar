@@ -23,9 +23,17 @@ export interface AppWindow {
 }
 
 export interface RunningApp {
-  /** Lower-cased exe path: the key pinned apps match against. */
+  /**
+   * The app's identity as the taskbar groups it: its AppUserModelID (from the window, the package or
+   * the Store frame) as "shell:appsfolder\\<id>", lower-cased; the exe path for plain Win32 apps.
+   */
   key: string;
+  /** What its icon is read from and what starts it again: the package entry or the exe. */
   exe: string;
+  /** The lower-cased program path behind the windows. */
+  program: string;
+  /** Grouped by an AppUserModelID the window or package sets, not by the program path. */
+  explicitId: boolean;
   name: string;
   /** In the order they opened, so previews and menus list them in a stable order. */
   windows: AppWindow[];
@@ -53,24 +61,41 @@ let seenCounter = 0;
 const appIdCache = new Map<HWND, string>();
 /** Packaged desktop apps (their AppUserModelID, or "" for plain Win32), by process id. */
 const packageCache = new Map<number, string>();
-function appPathOf(hwnd: HWND, exe: string, pid: number) {
-  if (!/\\ApplicationFrameHost\.exe$/i.test(exe)) {
-    // A packaged app is its package entry on the taskbar (name, logo), not its exe.
-    let id = packageCache.get(pid);
-    if (id === undefined) {
-      id = packagedAppId(pid);
-      packageCache.set(pid, id);
+/** AppUserModelIDs set on the windows themselves ("" when none), by window. */
+const windowIdCache = new Map<HWND, string>();
+
+/** The taskbar's key for an AppUserModelID. */
+export const appIdKey = (id: string) => `shell:appsfolder\\${id}`.toLowerCase();
+
+/**
+ * The app a window belongs to, resolved as the taskbar does: the window's own AppUserModelID
+ * (Chrome profiles and web apps, the Store frame), then its process's package, then the exe path.
+ */
+function identityOf(hwnd: HWND, exe: string, pid: number): { key: string; exe: string; explicitId: boolean } {
+  if (/\\ApplicationFrameHost\.exe$/i.test(exe)) {
+    // The frame's own AppUserModelID first: it is there even while the app is minimized and its
+    // CoreWindow (the process asked by storeAppId) is gone.
+    let id = appIdCache.get(hwnd);
+    if (!id) {
+      id = windowAppId(hwnd) || storeAppId(hwnd);
+      if (id) appIdCache.set(hwnd, id);
     }
-    return id ? `shell:AppsFolder\\${id}` : exe;
+    return id ? { key: appIdKey(id), exe: `shell:AppsFolder\\${id}`, explicitId: true } : { key: exe.toLowerCase(), exe, explicitId: false };
   }
-  // As the taskbar does, the frame's own AppUserModelID first: it is there even while the app is
-  // minimized and its CoreWindow (the process asked by storeAppId) is gone.
-  let id = appIdCache.get(hwnd);
-  if (!id) {
-    id = windowAppId(hwnd) || storeAppId(hwnd);
-    if (id) appIdCache.set(hwnd, id);
+  let packaged = packageCache.get(pid);
+  if (packaged === undefined) {
+    packaged = packagedAppId(pid);
+    packageCache.set(pid, packaged);
   }
-  return id ? `shell:AppsFolder\\${id}` : exe;
+  let own = windowIdCache.get(hwnd);
+  if (own === undefined) {
+    own = windowAppId(hwnd);
+    windowIdCache.set(hwnd, own);
+  }
+  const id = own || packaged;
+  if (!id) return { key: exe.toLowerCase(), exe, explicitId: false };
+  // A packaged app shows its package entry (name, logo); a Win32 app keeps its exe for the icon.
+  return { key: appIdKey(id), exe: packaged ? `shell:AppsFolder\\${packaged}` : exe, explicitId: true };
 }
 
 /** The program's name as the taskbar shows it (its FileDescription); the file name only without one. */
@@ -89,11 +114,13 @@ export function refreshWindows() {
   let activeKey = "";
   for (const w of windows) {
     if (!w.exe) continue;
-    w.exe = appPathOf(w.hwnd, w.exe, w.pid);
-    const key = w.exe.toLowerCase();
+    const program = w.exe.toLowerCase();
+    const identity = identityOf(w.hwnd, w.exe, w.pid);
+    const key = identity.key;
     let group = groups.get(key);
     if (!group) {
-      group = { key, exe: w.exe, name: w.exe.startsWith("shell:") ? w.title : prettyName(w.exe), windows: [], recent: [] };
+      const exe = identity.exe;
+      group = { key, exe, program, explicitId: identity.explicitId, name: exe.startsWith("shell:") ? w.title : prettyName(exe), windows: [], recent: [] };
       groups.set(key, group);
     }
     if (!firstSeen.has(w.hwnd)) firstSeen.set(w.hwnd, seenCounter++);
@@ -104,6 +131,7 @@ export function refreshWindows() {
   const alive = new Set(windows.map((w) => w.hwnd));
   for (const hwnd of firstSeen.keys()) if (!alive.has(hwnd)) firstSeen.delete(hwnd);
   for (const hwnd of appIdCache.keys()) if (!alive.has(hwnd)) appIdCache.delete(hwnd);
+  for (const hwnd of windowIdCache.keys()) if (!alive.has(hwnd)) windowIdCache.delete(hwnd);
   const pids = new Set(windows.map((w) => w.pid));
   for (const pid of packageCache.keys()) if (!pids.has(pid)) packageCache.delete(pid);
   if (desktop.flashing.some((h) => !alive.has(h as unknown as HWND)))

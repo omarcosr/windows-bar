@@ -22,7 +22,8 @@ export function Tile(props: {
     background: props.background ?? ui.tile.background,
     borderWidth: 1,
     borderColor: ui.tile.border,
-    padding: props.padding ?? 8,
+    // Content is centred vertically by the row; the tile only pads the sides.
+    padding: props.padding ?? { left: 8, right: 8 },
     gap: props.gap ?? 8,
     direction: "row",
     align: "center",
@@ -102,7 +103,7 @@ export function Meter(props: { value: number; width: number; color?: string; hei
 
 /** Round icon button used by media controls. */
 export function RoundButton(props: { size?: number; background?: string; onClick: () => void; children: Child }) {
-  const size = props.size ?? 30;
+  const size = props.size ?? ui.tile.control;
   const bg = props.background ?? "#2a2a2e";
   return (
     <Pressable

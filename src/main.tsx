@@ -174,17 +174,32 @@ const nativeOptions = () => ({
 });
 dockWindow = DockWindow.attach(app, nativeOptions());
 if (pendingSize) dockWindow.setContentSize(...pendingSize);
+// The foreground window's moves, coalesced: at most one check per 50 ms, and always one after the
+// last move, so the final size of an F11 or a game switching to full screen is never missed.
+let moveTimer: ReturnType<typeof setTimeout> | undefined;
+let movePending = false;
+const onForegroundMoved = () => {
+  if (moveTimer) {
+    movePending = true;
+    return;
+  }
+  dockWindow?.checkFullscreen();
+  moveTimer = setTimeout(() => {
+    moveTimer = undefined;
+    if (!movePending) return;
+    movePending = false;
+    onForegroundMoved();
+  }, 50);
+};
 // Shell events: full-screen notices, window lifecycle, attention requests. No polling needed.
 startShellEvents((event) => {
   if (event.type === "fullscreen") return dockWindow?.setShellFullscreen(event.on);
-  if (event.type === "foreground" || event.type === "moved") {
+  if (event.type === "moved") return onForegroundMoved();
+  if (event.type === "foreground") {
     dockWindow?.checkFullscreen();
-    if (event.type === "foreground") {
-      noteForeground(event.hwnd);
-      clearFlashing(event.hwnd);
-      scheduleRefresh();
-    }
-    return;
+    noteForeground(event.hwnd);
+    clearFlashing(event.hwnd);
+    return scheduleRefresh();
   }
   switch (event.code) {
     case HSHELL.FLASH:

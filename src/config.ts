@@ -40,7 +40,7 @@ export interface DockConfig {
   pressEffect: boolean;
   /** App, Start and tray icon size in % of the size that fits the bar height (70–130). */
   iconScale: number;
-  /** Height of the bar in logical px (56–80): tiles and app icons scale with it. */
+  /** Height of the bar in logical px (40–80), or 0 for the Windows taskbar's height: tiles and icons scale with it. */
   barHeight: number;
   /** Opacity of the bar's background, 0.2–1; icons and widgets stay opaque. */
   opacity: number;
@@ -84,7 +84,7 @@ export const defaultConfig = (): DockConfig => ({
   hoverPreview: true,
   showDesktop: true,
   opacity: 1,
-  barHeight: 64,
+  barHeight: 0,
   iconScale: 100,
   hoverEffect: "zoom",
   hoverIntensity: 100,

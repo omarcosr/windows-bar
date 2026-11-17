@@ -248,7 +248,14 @@ export function SettingsPage() {
             onChange={(v) => set("mode", v)}
           />
         </Setting>
-        <Setting label="Altura" description="Ícones e widgets acompanham a altura.">
+        <Setting label="Altura" description="Ícones e widgets acompanham a altura. Por padrão, a mesma da barra do Windows.">
+          <Toggle
+            checked={!config.barHeight}
+            label="Igual à barra do Windows"
+            onChange={(v) => set("barHeight", v ? 0 : ui.dock.height)}
+          />
+        </Setting>
+        <Setting label="Altura personalizada" when={!!config.barHeight}>
           <Range
             label="Altura"
             value={ui.dock.height}

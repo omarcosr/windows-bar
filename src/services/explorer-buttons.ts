@@ -1,6 +1,6 @@
 import { store } from "@tarve/core";
-import { basename } from "node:path";
 import { createPoller } from "./poller";
+import { programOfAppId } from "../native/shell-item";
 import { readExplorerButtons, type ExplorerButton } from "../native/taskbar-buttons";
 
 /**
@@ -50,17 +50,21 @@ function parse(help: string): ButtonState {
   return state;
 }
 
-/** Does Explorer's button `b` belong to the app at `exe` (a path, or shell:AppsFolder\<AUMID>)? */
+/**
+ * Does Explorer's button `b` belong to the app at `exe` (a path, or shell:AppsFolder\<AUMID>)?
+ * The button carries the app's AppUserModelID; the shell resolves it to its program.
+ */
 function matches(exe: string, b: ExplorerButton) {
-  const id = b.appId.toLowerCase();
   const path = exe.toLowerCase();
-  if (path.startsWith("shell:appsfolder\\")) return id === path.slice("shell:appsfolder\\".length);
-  const base = basename(path).replace(/\.exe$/, "");
-  if (!base) return false;
-  // "chrome", "microsoft.windows.explorer", "{folder}\\windowspowershell\\v1.0\\powershell.exe".
-  if (id === base || id.endsWith(`\\${base}.exe`) || id.split(/[.\\!_]/).includes(base)) return true;
-  // "dev.empryo.desktop" for Empryo.exe, "com.squirrel.githubdesktop.githubdesktop" for GitHubDesktop.exe.
-  return base.length >= 4 && (id.includes(base) || b.name.toLowerCase().startsWith(base));
+  if (path.startsWith("shell:appsfolder\\")) return b.appId.toLowerCase() === path.slice("shell:appsfolder\\".length);
+  const program = programOfAppId(b.appId);
+  if (program === path) return true;
+  // File Explorer's ID resolves to its shell folder, not to explorer.exe.
+  if (b.appId.toLowerCase() === "microsoft.windows.explorer") return /\\windows\\explorer\.exe$/.test(path);
+  // Squirrel-installed apps (GitHub Desktop, Discord): the Start entry starts a launcher of the
+  // same name one folder up, which runs the versioned copy ("…\\app-3.6.11\\GitHubDesktop.exe").
+  const slash = program.lastIndexOf("\\");
+  return slash > 0 && path.startsWith(program.slice(0, slash + 1)) && path.endsWith(program.slice(slash));
 }
 
 /** What Explorer shows on the app's button, or undefined when it shows nothing. */

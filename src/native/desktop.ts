@@ -1,9 +1,12 @@
 import { CFunction, dlopen, read } from "./ffi";
-import { explorerTray, tapKey, tapKeys, VK } from "./win32";
+import { exePathOf, explorerTray, foregroundWindow, tapKey, tapKeys, VK, windowPid, type HWND } from "./win32";
 
 const user32 = dlopen("user32.dll", {
   SendMessageTimeoutW: { args: ["ptr", "u32", "u64", "i64", "u32", "u32", "ptr"], returns: "i64" },
   PostMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
+  AllowSetForegroundWindow: { args: ["u32"], returns: "i32" },
+  SetForegroundWindow: { args: ["ptr"], returns: "i32" },
+  FindWindowW: { args: ["ptr", "ptr"], returns: "ptr" },
 });
 const shell32 = dlopen("shell32.dll", {
   ShellExecuteW: { args: ["ptr", "ptr", "ptr", "ptr", "ptr", "i32"], returns: "i64" },
@@ -108,7 +111,7 @@ function trayCommand(id: number): boolean {
   return !!tray && !!user32.symbols.SendMessageTimeoutW(tray, 0x111 /* WM_COMMAND */, BigInt(id), 0n, 0x2 | 0x20, 500, result);
 }
 
-/** The Start menu, as the Start button opens it (SC_TASKLIST is what the shell handles for it). */
+/** The Start button: SC_TASKLIST to Explorer's taskbar opens the Start menu, or closes it when open. */
 export function openStartMenu() {
   const tray = explorerTray();
   if (!tray || !user32.symbols.PostMessageW(tray, 0x112 /* WM_SYSCOMMAND */, 0xf130n /* SC_TASKLIST */, 0n)) tapKey(VK.LWIN);
@@ -119,14 +122,62 @@ export function openRunDialog() {
   if (!trayCommand(401)) tapKeys(VK.LWIN, 0x52 /* R */);
 }
 
-/** Notification center with the calendar, as clicking the taskbar clock opens it. */
-export function openNotificationCenter() {
-  if (!openUri("ms-actioncenter:")) tapKeys(VK.LWIN, 0x4e /* N */);
+/*
+ * The taskbar's flyouts (Quick Settings, notification center) are shell windows that close when
+ * they lose activation (a click anywhere else), and the taskbar button toggles them. Both depend on
+ * the flyout being the active window, which needs foreground rights: the dock does not take
+ * activation when clicked, so it hands its rights (it received the click) to the shell first.
+ */
+
+/** Processes that draw the taskbar's flyouts. */
+const FLYOUT_HOSTS = /\\(ShellHost|ShellExperienceHost)\.exe$/i;
+const hostCache = new Map<number, boolean>();
+function isFlyout(hwnd: HWND | null) {
+  if (!hwnd) return false;
+  const pid = windowPid(hwnd);
+  let host = hostCache.get(pid);
+  if (host === undefined) {
+    host = FLYOUT_HOSTS.test(exePathOf(pid));
+    if (hostCache.size > 64) hostCache.clear();
+    hostCache.set(pid, host);
+  }
+  return host;
 }
 
-/** Quick settings (network, volume, battery), as clicking those taskbar icons opens it. */
+/** When a flyout was last the active window: clicking the dock closes it before the click lands. */
+let flyoutSeenAt = 0;
+setInterval(() => {
+  if (isFlyout(foregroundWindow())) flyoutSeenAt = Date.now();
+}, 100);
+
+function toggleFlyout(uri: string, windowClass: string | null, keys: number[]) {
+  // It was open a moment ago: the click on the dock closed it, as the taskbar button's second press.
+  if (isFlyout(foregroundWindow()) || Date.now() - flyoutSeenAt < 400) {
+    flyoutSeenAt = 0;
+    return;
+  }
+  user32.symbols.AllowSetForegroundWindow(0xffffffff /* ASFW_ANY */);
+  if (!openUri(uri)) {
+    tapKeys(...keys);
+    return;
+  }
+  // Activate it if the shell left it inactive; an inactive flyout never closes on an outside click.
+  if (!windowClass) return;
+  setTimeout(() => {
+    if (isFlyout(foregroundWindow())) return;
+    const flyout = user32.symbols.FindWindowW(wide(windowClass), null);
+    if (flyout) user32.symbols.SetForegroundWindow(flyout);
+  }, 250);
+}
+
+/** Notification center with the calendar, as clicking the taskbar clock opens and closes it. */
+export function openNotificationCenter() {
+  toggleFlyout("ms-actioncenter:", null, [VK.LWIN, 0x4e /* N */]);
+}
+
+/** Quick settings (network, volume, battery), as clicking those taskbar icons opens and closes it. */
 export function openQuickSettings() {
-  if (!openUri("ms-actioncenter:controlcenter/&showFooter=true")) tapKeys(VK.LWIN, 0x41 /* A */);
+  toggleFlyout("ms-actioncenter:controlcenter/&showFooter=true", "ControlCenterWindow", [VK.LWIN, 0x41 /* A */]);
 }
 
 

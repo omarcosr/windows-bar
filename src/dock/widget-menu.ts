@@ -30,7 +30,7 @@ export function openWidgetMenu(widget: MountedWidget) {
       const configure: DockMenuItem = definition.settings?.length
         ? {
             label: options.more ? "Configurações do widget…" : "Todas as configurações do widget…",
-            icon: glyph.sliders,
+            icon: glyph.settings,
             onSelect: () => openWidgetSettings(instance.id),
           }
         : { label: "Widgets e personalização…", icon: glyph.grid, onSelect: openGallery };

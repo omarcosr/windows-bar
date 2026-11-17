@@ -37,11 +37,11 @@ export default defineWidget({
           setTimeout(refreshLanguage, 250);
         }}
       >
-        <Column style={{ align: "center", gap: 2 }}>
-          <Text size={12} weight={600} color={ui.text}>
+        <Column style={{ align: "center", gap: ui.tile.lines.gap }}>
+          <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ lineHeight: ui.tile.lines.lineHeight }}>
             {status.language || "–"}
           </Text>
-          <Text size={11} weight={500} color={ui.muted}>
+          <Text size={ui.tile.lines.secondary} weight={500} color={ui.muted} style={{ lineHeight: ui.tile.lines.lineHeight }}>
             {status.layout}
           </Text>
         </Column>

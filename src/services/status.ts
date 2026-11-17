@@ -11,6 +11,8 @@ export const status = store({
   signal: 0,
   ssid: "",
   hasAudio: false,
+  /** The default playback device's name ("Alto-falantes (Realtek(R) Audio)"). */
+  audioDevice: "",
   volume: 0,
   muted: false,
   hasBattery: false,
@@ -39,6 +41,7 @@ export function refreshStatus() {
     signal: net.signal,
     ssid: net.name,
     hasAudio: !!volume,
+    audioDevice: volume?.device ?? "",
     volume: volume?.level ?? 0,
     muted: volume?.muted ?? false,
     hasBattery: power.hasBattery,

@@ -52,6 +52,7 @@ export default defineWidget({
   },
   View({ state, ctx, preview }) {
     const now = state.now;
+    const compact = ui.tile.height < 44;
     const tip = () => [
       ...clockTip(),
       weather.ready ? `${weather.city ? `${weather.city}: ` : ""}${weather.temperature}° · ${weatherLabel(weather.code)}` : "",
@@ -59,23 +60,30 @@ export default defineWidget({
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
       <Column style={{ width: 66, height: ui.tile.height, radius: ui.tile.radius, overflow: "hidden", shrink: 0, background: "#000" }}>
-        <Row style={{ height: 25, background: ui.red, align: "center", justify: "center" }}>
-          <Text size={16} weight={700} color="#fff" style={numeric}>
+        <Row style={{ height: compact ? 16 : 25, background: ui.red, align: "center", justify: "center" }}>
+          <Text size={compact ? 12 : 16} weight={700} color="#fff" style={numeric}>
             {formatTime(now)}
           </Text>
         </Row>
         <Row style={{ flex: 1, align: "center", justify: "between", padding: { left: 6, right: 5 } }}>
-          <Column style={{ gap: 0 }}>
-            <Text size={9} weight={600} color={ui.muted}>
-              {weekday(now)}
+          {compact ? (
+            // The Windows-height bar (48 px) has room for one line: "Ter 17".
+            <Text size={10} weight={700} color="#fff" style={{ ...numeric, lineHeight: 1 }}>
+              {`${weekday(now)} ${now.getDate()}`}
             </Text>
-            <Text size={12} weight={700} color="#fff" style={{ ...numeric, lineHeight: 1 }}>
-              {String(now.getDate())}
-            </Text>
-          </Column>
+          ) : (
+            <Column style={{ gap: 0 }}>
+              <Text size={9} weight={600} color={ui.muted}>
+                {weekday(now)}
+              </Text>
+              <Text size={12} weight={700} color="#fff" style={{ ...numeric, lineHeight: 1 }}>
+                {String(now.getDate())}
+              </Text>
+            </Column>
+          )}
           {ctx.config.showWeather ? (
-            <View style={{ width: 22, height: 22, radius: 11, background: "#d8d8dc", align: "center", justify: "center" }}>
-              <Text size={9} weight={700} color="#111">
+            <View style={{ width: compact ? 16 : 22, height: compact ? 16 : 22, radius: 11, background: "#d8d8dc", align: "center", justify: "center" }}>
+              <Text size={compact ? 8 : 9} weight={700} color="#111">
                 {weather.ready ? `${weather.temperature}°` : "–"}
               </Text>
             </View>

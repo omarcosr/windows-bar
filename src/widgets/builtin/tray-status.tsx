@@ -1,4 +1,4 @@
-import { Path, Row, Svg, SvgRect } from "@tarve/core";
+import { Row, Text, View } from "@tarve/core";
 import { openQuickSettings } from "../../native/desktop";
 import { launch } from "../../services/windows";
 import { status, statusPoller } from "../../services/status";
@@ -7,88 +7,70 @@ import { Tile } from "../ui";
 import { HoverTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
-const SIZE = 18;
-const dim = "rgba(245,245,247,0.28)";
-const line = { fill: "none", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
+/*
+ * The notification area's system icons are glyphs of Windows' icon font (Segoe Fluent Icons on
+ * Windows 11, Segoe MDL2 Assets before it), the same characters the taskbar draws, at its 16 px.
+ */
+const FONT = "Segoe Fluent Icons, Segoe MDL2 Assets";
+const SIZE = 16;
+const dim = "rgba(245,245,247,0.3)";
 
-/** Wi-Fi arcs lit by signal strength; a crossed globe without internet; a monitor on cable. */
+function Glyph(props: { code: number; color?: string; under?: number }) {
+  const glyph = (code: number, color: string) => (
+    <Text size={SIZE} color={color} style={{ fontFamily: FONT, lineHeight: 1 }}>
+      {String.fromCharCode(code)}
+    </Text>
+  );
+  if (props.under === undefined) return glyph(props.code, props.color ?? ui.text);
+  // Wi-Fi: the full set of arcs dimmed under the lit ones, as Windows 11 draws signal strength.
+  return (
+    <View style={{ position: "relative", width: SIZE, height: SIZE }}>
+      <View style={{ position: "absolute", left: 0, top: 0 }}>{glyph(props.under, dim)}</View>
+      <View style={{ position: "absolute", left: 0, top: 0 }}>{glyph(props.code, props.color ?? ui.text)}</View>
+    </View>
+  );
+}
+
+/** Wifi1-3 / Wifi (E872-E874, E701); with a warning sign without internet (WifiWarning1-4, EB60-EB63). */
 function NetworkGlyph() {
-  if (status.network === "none") {
-    return (
-      <Svg width={SIZE} height={SIZE} viewBox="0 0 24 24">
-        <Path
-          d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M5 12.86a10 10 0 0 1 5.17-2.69M2 8.82a15 15 0 0 1 4.18-2.64M2 2l20 20"
-          stroke={ui.text}
-          {...line}
-        />
-      </Svg>
-    );
-  }
+  if (status.network === "none") return <Glyph code={0xf384 /* NetworkOffline */} />;
   if (status.network === "wifi") {
-    const bars = status.signal >= 70 ? 3 : status.signal >= 40 ? 2 : 1;
-    const arc = (d: string, n: number) => <Path d={d} stroke={bars >= n ? ui.text : dim} {...line} />;
-    return (
-      <Svg width={SIZE} height={SIZE} viewBox="0 0 24 24">
-        <Path d="M12 20h.01" stroke={ui.text} {...line} stroke-width={3} />
-        {arc("M8.5 16.43a5 5 0 0 1 7 0", 1)}
-        {arc("M5 12.86a10 10 0 0 1 14 0", 2)}
-        {arc("M2 8.82a15 15 0 0 1 20 0", 3)}
-        {status.internet ? null : <Path d="M19 14v3M19 20.5h.01" stroke={ui.orange} {...line} />}
-      </Svg>
-    );
+    // Signal quality (0-100) from the WLAN service, in the taskbar's four steps.
+    const bars = status.signal >= 75 ? 4 : status.signal >= 50 ? 3 : status.signal >= 25 ? 2 : 1;
+    if (!status.internet) return <Glyph code={0xeb5f + bars} under={0xeb63} />;
+    return <Glyph code={[0xe872, 0xe873, 0xe874, 0xe701][bars - 1]!} under={0xe701} />;
   }
-  return (
-    <Svg width={SIZE} height={SIZE} viewBox="0 0 24 24">
-      <SvgRect x={2.5} y={3.5} width={19} height={13} rx={2} stroke={ui.text} {...line} />
-      <Path d="M8 21h8M12 16.5V21" stroke={ui.text} {...line} />
-      {status.internet ? null : <Path d="M12 7v4M12 13.5h.01" stroke={ui.orange} {...line} />}
-    </Svg>
-  );
+  return <Glyph code={status.internet ? 0xe839 /* Ethernet */ : 0xeb55 /* EthernetError */} />;
 }
 
+/** Mute (E74F) or Volume0-3 (E992-E995) by level, as the taskbar's speaker. */
 function VolumeGlyph() {
-  const speaker =
-    "M11 4.7a.7.7 0 0 0-1.2-.5L6.41 7.59A1.4 1.4 0 0 1 5.42 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.42a1.4 1.4 0 0 1 1 .41l3.38 3.39A.7.7 0 0 0 11 19.3z";
-  const silent = !status.hasAudio || status.muted;
-  return (
-    <Svg width={SIZE} height={SIZE} viewBox="0 0 24 24">
-      <Path d={speaker} stroke={ui.text} {...line} />
-      {silent ? (
-        <Path d="M22 9l-6 6M16 9l6 6" stroke={ui.text} {...line} />
-      ) : (
-        <>
-          <Path d="M15 9.5a4 4 0 0 1 0 5" stroke={status.volume > 0 ? ui.text : dim} {...line} />
-          <Path d="M18 7a8 8 0 0 1 0 10" stroke={status.volume > 33 ? ui.text : dim} {...line} />
-          <Path d="M21 4.5a12 12 0 0 1 0 15" stroke={status.volume > 66 ? ui.text : dim} {...line} />
-        </>
-      )}
-    </Svg>
-  );
+  if (!status.hasAudio || status.muted) return <Glyph code={0xe74f} />;
+  const v = status.volume;
+  return <Glyph code={v === 0 ? 0xe992 : v <= 33 ? 0xe993 : v <= 66 ? 0xe994 : 0xe995} />;
 }
+
+/** Battery0-10 (E850-E859, E83F) and BatteryCharging0-10 (E85A-E862, E83E, EA93) in 10 % steps. */
+const BATTERY = [0xe850, 0xe851, 0xe852, 0xe853, 0xe854, 0xe855, 0xe856, 0xe857, 0xe858, 0xe859, 0xe83f];
+const CHARGING = [0xe85a, 0xe85b, 0xe85c, 0xe85d, 0xe85e, 0xe85f, 0xe860, 0xe861, 0xe862, 0xe83e, 0xea93];
 
 function BatteryGlyph() {
-  const pct = Math.max(0, Math.min(100, status.battery));
-  const fill = status.charging ? ui.green : pct <= 15 ? ui.danger : ui.text;
-  return (
-    <Svg width={SIZE + 4} height={SIZE} viewBox="0 0 26 24">
-      <SvgRect x={1.5} y={6.5} width={20} height={11} rx={3} stroke={ui.text} {...line} stroke-width={1.6} />
-      <SvgRect x={3.5} y={8.5} width={Math.max(1, 16 * (pct / 100))} height={7} rx={1.5} fill={fill} stroke="none" />
-      <Path d="M24 10.5v3" stroke={ui.text} {...line} stroke-width={1.8} />
-      {status.charging ? <Path d="M12.5 7.5l-3 4.5h4l-3 4.5" stroke="#0c0c0e" {...line} stroke-width={1.6} /> : null}
-    </Svg>
-  );
+  const step = Math.round(Math.max(0, Math.min(100, status.battery)) / 10);
+  return <Glyph code={(status.charging ? CHARGING : BATTERY)[step]!} />;
 }
 
 function networkTip() {
   const access = status.internet ? "Acesso à Internet" : "Sem acesso à Internet";
   if (status.network === "none") return ["Não conectado", "Nenhuma conexão disponível"];
   if (status.network === "wifi") return [status.ssid || "Wi-Fi", access];
-  return [status.network === "ethernet" ? "Rede (cabo)" : "Rede", access];
+  return ["Rede", access];
 }
 
+/** "Fone de ouvido (CORSAIR …): 36%", with the device's own name, as the taskbar's volume tip. */
 function volumeTip() {
-  if (!status.hasAudio) return ["Nenhum dispositivo de áudio"];
-  return [status.muted ? "Alto-falantes: mudo" : `Alto-falantes: ${status.volume}%`];
+  if (!status.hasAudio) return ["Nenhum dispositivo de saída de áudio está instalado"];
+  const device = status.audioDevice || "Alto-falantes";
+  return [status.muted ? `${device}: sem áudio` : `${device}: ${status.volume}%`];
 }
 
 function batteryTip() {

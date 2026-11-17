@@ -1,5 +1,4 @@
-import { CFunction, dlopen, read, type Pointer, FfiUnsupported } from "./ffi";
-import { output } from "../runtime/proc";
+import { CFunction, dlopen, read, toArrayBuffer, type Pointer, FfiUnsupported } from "./ffi";
 import { decodeWide } from "./wide";
 
 /** Volume (Core Audio over raw COM vtables), network and keyboard layout, through plain FFI. */
@@ -20,6 +19,12 @@ const user32 = dlopen("user32.dll", {
 });
 const kernel32 = dlopen("kernel32.dll", {
   GetLocaleInfoW: { args: ["u32", "u32", "ptr", "i32"], returns: "i32" },
+});
+const wlanapi = dlopen("wlanapi.dll", {
+  WlanOpenHandle: { args: ["u32", "ptr", "ptr", "ptr"], returns: "u32" },
+  WlanEnumInterfaces: { args: ["ptr", "ptr", "ptr"], returns: "u32" },
+  WlanQueryInterface: { args: ["ptr", "ptr", "u32", "ptr", "ptr", "ptr", "ptr"], returns: "u32" },
+  WlanFreeMemory: { args: ["ptr"], returns: "void" },
 });
 
 // ---------- COM ----------
@@ -59,8 +64,39 @@ let comReady = false;
 let enumerator: Pointer | null = null;
 const out = new BigUint64Array(1);
 
-/** Master volume of the default playback device (0..100), or null without one. */
-export function readVolume(): { level: number; muted: boolean } | null {
+// PKEY_Device_FriendlyName {A45C254E-DF1C-4EFD-8020-67D146A850E0}, 14: "Alto-falantes (Realtek(R) Audio)".
+const PKEY_Device_FriendlyName = new Uint8Array([...guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), 14, 0, 0, 0]);
+const ole32Props = dlopen("ole32.dll", { PropVariantClear: { args: ["ptr"], returns: "i32" } });
+let deviceCache = { name: "", at: 0 };
+
+/** The default device's name as the volume tip shows it; re-read every 10 s (it rarely changes). */
+function deviceName(device: Pointer): string {
+  if (Date.now() - deviceCache.at < 10_000) return deviceCache.name;
+  deviceCache.at = Date.now();
+  out[0] = 0n;
+  if (com(device, 4, ["u32", "ptr"], 0 /* STGM_READ */, out) !== 0 || !out[0]) return "";
+  const store = Number(out[0]) as unknown as Pointer;
+  try {
+    const value = new Uint8Array(24);
+    if (com(store, 5, ["ptr", "ptr"], PKEY_Device_FriendlyName, value) !== 0) return deviceCache.name;
+    try {
+      const view = new DataView(value.buffer);
+      if (view.getUint16(0, true) !== 31 /* VT_LPWSTR */) return "";
+      const text = Number(view.getBigUint64(8, true));
+      let length = 0;
+      while (length < 256 && read.u16(text, length * 2) !== 0) length++;
+      deviceCache.name = decodeWide(toArrayBuffer(text, 0, length * 2), 0, length * 2);
+      return deviceCache.name;
+    } finally {
+      ole32Props.symbols.PropVariantClear(value);
+    }
+  } finally {
+    release(store);
+  }
+}
+
+/** Master volume of the default playback device (0..100) and its name, or null without one. */
+export function readVolume(): { level: number; muted: boolean; device: string } | null {
   try {
     if (!comReady) {
       ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
@@ -83,7 +119,7 @@ export function readVolume(): { level: number; muted: boolean } | null {
         const muted = new Int32Array(1);
         com(volume, 9, ["ptr"], level);
         com(volume, 15, ["ptr"], muted);
-        return { level: Math.round(level[0]! * 100), muted: !!muted[0] };
+        return { level: Math.round(level[0]! * 100), muted: !!muted[0], device: deviceName(device) };
       } finally {
         release(volume);
       }
@@ -103,22 +139,53 @@ export type NetworkKind = "wifi" | "ethernet" | "other" | "none";
 const hint = new Uint8Array(16);
 const ifIndex = new Uint32Array(1);
 const ifRow = new Uint8Array(1352);
-let wifi = { signal: 100, name: "", at: 0, running: false };
+let wifi = { signal: 100, name: "", at: 0 };
+
+let wlan: number | null | undefined;
 
 /**
- * Signal and network name of the Wi-Fi connection. The WLAN API blocks for ~400 ms per query,
- * which would stall the dock (and the tray it hosts), so this asks netsh in the background.
+ * Signal quality and SSID of the connected Wi-Fi interface, from the WLAN service (the source the
+ * taskbar's network icon uses): WlanQueryInterface(wlan_intf_opcode_current_connection). It answers
+ * from the service's cached state (well under a millisecond), so it is read every 5 s.
  */
 function refreshWifi() {
-  if (wifi.running || Date.now() - wifi.at < 20_000) return;
-  wifi.running = true;
-  output(["netsh", "wlan", "show", "interfaces"])
-    .then(({ stdout: text }) => {
-      const signal = /:\s*(\d+)\s*%/.exec(text);
-      const ssid = /^\s*SSID\s*:\s*(.+)$/m.exec(text);
-      wifi = { signal: signal ? Number(signal[1]) : wifi.signal, name: ssid?.[1]?.trim() ?? "", at: Date.now(), running: false };
-    })
-    .catch(() => (wifi = { ...wifi, at: Date.now(), running: false }));
+  if (Date.now() - wifi.at < 5_000) return;
+  wifi.at = Date.now();
+  const W = wlanapi.symbols;
+  if (wlan === undefined) {
+    const version = new Uint32Array(1);
+    const handle = new BigUint64Array(1);
+    wlan = W.WlanOpenHandle(2, null, new Uint8Array(version.buffer), new Uint8Array(handle.buffer)) === 0 ? Number(handle[0]) : null;
+  }
+  if (!wlan) return;
+  const list = new BigUint64Array(1);
+  if (W.WlanEnumInterfaces(wlan, null, new Uint8Array(list.buffer)) !== 0 || !list[0]) return;
+  const interfaces = Number(list[0]);
+  try {
+    const count = read.u32(interfaces, 0);
+    for (let i = 0; i < count; i++) {
+      // WLAN_INTERFACE_INFO_LIST: two DWORDs, then 532-byte entries (GUID, description, state).
+      const item = interfaces + 8 + i * 532;
+      if (read.u32(item, 16 + 512) !== 1 /* wlan_interface_state_connected */) continue;
+      const guid = new Uint8Array(toArrayBuffer(item, 0, 16));
+      const size = new Uint32Array(1);
+      const data = new BigUint64Array(1);
+      if (W.WlanQueryInterface(wlan, guid, 7, null, new Uint8Array(size.buffer), new Uint8Array(data.buffer), null) !== 0 || !data[0]) continue;
+      const attributes = Number(data[0]);
+      try {
+        // WLAN_CONNECTION_ATTRIBUTES: the association attributes start at 520 (SSID length, SSID
+        // bytes), the signal quality (0-100) at 520 + 56.
+        const length = Math.min(32, read.u32(attributes, 520));
+        const name = new TextDecoder().decode(new Uint8Array(toArrayBuffer(attributes, 524, length)));
+        wifi = { signal: read.u32(attributes, 576), name, at: wifi.at };
+        return;
+      } finally {
+        W.WlanFreeMemory(attributes);
+      }
+    }
+  } finally {
+    W.WlanFreeMemory(interfaces);
+  }
 }
 
 export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: number; name: string } {

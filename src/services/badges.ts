@@ -77,8 +77,14 @@ export function acquireBadges(): () => void {
   };
 }
 
-/** `C:\\Program Files\\WindowsApps\\Name_1.2.3.0_x64__publisher\\App.exe` -> `Name_publisher`. */
+/**
+ * The package family of a packaged app: from its AppUserModelID ("shell:AppsFolder\\Name_publisher!App"),
+ * which is how the dock identifies running packaged apps; a WindowsApps path otherwise
+ * (`C:\\Program Files\\WindowsApps\\Name_1.2.3.0_x64__publisher\\App.exe` -> `Name_publisher`).
+ */
 export function packageFamilyOf(exe: string): string | undefined {
+  const id = /^shell:AppsFolder\\([^!]+)!/i.exec(exe);
+  if (id) return id[1];
   const m = /\\WindowsApps\\([^_\\]+)_[^\\]*?__([^\\]+)\\/i.exec(exe);
   return m ? `${m[1]}_${m[2]}` : undefined;
 }

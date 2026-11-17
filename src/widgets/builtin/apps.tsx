@@ -5,7 +5,7 @@ import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
 import { clickApp, hidePreview, hoverApp } from "../../menu/window-preview";
 import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
 import { config } from "../../config";
-import { ui } from "../../theme";
+import { devicePx, ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
 import { taskbarPins, unpinFromTaskbar, watchTaskbarPins, type TaskbarPin } from "../../services/taskbar-pins";
 import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
@@ -21,6 +21,8 @@ interface Item {
   launch: string;
   /** The Windows taskbar pin it comes from. */
   pin?: TaskbarPin;
+  /** Pinned to the dock only (Windows does not let other programs pin to its taskbar). */
+  dockPin?: DockPin;
   name: string;
   pinned: boolean;
   running: boolean;
@@ -48,14 +50,27 @@ function AppProgress(props: { exe: string }) {
   if (!p) return null;
   const color = p.state & 4 ? ui.red : p.state & 8 ? "#fce100" : taskbarPrefs.accent;
   const indeterminate = !!(p.state & 1);
-  const track = ui.app.slot - 12;
+  // Along the plate's bottom edge, where the running indicator sits, on whole device pixels.
+  const inset = devicePx(5);
+  const track = ui.app.plate - inset * 2;
+  const height = devicePx(3);
   return (
-    <View style={{ position: "absolute", bottom: 2, left: 6, width: track, height: 3, radius: 2, background: "rgba(255,255,255,0.18)" }}>
+    <View
+      style={{
+        position: "absolute",
+        bottom: indicatorBottom(),
+        left: (ui.app.slot - ui.app.plate) / 2 + inset,
+        width: track,
+        height,
+        radius: height / 2,
+        background: "rgba(255,255,255,0.18)",
+      }}
+    >
       <View
         style={{
-          width: indeterminate ? track : Math.max(3, Math.round(track * p.value)),
-          height: 3,
-          radius: 2,
+          width: indeterminate ? track : Math.max(height, devicePx(track * p.value)),
+          height,
+          radius: height / 2,
           background: color,
           transition: { width: { duration: 250, easing: "easeOut" } },
           ...(indeterminate
@@ -98,6 +113,24 @@ function AppBadge(props: { exe: string }) {
       ) : null}
     </View>
   );
+}
+
+/** The plate square, centred on the icon in the slot; whole device pixels on every side. */
+function plateBox() {
+  const size = ui.app.plate;
+  return {
+    position: "absolute" as const,
+    top: (ui.tile.height - size) / 2,
+    left: (ui.app.slot - size) / 2,
+    width: size,
+    height: size,
+    radius: devicePx(8),
+  };
+}
+
+/** The running indicator sits inside the plate's bottom edge, as on the Windows 11 taskbar. */
+function indicatorBottom() {
+  return (ui.tile.height - ui.app.plate) / 2 + devicePx(2);
 }
 
 function AppIcon(props: {
@@ -144,13 +177,7 @@ function AppIcon(props: {
       {magnifying() ? null : item.attention ? (
         <View
           style={{
-            position: "absolute",
-            // Inset from the slot, so the plate follows the bar height.
-            top: 5,
-            bottom: 5,
-            left: 2 + magnify.grow,
-            right: 2 + magnify.grow,
-            radius: 8,
+            ...plateBox(),
             background: "rgba(247,99,12,0.32)",
             borderWidth: 1,
             borderColor: "rgba(247,99,12,0.55)",
@@ -161,13 +188,7 @@ function AppIcon(props: {
       ) : item.active && item.running ? (
         <View
           style={{
-            position: "absolute",
-            // Inset from the slot, so the plate follows the bar height.
-            top: 5,
-            bottom: 5,
-            left: 2 + magnify.grow,
-            right: 2 + magnify.grow,
-            radius: 8,
+            ...plateBox(),
             background: `${taskbarPrefs.accent}2e`,
             borderWidth: 1,
             borderColor: "rgba(255,255,255,0.06)",
@@ -206,12 +227,12 @@ function AppIcon(props: {
       <AppProgress exe={item.exe} />
       {/* Out of the flow, so the icon stays centred like the Start button. */}
       {/* Running: a short grey pill; in front: a longer one in the accent colour. */}
-      <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center", opacity: config.runningIndicator && !appProgress(item.exe) ? 1 : 0 }}>
+      <View style={{ position: "absolute", bottom: indicatorBottom(), left: 0, right: 0, align: "center", opacity: config.runningIndicator && !appProgress(item.exe) ? 1 : 0 }}>
         <View
           style={{
-            width: item.active || item.attention ? 16 : 6,
-            height: 3,
-            radius: 2,
+            width: devicePx(item.active || item.attention ? 16 : 6, true),
+            height: devicePx(3),
+            radius: devicePx(3) / 2,
             background: !item.running
               ? "transparent"
               : item.attention
@@ -227,12 +248,23 @@ function AppIcon(props: {
   );
 }
 
+/** An app pinned to the dock only; it keeps its identity so its windows group under it. */
+interface DockPin {
+  /** What starts it: the program, or shell:AppsFolder\\<AUMID> for packaged apps. */
+  path: string;
+  /** The running app's key (its AppUserModelID key, or the lower-cased program). */
+  key: string;
+  /** Lower-cased program, for windows that set no AppUserModelID. */
+  program: string;
+  name: string;
+}
+
 export default defineWidget({
   type: "apps",
   name: "Apps",
-  description: "Os mesmos apps fixados da barra de tarefas do Windows, e os abertos. Clique direito abre o menu do app.",
+  description: "Os apps fixados da barra de tarefas do Windows, os fixados no dock e os abertos. Clique direito abre o menu do app.",
   category: "apps",
-  defaultConfig: { showUnpinned: true },
+  defaultConfig: { showUnpinned: true, dockPins: [] as DockPin[] },
   settings: [{ kind: "toggle", key: "showUnpinned", label: "Mostrar apps abertos não fixados" }],
   setup(ctx) {
     watchTaskbarPins();
@@ -254,18 +286,40 @@ export default defineWidget({
     const attention = (key: string) => !!running.get(key)?.windows.some((w) => desktop.flashing.includes(w.hwnd as unknown as number));
     const items: Item[] = [];
     for (const pin of taskbarPins.items) {
-      if (items.some((i) => i.key === pin.key)) continue;
+      // As the taskbar matches a pin: by AppUserModelID, else (windows that set none) by program.
+      const app = running.get(pin.key) ?? desktop.apps.find((a) => !a.explicitId && a.program === pin.program);
+      const key = app?.key ?? pin.key;
+      if (items.some((i) => i.key === key)) continue;
       items.push({
-        key: pin.key,
+        key,
         exe: pin.exe,
         launch: pin.path,
         pin,
         name: pin.name || prettyName(pin.exe),
         pinned: true,
-        running: running.has(pin.key),
-        active: desktop.activeKey === pin.key,
-        windows: running.get(pin.key)?.windows.length ?? 0,
-        attention: attention(pin.key),
+        running: !!app,
+        active: desktop.activeKey === key,
+        windows: app?.windows.length ?? 0,
+        attention: attention(key),
+      });
+    }
+    // Then the dock's own pins, in the order they were pinned.
+    const dockPins = (ctx.config.dockPins ??= []);
+    for (const pin of dockPins) {
+      const app = running.get(pin.key) ?? desktop.apps.find((a) => !a.explicitId && a.program === pin.program);
+      const key = app?.key ?? pin.key;
+      if (items.some((i) => i.key === key)) continue;
+      items.push({
+        key,
+        exe: app?.exe ?? pin.path,
+        launch: pin.path,
+        dockPin: pin,
+        name: app?.name ?? pin.name,
+        pinned: true,
+        running: !!app,
+        active: desktop.activeKey === key,
+        windows: app?.windows.length ?? 0,
+        attention: attention(key),
       });
     }
     for (const app of desktop.apps) {
@@ -284,6 +338,17 @@ export default defineWidget({
       });
     }
     setAppCount(ctx.instanceId, items.length);
+    const pinToDock = (item: Item) => {
+      const app = desktop.apps.find((a) => a.key === item.key);
+      if (!app || dockPins.some((p) => p.key === app.key)) return;
+      dockPins.push({ path: app.exe, key: app.key, program: app.program, name: app.name });
+      ctx.save();
+    };
+    const unpinFromDock = (pin: DockPin) => {
+      const index = dockPins.indexOf(pin);
+      if (index >= 0) dockPins.splice(index, 1);
+      ctx.save();
+    };
     // The entries the Windows taskbar offers, in the dock's own menu above the icon.
     const showMenu = (item: Item) => {
       const windows = desktop.apps.find((a) => a.key === item.key)?.windows ?? [];
@@ -295,9 +360,11 @@ export default defineWidget({
       }));
       const actions: DockMenuItem[] = [
         { label: windows.length ? "Nova janela" : "Abrir", icon: "plus", onSelect: () => launch(item.launch) },
-        ...(item.pin
-          ? [{ label: "Desafixar da barra de tarefas", icon: glyph.unpin, onSelect: () => void unpinFromTaskbar(item.pin!) }]
-          : []),
+        item.pin
+          ? { label: "Desafixar da barra de tarefas", icon: glyph.unpin, onSelect: () => void unpinFromTaskbar(item.pin!) }
+          : item.dockPin
+            ? { label: "Desafixar do dock", icon: glyph.unpin, onSelect: () => unpinFromDock(item.dockPin!) }
+            : { label: "Fixar no dock", icon: glyph.pin, onSelect: () => pinToDock(item) },
         ...(/^[a-z]:\\/i.test(item.exe)
           ? [{ label: "Abrir local do arquivo", icon: "folder" as const, onSelect: () => openFileLocation(item.exe) }]
           : []),

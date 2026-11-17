@@ -122,17 +122,12 @@ a.setUint32(0, 48, true);
 a.setBigUint64(8, BigInt(hwnd), true);
 a.setUint32(16, APPBAR_CALLBACK, true);
 shell.SHAppBarMessage(0, abd);
-let lastMove = 0;
 const onEvent = new JSCallback((hook, event, target, idObject) => {
   if (idObject !== 0 || !target) return;
   if (event === 3) postMessage({ type: "foreground", hwnd: Number(target) });
-  else if (Number(target) === Number(u.GetForegroundWindow())) {
-    const now = Date.now();
-    if (now - lastMove > 60) {
-      lastMove = now;
-      postMessage({ type: "moved", hwnd: Number(target) });
-    }
-  }
+  // Not throttled here: this thread sleeps in GetMessage and cannot send a trailing event, so the
+  // final size (F11, a game going full screen) could be lost. main.tsx coalesces them.
+  else if (Number(target) === Number(u.GetForegroundWindow())) postMessage({ type: "moved", hwnd: Number(target) });
 }, { args: ["ptr", "u32", "ptr", "i32", "i32", "u32", "u32"], returns: "void" });
 // WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS; delivered to this thread's GetMessage.
 const foregroundHook = u.SetWinEventHook(0x0003, 0x0003, null, onEvent.ptr, 0, 0, 0x2);

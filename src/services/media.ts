@@ -90,11 +90,8 @@ async function control(action: SystemMediaSessionAction) {
 }
 
 export const mediaControls = {
-  playPause() {
-    if (!media.app) return;
-    media.playing = !media.playing;
-    control("toggle");
-  },
+  // The button shows what the session reports (re-read 250 ms after the command), as the Windows flyout.
+  playPause: () => control("toggle"),
   next: () => control("next"),
   previous: () => control("previous"),
 };

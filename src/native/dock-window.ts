@@ -207,7 +207,9 @@ export class DockWindow {
     const over = Math.round(this.#options.stripOverlap * screen.scale);
     // SetWindowPos, not setBounds: placing an AppBar through the runtime drops the work-area
     // reservation (tested with 0.13.0); the window must be moved on this thread.
-    placeWindow(this.#hwnd, g.left, g.bottom - px - over, g.right - g.left, px + over);
+    // Behind a full-screen app it stays behind: a layout (an app opened, a widget resized) must
+    // not bring it back on top of the game or video.
+    placeWindow(this.#hwnd, g.left, g.bottom - px - over, g.right - g.left, px + over, !this.#hiddenForFullscreen);
   }
 
   #unreserve() {
@@ -303,7 +305,7 @@ export class DockWindow {
    */
   checkFullscreen() {
     if (this.#disposed) return false;
-    const fullscreen = this.#shellFullscreen || fullscreenAppActive(this.#hwnd);
+    const fullscreen = (this.#shellFullscreen && this.#foregroundOnOwnScreen()) || fullscreenAppActive(this.#hwnd);
     if (fullscreen !== this.#hiddenForFullscreen) {
       this.#hiddenForFullscreen = fullscreen;
       // Step behind the full-screen window instead of hiding: a hidden AppBar loses its reserved
@@ -311,6 +313,15 @@ export class DockWindow {
       setBehind(this.#hwnd, fullscreen ? foregroundWindow() : null);
     }
     return fullscreen;
+  }
+
+  /** ABN_FULLSCREENAPP does not say which monitor: only the dock's own screen counts. */
+  #foregroundOnOwnScreen() {
+    const fg = foregroundWindow();
+    if (!fg) return false;
+    const a = monitorOf(fg).monitor;
+    const b = monitorOf(this.#hwnd).monitor;
+    return a.left === b.left && a.top === b.top;
   }
 
   #watch() {

@@ -93,9 +93,13 @@ export const HWND_TOPMOST = -1;
 const SWP_NOACTIVATE = 0x0010;
 const SWP_NOSIZE = 0x0001;
 
-/** Moves and sizes a window, keeping it topmost, without activating it (physical px). */
-export function placeWindow(hwnd: HWND, x: number, y: number, width: number, height: number) {
-  U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width), Math.round(height), SWP_NOACTIVATE);
+/**
+ * Moves and sizes a window without activating it (physical px). onTop keeps it topmost; false
+ * leaves its z-order alone (behind a full-screen app it must stay there).
+ */
+export function placeWindow(hwnd: HWND, x: number, y: number, width: number, height: number, onTop = true) {
+  const flags = SWP_NOACTIVATE | (onTop ? 0 : 0x4 /* SWP_NOZORDER */);
+  U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width), Math.round(height), flags);
 }
 
 /** Drops a topmost window to just behind `front` (or back on top with null), without hiding it. */
@@ -268,7 +272,11 @@ export function fullscreenAppActive(dock?: HWND | null): boolean {
     if (state === 2 || state === 3 || state === 4) return true; // BUSY, D3D full screen, presentation
   }
   const fg = U.GetForegroundWindow() as HWND | null;
-  if (!fg || U.IsZoomed(fg)) return false;
+  if (!fg) return false;
+  // A maximized window with a title bar fills the work area, not the screen (with the taskbar on
+  // auto-hide they are the same). Borderless maximized windows (many games, players) are full screen.
+  const WS_CAPTION = 0xc00000;
+  if (U.IsZoomed(fg) && (Number(U.GetWindowLongPtrW(fg, -16 /* GWL_STYLE */)) & WS_CAPTION) === WS_CAPTION) return false;
   U.GetWindowThreadProcessId(fg, new Uint8Array(pidBuf.buffer));
   if (pidBuf[0] === process.pid) return false;
   const cls = windowClass(fg);

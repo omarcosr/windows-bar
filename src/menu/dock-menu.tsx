@@ -22,7 +22,7 @@ import { ui } from "../theme";
 export interface DockMenuItem {
   label: string;
   /** A built-in icon name, a Lucide-style node list, or an image path. */
-  icon?: IconName | readonly SvgNode[] | { image: ImageSource };
+  icon?: IconName | readonly SvgNode[] | FluentIcon | { image: ImageSource };
   danger?: boolean;
   onSelect: () => void;
   /** Right-click on the row. */
@@ -58,46 +58,48 @@ let area = { x: 0, y: 0, width: 1920, height: 1080 };
 let opening = 0;
 let pending = false;
 
+/** A character of Windows' icon font (Segoe Fluent Icons), as the shell's own menus and flyouts draw icons. */
+export interface FluentIcon {
+  fluent: number;
+}
+const fluent = (code: number): FluentIcon => ({ fluent: code });
+const FLUENT_FONT = "Segoe Fluent Icons, Segoe MDL2 Assets";
+
+/** Menu glyphs: the same Segoe Fluent Icons characters Windows uses for these actions. */
 export const glyph = {
-  pin: [
-    ["path", { d: "M12 17v5" }],
-    [
-      "path",
-      {
-        d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z",
-      },
-    ],
-  ] as readonly SvgNode[],
-  unpin: [
-    ["path", { d: "M12 17v5" }],
-    ["path", { d: "M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" }],
-    ["path", { d: "m2 2 20 20" }],
-    ["path", { d: "M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" }],
-  ] as readonly SvgNode[],
-  window: [
-    ["rect", { x: 3, y: 4, width: 18, height: 16, rx: 2.5 }],
-    ["path", { d: "M3 9h18" }],
-  ] as readonly SvgNode[],
-  grid: [
-    ["rect", { x: 3, y: 3, width: 7, height: 7, rx: 1.5 }],
-    ["rect", { x: 14, y: 3, width: 7, height: 7, rx: 1.5 }],
-    ["rect", { x: 3, y: 14, width: 7, height: 7, rx: 1.5 }],
-    ["rect", { x: 14, y: 14, width: 7, height: 7, rx: 1.5 }],
-  ] as readonly SvgNode[],
-  activity: [["path", { d: "M22 12h-4l-3 9L9 3l-3 9H2" }]] as readonly SvgNode[],
-  eye: [
-    ["path", { d: "M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0" }],
-    ["circle", { cx: 12, cy: 12, r: 3 }],
-  ] as readonly SvgNode[],
-  bar: [
-    ["rect", { x: 2, y: 4, width: 20, height: 16, rx: 2.5 }],
-    ["path", { d: "M2 15h20" }],
-  ] as readonly SvgNode[],
-  /** Settings: sliders read clearly at badge sizes, where a toothed gear looks like a sun. */
+  pin: fluent(0xe718),
+  unpin: fluent(0xe77a),
+  window: fluent(0xe737),
+  grid: fluent(0xe80a),
+  activity: fluent(0xe9d9),
+  eye: fluent(0xe7b3),
+  bar: fluent(0xe7f4),
+  /** Settings sliders, as a menu entry. */
+  settings: fluent(0xe9e9),
+  /** Settings badge on widgets (an outline drawing: it reads at 12 px where a glyph blurs). */
   sliders: [
     ["path", { d: "M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" }],
     ["path", { d: "M14 2v4M8 10v4M16 18v4" }],
   ] as readonly SvgNode[],
+};
+
+/** The icon names the dock's menus use, as their Segoe Fluent Icons characters. */
+const NAMED: Record<string, number> = {
+  plus: 0xe710,
+  folder: 0xe8b7,
+  x: 0xe711,
+  settings: 0xe713,
+  bell: 0xea8f,
+  search: 0xe721,
+  star: 0xe734,
+  info: 0xe946,
+  play: 0xe768,
+  pause: 0xe769,
+  "chevron-right": 0xe76c,
+  "chevron-left": 0xe76b,
+  "skip-forward": 0xe893,
+  "skip-back": 0xe892,
+  download: 0xe896,
 };
 
 function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string; size?: number }) {
@@ -105,6 +107,16 @@ function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string; size?: num
   const size = props.size ?? 16;
   if (!icon) return <View style={{ width: size, height: size }} />;
   if (typeof icon === "object" && "image" in icon) return <Image src={icon.image} width={size} height={size} fit="contain" />;
+  const code = typeof icon === "object" && "fluent" in icon ? icon.fluent : typeof icon === "string" ? NAMED[icon] : undefined;
+  if (code !== undefined) {
+    return (
+      <View style={{ width: size, height: size, align: "center", justify: "center" }}>
+        <Text size={size} color={props.color} style={{ fontFamily: FLUENT_FONT, lineHeight: 1 }}>
+          {String.fromCharCode(code)}
+        </Text>
+      </View>
+    );
+  }
   if (typeof icon === "string") return <Icon name={icon} size={size} color={props.color} strokeWidth={2} />;
   return <Icon iconNode={icon as readonly SvgNode[]} size={size} color={props.color} strokeWidth={2} />;
 }

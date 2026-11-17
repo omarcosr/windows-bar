@@ -1,7 +1,8 @@
 import { store } from "@tarve/core";
 import { dlopen, type Pointer } from "../native/ffi";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
+import { knownFolderPath } from "../native/shell-item";
 import { configDir } from "../config";
 import { cursorPos, exePathOf, listTaskbarWindows } from "../native/win32";
 import {
@@ -96,16 +97,7 @@ const advapi32 = dlopen("advapi32.dll", {
 });
 const A = advapi32.symbols;
 const wide = (s: string) => encodeWide(s);
-const knownFolders: Record<string, string | undefined> = {
-  "{6D809377-6AF0-444B-8957-A3773F02200E}": process.env.ProgramFiles,
-  "{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}": process.env["ProgramFiles(x86)"],
-  "{F38BF404-1D43-42F2-9305-67DE0B28FC23}": process.env.windir,
-  "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}": process.env.windir && join(process.env.windir, "System32"),
-  "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}": process.env.LOCALAPPDATA,
-  "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}": process.env.APPDATA,
-};
-
-/** Promoted exes: full lower-cased paths, and bare file names as a fallback. */
+/** Promoted exes ("Mostrar na barra de tarefas" in Settings), as full lower-cased paths. */
 let promoted = new Set<string>();
 
 function readPromoted() {
@@ -131,10 +123,13 @@ function readPromoted() {
       size[0] = pathBuf.byteLength;
       if (A.RegGetValueW(root, wide(sub), wide("ExecutablePath"), 0x2 /* RRF_RT_REG_SZ */, null, new Uint8Array(pathBuf.buffer), new Uint8Array(size.buffer)) !== 0) continue;
       let path = decodeWide(pathBuf.buffer, 0, Math.max(0, size[0]! - 2));
+      // Paths are stored like the shell's default AppUserModelIDs: a known-folder GUID prefix.
       const folder = /^\{[0-9A-F-]+\}/i.exec(path)?.[0];
-      if (folder && knownFolders[folder.toUpperCase()]) path = knownFolders[folder.toUpperCase()] + path.slice(folder.length);
+      if (folder) {
+          const base = knownFolderPath(folder);
+        if (base) path = base + path.slice(folder.length);
+      }
       next.add(path.toLowerCase());
-      next.add(basename(path).toLowerCase());
     }
   } finally {
     A.RegCloseKey(root);
@@ -142,7 +137,7 @@ function readPromoted() {
   promoted = next;
 }
 
-const isPromoted = (exe: string) => !!exe && (promoted.has(exe.toLowerCase()) || promoted.has(basename(exe).toLowerCase()));
+const isPromoted = (exe: string) => !!exe && promoted.has(exe.toLowerCase());
 
 // ---------- Messages from the host ----------
 
