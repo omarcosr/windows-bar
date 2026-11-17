@@ -5,6 +5,7 @@ import { launch } from "../../services/windows";
 import { ui } from "../../theme";
 import { WindowsLogo, iconHover } from "../ui";
 import { defineWidget } from "../types";
+import { run as runProcess } from "../../runtime/proc";
 
 const icon = (...nodes: SvgNode[]) => nodes as readonly SvgNode[];
 const glyphs = {
@@ -77,7 +78,7 @@ const VK_S = 0x53;
 
 /** Runs a command line hidden (shutdown, rundll32, an elevated launch). */
 function run(...args: string[]) {
-  Bun.spawn(args, { windowsHide: true, stdout: "ignore", stderr: "ignore" });
+    runProcess(args);
 }
 
 /** The Windows "power user" menu (Win+X), as right-clicking the Start button shows it. */

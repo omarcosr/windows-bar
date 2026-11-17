@@ -21,7 +21,7 @@ import { allWidgets } from "./widgets/registry";
 import { exitApp } from "./services/exit";
 import "./widgets/builtin";
 import appIcon from "../assets/icon.png";
-
+import { sleep } from "./runtime/proc";
 // A stray network error (e.g. ECONNRESET from a widget's fetch) must not take the whole dock down.
 process.on("unhandledRejection", (error) => console.error("[unhandledRejection]", error));
 process.on("uncaughtException", (error) => console.error("[uncaughtException]", error));
@@ -44,14 +44,14 @@ if (argv.includes("--quit")) {
     exitApp(0);
   }
   // The running dock got "--quit" and closes; give it time to restore the taskbar and exit.
-  for (let i = 0; i < 30 && windowExists(DOCK_TITLE); i++) await Bun.sleep(200);
-  await Bun.sleep(500);
+  for (let i = 0; i < 30 && windowExists(DOCK_TITLE); i++) await sleep(200);
+  await sleep(500);
   exitApp(0);
 }
 // Right after a dock was killed its pipe can still answer for a few seconds, longer than the
 // ~2.5 s requestSingleInstance retries (seen with 0.13.0): with no dock on screen, ask again.
 for (let i = 0; !instance.primary && !windowExists(DOCK_TITLE) && i < 6; i++) {
-  await Bun.sleep(700);
+  await sleep(700);
   instance = await requestSingleInstance({ id: "WindowsBar.Dock" });
 }
 if (!instance.primary) exitApp(0);

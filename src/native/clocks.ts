@@ -1,4 +1,5 @@
-import { dlopen } from "bun:ffi";
+import { dlopen } from "./ffi";
+import { encodeWide, decodeWide } from "./wide";
 
 /**
  * Windows' "Additional clocks" (Settings > Time & language > Date & time > Additional clocks):
@@ -23,20 +24,20 @@ const RRF_RT_DWORD = 0x10;
 const DTZI_SIZE = 432;
 const KEY_NAME_OFFSET = 172;
 
-const wide = (s: string) => Buffer.from(s + "\0", "utf16le");
+const wide = (s: string) => encodeWide(s);
 const text = new Uint16Array(260);
 const dword = new Uint32Array(1);
 const size = new Uint32Array(1);
 
 function readString(sub: string, value: string): string {
   size[0] = text.byteLength;
-  if (advapi32.symbols.RegGetValueW(HKCU, wide(sub), wide(value), RRF_RT_REG_SZ, null, text, size) !== 0) return "";
-  return Buffer.from(text.buffer, 0, Math.max(0, size[0]! - 2)).toString("utf16le");
+  if (advapi32.symbols.RegGetValueW(HKCU, wide(sub), wide(value), RRF_RT_REG_SZ, null, new Uint8Array(text.buffer), new Uint8Array(size.buffer)) !== 0) return "";
+  return decodeWide(text.buffer, 0, Math.max(0, size[0]! - 2));
 }
 
 function readDword(sub: string, value: string): number | null {
   size[0] = 4;
-  if (advapi32.symbols.RegGetValueW(HKCU, wide(sub), wide(value), RRF_RT_DWORD, null, dword, size) !== 0) return null;
+  if (advapi32.symbols.RegGetValueW(HKCU, wide(sub), wide(value), RRF_RT_DWORD, null, new Uint8Array(dword.buffer), new Uint8Array(size.buffer)) !== 0) return null;
   return dword[0]!;
 }
 
@@ -49,7 +50,7 @@ function zoneInfo(key: string): Uint8Array | null {
   for (let i = 0; ; i++) {
     const info = new Uint8Array(DTZI_SIZE);
     if (advapi32.symbols.EnumDynamicTimeZoneInformation(i, info) !== 0) break;
-    const name = Buffer.from(info.buffer, KEY_NAME_OFFSET, 256).toString("utf16le").replace(/\0.*$/s, "");
+    const name = decodeWide(info.buffer, KEY_NAME_OFFSET, 256).replace(/\0.*$/s, "");
     if (name.toLowerCase() === key.toLowerCase()) {
       found = info;
       break;
@@ -67,7 +68,7 @@ function zoneOffset(key: string, at: Date): number | null {
   const info = zoneInfo(key);
   if (!info) return null;
   utcTime.set([at.getUTCFullYear(), at.getUTCMonth() + 1, at.getUTCDay(), at.getUTCDate(), at.getUTCHours(), at.getUTCMinutes(), 0, 0]);
-  if (!kernel32.symbols.SystemTimeToTzSpecificLocalTimeEx(info, utcTime, localTime)) return null;
+  if (!kernel32.symbols.SystemTimeToTzSpecificLocalTimeEx(info, new Uint8Array(utcTime.buffer), new Uint8Array(localTime.buffer))) return null;
   const [y, mo, , d, h, mi] = localTime;
   const local = Date.UTC(y!, mo! - 1, d!, h!, mi!);
   const utc = Date.UTC(utcTime[0]!, utcTime[1]! - 1, utcTime[3]!, utcTime[4]!, utcTime[5]!);

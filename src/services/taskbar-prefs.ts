@@ -1,5 +1,6 @@
 import { store } from "@tarve/core";
 import { config } from "../config";
+import { output } from "../runtime/proc";
 
 /** Windows taskbar settings the dock mirrors (Settings > Personalization > Taskbar). */
 export const taskbarPrefs = store({
@@ -10,12 +11,7 @@ export const taskbarPrefs = store({
 });
 
 async function readAccent(): Promise<string | null> {
-  const proc = Bun.spawn(["reg.exe", "query", "HKCU\\Software\\Microsoft\\Windows\\DWM", "/v", "AccentColor"], {
-    stdout: "pipe",
-    stderr: "ignore",
-    windowsHide: true,
-  });
-  const out = await new Response(proc.stdout).text();
+  const { stdout: out } = await output(["reg.exe", "query", "HKCU\\Software\\Microsoft\\Windows\\DWM", "/v", "AccentColor"]);
   const m = /AccentColor\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(out);
   if (!m) return null;
   // Stored as 0xAABBGGRR.
@@ -25,15 +21,7 @@ async function readAccent(): Promise<string | null> {
 }
 
 async function readAlignment(): Promise<"center" | "left"> {
-  const proc = Bun.spawn(
-    ["reg.exe", "query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "/v", "TaskbarAl"],
-    {
-      stdout: "pipe",
-      stderr: "ignore",
-      windowsHide: true,
-    },
-  );
-  const out = await new Response(proc.stdout).text();
+  const { stdout: out } = await output(["reg.exe", "query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "/v", "TaskbarAl"]);
   // TaskbarAl: 0 = left, 1 or missing = centre (the Windows 11 default).
   return /TaskbarAl\s+REG_DWORD\s+0x0\b/i.test(out) ? "left" : "center";
 }

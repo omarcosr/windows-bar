@@ -11,6 +11,7 @@ import {
   type HWND,
 } from "../native/win32";
 import { createPoller } from "./poller";
+import { run } from "../runtime/proc";
 
 export interface AppWindow {
   hwnd: HWND;
@@ -144,7 +145,7 @@ function countsAsApp(hwnd: HWND) {
 export function launch(path: string) {
   const isFile = /^[a-z]:\\/i.test(path);
   const args = isFile ? ["cmd.exe", "/c", "start", "", "/D", dirname(path), path] : ["cmd.exe", "/c", "start", "", path];
-  Bun.spawn(args, { windowsHide: true, stdout: "ignore", stderr: "ignore" });
+  run(args);
 }
 
 /** Taskbar click: open, bring forward, cycle windows or minimize, as Windows does. */
@@ -184,7 +185,7 @@ export function focusWindow(hwnd: HWND) {
 }
 
 export function openFileLocation(path: string) {
-  Bun.spawn(["explorer.exe", `/select,${path}`], { windowsHide: true, stdout: "ignore", stderr: "ignore" });
+    run(["explorer.exe", `/select,${path}`]);
 }
 
 export function closeApp(key: string) {

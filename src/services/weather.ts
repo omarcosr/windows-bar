@@ -1,5 +1,6 @@
 import { store } from "@tarve/core";
 import { createPoller } from "./poller";
+import { sleep } from "../runtime/proc";
 
 export const weather = store({
   ready: false,
@@ -27,7 +28,7 @@ async function getJson(url: string): Promise<unknown> {
       return await res.json();
     } catch (error) {
       if (attempt >= 1) throw error;
-      await Bun.sleep(2_000);
+      await sleep(2_000);
     }
   }
 }

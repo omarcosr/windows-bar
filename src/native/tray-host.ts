@@ -1,6 +1,7 @@
-import { dlopen, JSCallback, ptr, read, toArrayBuffer, type Pointer } from "bun:ffi";
+import { dlopen, JSCallback, ptr, read, toArrayBuffer, type Pointer } from "./ffi";
 import { deflateSync } from "node:zlib";
 import { setAppBarRoute } from "./win32";
+import { encodeWide, decodeWide } from "./wide";
 
 /**
  * Hosts the notification area the way RetroBar/ManagedShell do. Shell_NotifyIcon and
@@ -53,7 +54,7 @@ const U = user32.symbols;
 const G = gdi32.symbols;
 type HWND = Pointer;
 
-const wide = (s: string) => Buffer.from(s + "\0", "utf16le");
+const wide = (s: string) => encodeWide(s);
 const WM_COPYDATA = 0x004a;
 const WM_USER = 0x0400;
 const HWND_TOPMOST = -1;
@@ -97,7 +98,7 @@ type ClassName = (typeof classNames)[number];
 
 let handlers: TrayHostHandlers | null = null;
 let wndProc: JSCallback | null = null;
-const classBufs = new Map<string, Buffer>();
+const classBufs = new Map<string, Uint8Array>();
 const windows = new Map<ClassName, HWND>();
 const byHwnd = new Map<number, ClassName>();
 let pumpTimer: ReturnType<typeof setInterval> | undefined;
@@ -132,12 +133,12 @@ function forward(cls: ClassName, msg: number, wParam: bigint | number, lParam: P
   const target = explorerWindow(cls);
   if (!target) return 0;
   resultBuf[0] = 0n;
-  const ok = U.SendMessageTimeoutW(target, msg, BigInt(wParam), lParam, 0x2 /* SMTO_ABORTIFHUNG */, 2000, resultBuf);
+  const ok = U.SendMessageTimeoutW(target, msg, BigInt(wParam), lParam, 0x2 /* SMTO_ABORTIFHUNG */, 2000, new Uint8Array(resultBuf.buffer));
   return ok ? Number(BigInt.asIntN(64, resultBuf[0]!)) : 0;
 }
 
 function readWide(view: Uint8Array, offset: number, chars: number) {
-  const s = Buffer.from(view.buffer, view.byteOffset + offset, chars * 2).toString("utf16le");
+  const s = decodeWide(view.buffer, view.byteOffset + offset, chars * 2);
   const end = s.indexOf("\0");
   return end >= 0 ? s.slice(0, end) : s;
 }
@@ -331,7 +332,7 @@ process.on("exit", () => {
 
 export function windowPidOf(hwnd: number): number {
   const pid = new Uint32Array(1);
-  U.GetWindowThreadProcessId(hwnd as unknown as Pointer, pid);
+  U.GetWindowThreadProcessId(hwnd as unknown as Pointer, new Uint8Array(pid.buffer));
   return pid[0]!;
 }
 

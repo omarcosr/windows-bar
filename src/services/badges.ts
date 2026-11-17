@@ -1,9 +1,10 @@
 import { store } from "@tarve/core";
-import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createPoller } from "./poller";
 import { acquireTaskbarHost, overlays } from "./taskbar-host";
+import { openReadonly } from "../runtime/sqlite";
+import type { ReadonlyDatabase } from "../runtime/sqlite";
 
 /**
  * Unread counts and other badges apps put on their taskbar button. Two sources:
@@ -24,18 +25,18 @@ export interface Badge {
 export const packageBadges = store<Record<string, string>>({});
 
 const dbPath = join(process.env.LOCALAPPDATA ?? "", "Microsoft", "Windows", "Notifications", "wpndatabase.db");
-let db: Database | null = null;
+let db: ReadonlyDatabase | null = null;
 
-function readPackageBadges() {
+let readingBadges = false;
+
+async function readPackageBadges() {
   if (!db) {
     if (!existsSync(dbPath)) return;
-    db = new Database(dbPath, { readonly: true });
+    db = await openReadonly(dbPath);
   }
-  const rows = db
-    .query<{ id: string; payload: string }, []>(
-      "select h.PrimaryId as id, cast(n.Payload as text) as payload from Notification n join NotificationHandler h on h.RecordId = n.HandlerId where n.Type = 'badge'",
-    )
-    .all();
+  const rows = db.all<{ id: string; payload: string }>(
+    "select h.PrimaryId as id, cast(n.Payload as text) as payload from Notification n join NotificationHandler h on h.RecordId = n.HandlerId where n.Type = 'badge'",
+  );
   const next: Record<string, string> = {};
   for (const row of rows) {
     const value = /value\s*=\s*"([^"]*)"/.exec(row.payload ?? "")?.[1];
@@ -46,14 +47,18 @@ function readPackageBadges() {
   for (const [key, value] of Object.entries(next)) if (packageBadges[key] !== value) packageBadges[key] = value;
 }
 
-const dbPoller = createPoller(3000, () => {
+const dbPoller = createPoller(3000, async () => {
+  if (readingBadges) return;
+  readingBadges = true;
   try {
-    readPackageBadges();
+    await readPackageBadges();
   } catch (error) {
     // The database is busy now and then (Windows writes to it); try again next tick.
     db?.close();
     db = null;
     if (!String(error).includes("locked")) console.error("[badges]", error);
+  } finally {
+    readingBadges = false;
   }
 });
 

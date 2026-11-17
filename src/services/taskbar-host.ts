@@ -1,5 +1,5 @@
 import { store } from "@tarve/core";
-import { dlopen, type Pointer } from "bun:ffi";
+import { dlopen, type Pointer } from "../native/ffi";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { configDir } from "../config";
@@ -17,6 +17,8 @@ import {
   type NotifyIconMessage,
   type TaskbandMessage,
 } from "../native/tray-host";
+import { hash } from "../runtime/proc";
+import { encodeWide, decodeWide } from "../native/wide";
 
 /**
  * The dock as the session's taskbar host (see native/tray-host.ts): notification-area icons
@@ -58,7 +60,7 @@ const written = new Set<string>();
 function iconFile(hicon: number): string {
   const px = iconPixels(hicon);
   if (!px) return "";
-  const name = `${Bun.hash(px.rgba).toString(16)}-${px.width}.png`;
+  const name = `${hash(px.rgba).toString(16)}-${px.width}.png`;
   const path = join(cacheDir, name);
   if (!written.has(name)) {
     writeFileSync(path, encodePng(px.width, px.height, px.rgba));
@@ -76,7 +78,7 @@ const advapi32 = dlopen("advapi32.dll", {
   RegCloseKey: { args: ["ptr"], returns: "i32" },
 });
 const A = advapi32.symbols;
-const wide = (s: string) => Buffer.from(s + "\0", "utf16le");
+const wide = (s: string) => encodeWide(s);
 const knownFolders: Record<string, string | undefined> = {
   "{6D809377-6AF0-444B-8957-A3773F02200E}": process.env.ProgramFiles,
   "{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}": process.env["ProgramFiles(x86)"],
@@ -92,7 +94,7 @@ let promoted = new Set<string>();
 function readPromoted() {
   const next = new Set<string>();
   const key = new BigUint64Array(1);
-  if (A.RegOpenKeyExW(0x80000001n /* HKCU */ as unknown as number, wide("Control Panel\\NotifyIconSettings"), 0, 0x20019, key) !== 0)
+  if (A.RegOpenKeyExW(0x80000001n /* HKCU */ as unknown as number, wide("Control Panel\\NotifyIconSettings"), 0, 0x20019, new Uint8Array(key.buffer)) !== 0)
     return;
   const root = Number(key[0]) as unknown as Pointer;
   const name = new Uint16Array(256);
@@ -103,15 +105,15 @@ function readPromoted() {
   try {
     for (let i = 0; ; i++) {
       len[0] = name.length;
-      if (A.RegEnumKeyExW(root, i, name, len, null, null, null, null) !== 0) break;
-      const sub = Buffer.from(name.buffer, 0, len[0]! * 2).toString("utf16le");
+      if (A.RegEnumKeyExW(root, i, new Uint8Array(name.buffer), new Uint8Array(len.buffer), null, null, null, null) !== 0) break;
+      const sub = decodeWide(name.buffer, 0, len[0]! * 2);
       size[0] = 4;
       dword[0] = 0;
-      A.RegGetValueW(root, wide(sub), wide("IsPromoted"), 0x10 /* RRF_RT_DWORD */, null, dword, size);
+      A.RegGetValueW(root, wide(sub), wide("IsPromoted"), 0x10 /* RRF_RT_DWORD */, null, new Uint8Array(dword.buffer), new Uint8Array(size.buffer));
       if (!dword[0]) continue;
       size[0] = pathBuf.byteLength;
-      if (A.RegGetValueW(root, wide(sub), wide("ExecutablePath"), 0x2 /* RRF_RT_REG_SZ */, null, pathBuf, size) !== 0) continue;
-      let path = Buffer.from(pathBuf.buffer, 0, Math.max(0, size[0]! - 2)).toString("utf16le");
+      if (A.RegGetValueW(root, wide(sub), wide("ExecutablePath"), 0x2 /* RRF_RT_REG_SZ */, null, new Uint8Array(pathBuf.buffer), new Uint8Array(size.buffer)) !== 0) continue;
+      let path = decodeWide(pathBuf.buffer, 0, Math.max(0, size[0]! - 2));
       const folder = /^\{[0-9A-F-]+\}/i.exec(path)?.[0];
       if (folder && knownFolders[folder.toUpperCase()]) path = knownFolders[folder.toUpperCase()] + path.slice(folder.length);
       next.add(path.toLowerCase());

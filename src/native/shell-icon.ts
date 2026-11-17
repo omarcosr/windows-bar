@@ -1,5 +1,6 @@
-import { CFunction, dlopen, ptr, read, type Pointer } from "bun:ffi";
+import { CFunction, dlopen, ptr, read, type Pointer, FfiUnsupported } from "./ffi";
 import { iconPixels } from "./tray-host";
+import { encodeWide } from "./wide";
 
 /**
  * Shell icons (.exe/.dll/.lnk) rendered at an exact pixel size. Tarve's `<Image src="x.exe">`
@@ -40,22 +41,28 @@ function imageList(kind: number) {
     comReady = true;
   }
   const out = new BigUint64Array(1);
-  const ok = shell32.symbols.SHGetImageList(kind, IID_IImageList, out) === 0 && out[0] !== 0n;
+  const ok = shell32.symbols.SHGetImageList(kind, IID_IImageList, new Uint8Array(out.buffer)) === 0 && out[0] !== 0n;
   const list = ok ? (Number(out[0]) as unknown as Pointer) : null;
   lists.set(kind, list);
   if (list) {
     // IImageList::GetIcon is the 11th vtable slot (IUnknown's 3, then Add … Remove).
     const vtable = read.ptr(list, 0) as unknown as Pointer;
     const fn = read.ptr(vtable, 10 * 8) as unknown as Pointer;
-    const call = CFunction({ ptr: fn, args: ["ptr", "i32", "u32", "ptr"], returns: "i32" });
-    getIcons.set(kind, call as unknown as (self: Pointer, i: number, flags: number, out: Uint8Array) => number);
+    try {
+      const call = new CFunction({ ptr: fn, args: ["ptr", "i32", "u32", "ptr"], returns: "i32" });
+      getIcons.set(kind, call as unknown as (self: Pointer, i: number, flags: number, out: Uint8Array) => number);
+    } catch (error) {
+      if (!(error instanceof FfiUnsupported)) throw error;
+      lists.set(kind, null);
+      return null;
+    }
   }
   return list;
 }
 
 function systemIndex(path: string): number {
   const sfi = new Uint8Array(696);
-  const wide = Buffer.from(path + "\0", "utf16le");
+  const wide = encodeWide(path);
   if (!shell32.symbols.SHGetFileInfoW(ptr(wide), 0, sfi, sfi.length, SHGFI_SYSICONINDEX)) return -1;
   return new DataView(sfi.buffer).getInt32(8, true);
 }

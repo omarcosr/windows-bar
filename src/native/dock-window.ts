@@ -1,5 +1,5 @@
 import type { AppHandle, ScreenInfo } from "@tarve/core";
-import { dlopen, type Pointer } from "bun:ffi";
+import { dlopen, type Pointer } from "./ffi";
 import {
   monitorOf,
   placeWindow,
@@ -24,9 +24,11 @@ import {
   type Rect,
 } from "./win32";
 import { join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, rmSync } from "node:fs";
 import { configDir } from "../config";
 import restoreScript from "../../scripts/restore-taskbar.ps1" with { type: "text" };
+import { output } from "../runtime/proc";
+import { exitApp, onExit } from "../services/exit";
 
 const dwmapi = dlopen("dwmapi.dll", {
   DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
@@ -35,7 +37,7 @@ const dwmapi = dlopen("dwmapi.dll", {
 /** Stays visible while a window is peeked from the preview, like the real taskbar. */
 function excludeFromPeek(hwnd: HWND) {
   const DWMWA_EXCLUDED_FROM_PEEK = 12;
-  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, new Uint32Array([1]), 4);
+  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, new Uint8Array(new Uint32Array([1]).buffer), 4);
 }
 
 /** The dock's base height in logical px; edit-mode badges never grow the reserved strip. */
@@ -86,11 +88,11 @@ export class DockWindow {
     this.#timer = setInterval(() => this.#watch(), 250);
     if (DockWindow.#hidesTaskbar(options)) this.#hideTaskbar();
     const cleanup = () => this.dispose();
-    process.once("exit", cleanup);
+    onExit(cleanup);
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
       process.once(signal, () => {
         cleanup();
-        process.exit(0);
+        exitApp(0);
       });
     }
     this.layout();
@@ -171,7 +173,8 @@ export class DockWindow {
       // The AppBar goes through Win32, not app.appBar: app.appBar's SHAppBarMessage reaches the
       // dock's own tray host (tray-host.ts) instead of Explorer and fails, and it pins the window
       // to the strip, so the strip could not reach over the app above (stripOverlap). Win32 calls
-      // are routed past the host by setAppBarRoute. Tested with 0.13.0.
+      // are routed past the host by setAppBarRoute. Tarve 0.13.2 now reports reservation
+      // failure, but does not bypass our tray host or allow stripOverlap; keep this route.
       if (screen) this.#reserveWin32(screen, thickness);
       return;
     }
@@ -238,7 +241,16 @@ export class DockWindow {
     if (this.#taskbar) return;
     const tray = explorerTray();
     if (!tray) return;
-    this.#taskbar = { hwnd: tray, state: taskbarState() };
+    const snapshot = join(configDir, "taskbar-state.json");
+    try {
+      // Exclusive creation preserves the first clean snapshot across crashes/restarts.
+      writeFileSync(snapshot, String(taskbarState()), { flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const state = Number(readFileSync(snapshot, "utf8"));
+    if (!Number.isInteger(state) || state < 0 || state > 3) throw new Error("Invalid taskbar state snapshot");
+    this.#taskbar = { hwnd: tray, state };
     this.#startWatchdog(this.#taskbar.state);
     setTaskbarState(ABS_AUTOHIDE);
     showWindow(tray, SW_HIDE);
@@ -249,24 +261,24 @@ export class DockWindow {
    * is killed or crashes. It is started through WMI so it is not part of this process's job.
    */
   #startWatchdog(state: number) {
-    if (this.#watchdog) return;
-    this.#watchdog = true;
-    try {
-      const script = join(configDir, "restore-taskbar.ps1");
-      writeFileSync(script, restoreScript);
-      const command = `powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" ${process.pid} ${state}`;
-      Bun.spawn(
-        [
-          "powershell.exe",
-          "-NoProfile",
-          "-Command",
-          `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${command.replace(/'/g, "''")}' } | Out-Null`,
-        ],
-        { windowsHide: true, stdout: "ignore", stderr: "ignore" },
-      );
-    } catch (error) {
-      console.error("[dock] watchdog", error);
-    }
+      if (this.#watchdog) return;
+      this.#watchdog = true;
+      try {
+        const script = join(configDir, "restore-taskbar.ps1");
+        writeFileSync(script, restoreScript);
+        const command = `powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" -dockPid ${process.pid} -state ${state} -dockHwnd ${this.#hwnd} -stateFile "${join(configDir, "taskbar-state.json")}"`;
+        // Wait for and validate the launcher: detached/ignored-stdio PowerShell can exit without a helper.
+      // WMI rejects CreateFlags here (return 21); ShowWindow=0 hides the independent watchdog.
+        void output([
+          "powershell.exe", "-NoProfile", "-Command",
+          `$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }; ` +
+          `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${command.replace(/'/g, "''")}'; ProcessStartupInformation = $si } | ConvertTo-Json -Compress`,
+        ]).then(({ code, stdout }) => {
+              if (code !== 0 || JSON.parse(stdout).ReturnValue !== 0) throw new Error(`Watchdog launch failed: ${code} ${stdout}`);
+        }).catch(error => console.error("[dock] watchdog", error));
+      } catch (error) {
+        console.error("[dock] watchdog", error);
+      }
   }
 
   #restoreTaskbar() {
@@ -274,6 +286,7 @@ export class DockWindow {
     setTaskbarState(this.#taskbar.state);
     showWindow(this.#taskbar.hwnd, SW_SHOWNA);
     this.#taskbar = null;
+    rmSync(join(configDir, "taskbar-state.json"), { force: true });
   }
 
   #shellFullscreen = false;

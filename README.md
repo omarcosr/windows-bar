@@ -2,7 +2,7 @@
 
 Uma barra de tarefas com widgets para o Windows 11, inspirada no [Luma Bar](https://lumabar.xyz/). Substitui a barra do Windows por um dock com seus apps, relógio, clima, música tocando, uso de CPU/RAM, bandeja do sistema e o que mais você quiser montar.
 
-Feito com [Tarve](https://tarve.dev): interface desenhada nativamente, sem navegador embutido.
+Feito com [Tarve](https://tarve.dev) 0.13.2: interface desenhada nativamente, sem navegador embutido.
 
 ## Instalação
 
@@ -76,7 +76,27 @@ Cada widget é um arquivo `.tsx` com `defineWidget()`. Ainda não há carregamen
 
 ### Ambiente
 
-Requer [Bun](https://bun.sh) 1.3+ no Windows.
+Requer Windows 11 x64 e [Bun](https://bun.sh) 1.3+ para instalar dependências e executar o CLI do Tarve (inclusive ao compilar para outro runtime). O executável distribuído inclui o runtime: o usuário final não precisa instalar Bun, Node ou txiki.
+
+| Runtime do app (Tarve 0.13.2) | Desenvolvimento | Build | Requisito adicional |
+| --- | --- | --- | --- |
+| Bun | `bun run dev` / `bun run dev:bun` | `bun run build:bun` | Bun no PATH |
+| txiki.js | Não suportado pelo `tarve dev`; use Bun | `bun run build` / `bun run build:txiki` (padrão) | `tjs` no PATH ou `TARVE_TXIKI` apontando para o executável |
+| Node | `bun run dev:node` | `bun run build:node` | Node 26.10+ no PATH |
+
+Instale txiki com `winget install Saghul.TxikiJS` e reabra o terminal. O runner de release usa txiki 26.6.0, versão exercitada nos testes. Cada build alternativo fica em `dist/bun` ou `dist/node`; o padrão txiki fica em `dist`. Também é possível usar `bunx tarve build src/main.tsx --runtime bun|node|txiki --outfile <arquivo.exe>` (escolha um runtime).
+
+**Suporte nativo em 0.13.2:** `CFunction` usa `pointerFunction` do Tarve nos três runtimes. Volume Core Audio por COM, ícones via IImageList e Aero Peek por ordinal não são mais indisponíveis por falta de chamadas a ponteiros crus no txiki/Node. Isso comprova a disponibilidade da ponte, não a aparência ou interação desses recursos. Node continua exigindo FFI experimental (`--experimental-ffi` na execução direta; o exe já habilita o recurso).
+
+**Resultados automatizados:** txiki, Bun, Node e `bun run dev` passaram nos modos flutuante e completo: reserva de área útil, ocultação do Explorer, `--quit` e restauração após saída normal ou kill, sem recuperação emergencial. `--autostart on/off` passou nos três exes; `--update` foi somente encaminhamento para feed indisponível, não instalação real.
+
+**Limitações restantes:**
+- **gap do Tarve — AppBar:** a API pública não oferece o roteamento para a `Shell_TrayWnd` do WindowsBar nem posicionamento independente para `stripOverlap`; a reserva continua via Win32.
+- **gap do Tarve — shim txiki:** PID ausente e UTF-16LE de `Buffer` exigem os adaptadores locais (`GetCurrentProcessId` e `encodeWide`/`decodeWide`).
+- **gap do Tarve — APIs específicas do Windows:** thumbnails DWM, Aero Peek e exclusão do preview do Peek continuam via FFI, não por uma API de alto nível do Tarve.
+- **Validação pendente, não gap comprovado do Tarve:** aparência e interações da GUI (incluindo volume, ícones, Peek, bandeja, badges e seleção de thumbnails), shell-events, fullscreen, multimonitor e atualização real/entre runtimes ainda requerem homologação. `DockVisible=false` nos ensaios não permite aprovar a apresentação.
+
+Build/release aprovado não equivale a homologação para uso diário. Evidências e checklist em [STEP7-RUNTIME-TESTS.md](STEP7-RUNTIME-TESTS.md#tarve-0132).
 
 ```powershell
 git clone https://github.com/omarcosr/windows-bar

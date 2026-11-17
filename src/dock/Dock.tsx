@@ -7,6 +7,7 @@ import { appColor } from "../services/app-color";
 import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./state";
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { glyph } from "../menu/dock-menu";
+import { toggleDesktop } from "../native/desktop";
 
 export const DOCK_TITLE = "WindowsBar Dock";
 
@@ -280,8 +281,8 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
               direction: "row",
               align: "center",
               height: ui.dock.height,
-              gap: ui.dock.gap,
-              padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
+              gap: 0,
+              padding: 0,
               radius: full ? 0 : ui.dock.radius,
               background: dockBackground(config.opacity),
               boxSizing: "border-box",
@@ -289,7 +290,31 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
               shrink: 0,
             }}
           >
-            {content}
+            <Row style={{
+              ...(full ? { flex: 1, basis: 0 } : { shrink: 0 }),
+              align: "center",
+              gap: ui.dock.gap,
+              padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
+            }}>
+              {content}
+            </Row>
+            {config.showDesktop && !editing ? (
+              <Pressable
+                aria-label="Mostrar área de trabalho"
+                onClick={() => { toggleDesktop(); }}
+                onContextMenu={props.onContextMenu}
+                style={{
+                  width: 8,
+                  height: ui.dock.height,
+                  shrink: 0,
+                  justify: "center",
+                  cursor: "default",
+                  hover: { background: ui.tile.hover },
+                }}
+              >
+                <View style={{ width: 1, height: 16, background: ui.text, opacity: 0.2 }} />
+              </Pressable>
+            ) : null}
           </Pressable>
         </View>
       </Pressable>

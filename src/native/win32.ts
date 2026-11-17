@@ -1,4 +1,5 @@
-import { CFunction, dlopen, JSCallback, ptr, type Pointer } from "bun:ffi";
+import { CFunction, dlopen, JSCallback, ptr, type Pointer, FfiUnsupported } from "./ffi";
+import { encodeWide, decodeWide } from "./wide";
 
 /** Win32 bindings used by the dock. Everything here is synchronous and cheap enough to poll. */
 
@@ -72,7 +73,7 @@ export interface Rect {
   bottom: number;
 }
 
-const wide = (s: string) => Buffer.from(s + "\0", "utf16le");
+const wide = (s: string) => encodeWide(s);
 
 /**
  * Explorer's taskbar window. FindWindow("Shell_TrayWnd") is not enough: the dock's own tray
@@ -82,7 +83,7 @@ export function explorerTray(): HWND | null {
   const cls = wide("Shell_TrayWnd");
   let h: HWND | null = null;
   while ((h = U.FindWindowExW(null, h, cls, null) as HWND | null)) {
-    U.GetWindowThreadProcessId(h, pidBuf);
+    U.GetWindowThreadProcessId(h, new Uint8Array(pidBuf.buffer));
     if (pidBuf[0] !== process.pid) return h;
   }
   return null;
@@ -130,13 +131,13 @@ export function monitorOf(hwnd: HWND): { monitor: Rect; work: Rect } {
 
 export function windowRect(hwnd: HWND): Rect {
   const r = new Int32Array(4);
-  U.GetWindowRect(hwnd, r);
+  U.GetWindowRect(hwnd, new Uint8Array(r.buffer));
   return { left: r[0]!, top: r[1]!, right: r[2]!, bottom: r[3]! };
 }
 
 export function cursorPos(): { x: number; y: number } {
   const p = new Int32Array(2);
-  U.GetCursorPos(p);
+  U.GetCursorPos(new Uint8Array(p.buffer));
   return { x: p[0]!, y: p[1]! };
 }
 
@@ -149,8 +150,8 @@ export function topWindowAt(x: number, y: number): HWND | null {
 }
 
 export function windowClass(hwnd: HWND): string {
-  const len = U.GetClassNameW(hwnd, textBuf, textBuf.length);
-  return len > 0 ? Buffer.from(textBuf.buffer, 0, len * 2).toString("utf16le") : "";
+  const len = U.GetClassNameW(hwnd, new Uint8Array(textBuf.buffer), textBuf.length);
+  return len > 0 ? decodeWide(textBuf.buffer, 0, len * 2) : "";
 }
 
 /** Colours on screen at the given physical points, as [r, g, b]; null where unreadable. */
@@ -262,18 +263,18 @@ const frameBuf = new Int32Array(4);
  * not maximized, and its visible frame covers the whole monitor.
  */
 export function fullscreenAppActive(dock?: HWND | null): boolean {
-  if (shell32.symbols.SHQueryUserNotificationState(qunsBuf) === 0) {
+  if (shell32.symbols.SHQueryUserNotificationState(new Uint8Array(qunsBuf.buffer)) === 0) {
     const state = qunsBuf[0]!;
     if (state === 2 || state === 3 || state === 4) return true; // BUSY, D3D full screen, presentation
   }
   const fg = U.GetForegroundWindow() as HWND | null;
   if (!fg || U.IsZoomed(fg)) return false;
-  U.GetWindowThreadProcessId(fg, pidBuf);
+  U.GetWindowThreadProcessId(fg, new Uint8Array(pidBuf.buffer));
   if (pidBuf[0] === process.pid) return false;
   const cls = windowClass(fg);
   if (cls === "Progman" || cls === "WorkerW" || cls === "Shell_TrayWnd") return false;
-  if (dwmapi.symbols.DwmGetWindowAttribute(fg, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, frameBuf, 16) !== 0) {
-    U.GetWindowRect(fg, frameBuf);
+  if (dwmapi.symbols.DwmGetWindowAttribute(fg, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, new Uint8Array(frameBuf.buffer), 16) !== 0) {
+    U.GetWindowRect(fg, new Uint8Array(frameBuf.buffer));
   }
   const { monitor } = monitorOf(dock ?? fg);
   const { monitor: own } = monitorOf(fg);
@@ -319,8 +320,8 @@ export function exePathOf(pid: number): string {
   const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
   if (handle) {
     const size = new Uint32Array([textBuf.length]);
-    if (K.QueryFullProcessImageNameW(handle, 0, textBuf, size)) {
-      path = Buffer.from(textBuf.buffer, 0, size[0]! * 2).toString("utf16le");
+    if (K.QueryFullProcessImageNameW(handle, 0, new Uint8Array(textBuf.buffer), new Uint8Array(size.buffer))) {
+      path = decodeWide(textBuf.buffer, 0, size[0]! * 2);
     }
     K.CloseHandle(handle);
   }
@@ -329,8 +330,8 @@ export function exePathOf(pid: number): string {
 }
 
 function windowTitle(hwnd: HWND): string {
-  const len = U.GetWindowTextW(hwnd, textBuf, textBuf.length);
-  return len > 0 ? Buffer.from(textBuf.buffer, 0, len * 2).toString("utf16le") : "";
+  const len = U.GetWindowTextW(hwnd, new Uint8Array(textBuf.buffer), textBuf.length);
+  return len > 0 ? decodeWide(textBuf.buffer, 0, len * 2) : "";
 }
 
 /** Windows that belong on a taskbar: visible, unowned, not tool windows, not cloaked. */
@@ -371,9 +372,9 @@ export function listTaskbarWindows(): TopWindow[] {
       if (ex & WS_EX_TOOLWINDOW && !(ex & WS_EX_APPWINDOW)) return 1;
       if (owned && !(ex & WS_EX_APPWINDOW)) return 1;
       cloakBuf[0] = 0;
-      dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, cloakBuf, 4);
+      dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, new Uint8Array(cloakBuf.buffer), 4);
       if (cloakBuf[0]) return 1;
-      U.GetWindowThreadProcessId(hwnd, pidBuf);
+      U.GetWindowThreadProcessId(hwnd, new Uint8Array(pidBuf.buffer));
       const pid = pidBuf[0]!;
       // Of this app's own windows only the ones registered (the settings/widgets window) belong on
       // the taskbar: the menu and preview windows look like app windows to Windows too.
@@ -383,7 +384,7 @@ export function listTaskbarWindows(): TopWindow[] {
     },
     { args: ["ptr", "ptr"], returns: "i32" },
   );
-  U.EnumWindows(enumCallback.ptr, null);
+  U.EnumWindows(enumCallback, null);
   if (exeCache.size > 512) exeCache.clear();
   return collected;
 }
@@ -407,7 +408,7 @@ export function activateWindow(hwnd: HWND) {
 }
 
 export function windowPid(hwnd: HWND): number {
-  U.GetWindowThreadProcessId(hwnd, pidBuf);
+  U.GetWindowThreadProcessId(hwnd, new Uint8Array(pidBuf.buffer));
   return pidBuf[0]!;
 }
 
@@ -421,7 +422,12 @@ export function peekWindow(target: HWND | null, keepOnTop: HWND | null = null) {
   if (livePreview === undefined) {
     const mod = K.LoadLibraryW(wide("dwmapi.dll"));
     const fn = mod ? K.GetProcAddress(mod, 113) : null;
-    livePreview = fn ? (CFunction({ ptr: fn, args: ["i32", "ptr", "ptr", "u32", "u64"], returns: "i32" }) as never) : null;
+    try {
+      livePreview = fn ? (new CFunction({ ptr: fn, args: ["i32", "ptr", "ptr", "u32", "u64"], returns: "i32" }) as never) : null;
+    } catch (error) {
+      if (!(error instanceof FfiUnsupported)) throw error;
+      livePreview = null;
+    }
   }
   livePreview?.(target ? 1 : 0, target, keepOnTop, 1, 0);
 }
@@ -451,13 +457,13 @@ export function closeWindow(hwnd: HWND) {
 export function storeAppId(frame: HWND): string {
   const core = U.FindWindowExW(frame, null, wide("Windows.UI.Core.CoreWindow"), null) as HWND | null;
   if (!core) return "";
-  U.GetWindowThreadProcessId(core, pidBuf);
+  U.GetWindowThreadProcessId(core, new Uint8Array(pidBuf.buffer));
   const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pidBuf[0]!);
   if (!handle) return "";
   try {
     const len = new Uint32Array([textBuf.length]);
-    if (K.GetApplicationUserModelId(handle, len, textBuf) !== 0) return "";
-    return Buffer.from(textBuf.buffer, 0, Math.max(0, len[0]! - 1) * 2).toString("utf16le");
+    if (K.GetApplicationUserModelId(handle, new Uint8Array(len.buffer), new Uint8Array(textBuf.buffer)) !== 0) return "";
+    return decodeWide(textBuf.buffer, 0, Math.max(0, len[0]! - 1) * 2);
   } finally {
     K.CloseHandle(handle);
   }
@@ -470,7 +476,7 @@ export type Thumbnail = bigint;
 /** Shows a live picture of `source` inside `dest` (a window of this process). */
 export function registerThumbnail(dest: HWND, source: HWND): Thumbnail | null {
   const out = new BigUint64Array(1);
-  return dwmapi.symbols.DwmRegisterThumbnail(dest, source, out) === 0 ? out[0]! : null;
+  return dwmapi.symbols.DwmRegisterThumbnail(dest, source, new Uint8Array(out.buffer)) === 0 ? out[0]! : null;
 }
 
 export function unregisterThumbnail(thumb: Thumbnail) {
@@ -479,7 +485,7 @@ export function unregisterThumbnail(thumb: Thumbnail) {
 
 export function thumbnailSourceSize(thumb: Thumbnail): { width: number; height: number } {
   const size = new Int32Array(2);
-  dwmapi.symbols.DwmQueryThumbnailSourceSize(Number(thumb) as unknown as Pointer, size);
+  dwmapi.symbols.DwmQueryThumbnailSourceSize(Number(thumb) as unknown as Pointer, new Uint8Array(size.buffer));
   return { width: size[0]!, height: size[1]! };
 }
 
@@ -515,7 +521,7 @@ export function visibleFrame(hwnd: HWND): Rect | null {
   if (U.IsIconic(hwnd)) return null;
   const outer = windowRect(hwnd);
   const r = new Int32Array(4);
-  if (dwmapi.symbols.DwmGetWindowAttribute(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, r, 16) !== 0) return null;
+  if (dwmapi.symbols.DwmGetWindowAttribute(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, new Uint8Array(r.buffer), 16) !== 0) return null;
   const frame = { left: r[0]! - outer.left, top: r[1]! - outer.top, right: r[2]! - outer.left, bottom: r[3]! - outer.top };
   return frame.right > frame.left && frame.bottom > frame.top ? frame : null;
 }
@@ -559,7 +565,7 @@ let lastTimes: [bigint, bigint, bigint] | null = null;
 
 /** CPU usage 0..100 since the previous call. */
 export function cpuUsage(): number {
-  K.GetSystemTimes(ptr(times, 0), ptr(times, 8), ptr(times, 16));
+  K.GetSystemTimes(ptr(new Uint8Array(times.buffer, 0, 8)), ptr(new Uint8Array(times.buffer, 8, 8)), ptr(new Uint8Array(times.buffer, 16, 8)));
   const now: [bigint, bigint, bigint] = [times[0]!, times[1]!, times[2]!];
   const prev = lastTimes;
   lastTimes = now;

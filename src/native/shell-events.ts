@@ -1,3 +1,8 @@
+import { runtime, dlopen } from "./ffi.ts";
+import { startWorker } from "../runtime/worker.ts";
+import { onExit } from "../services/exit.ts";
+import type { RuntimeWorker } from "../runtime/worker.ts";
+
 /**
  * Event-driven signals from the Windows shell, the same ones the real taskbar listens to:
  *  - ABN_FULLSCREENAPP: Explorer tells every AppBar when a full-screen app takes a monitor.
@@ -24,9 +29,49 @@ export const HSHELL = {
   RUDEAPPACTIVATED: 0x8004,
   FLASH: 0x8006,
 } as const;
+let worker: RuntimeWorker | undefined;
 
-const workerSource = `
-import { dlopen, JSCallback, ptr } from "bun:ffi";
+export function startShellEvents(onEvent: (event: ShellEvent) => void) {
+  if (worker) return;
+  let threadId = 0;
+  const user = dlopen("user32.dll", { PostThreadMessageW: { args: ["u32", "u32", "u64", "i64"], returns: "i32" } });
+  worker = startWorker<ShellEvent | { type: "ready"; threadId: number }>(shellWorkerSource(), data => {
+    if (data.type === "ready") threadId = data.threadId;
+    else onEvent(data);
+  }, error => console.error("[shell-events]", error), () => {
+    if (threadId) user.symbols.PostThreadMessageW(threadId, 0x12, 0n, 0n);
+  });
+  onExit(() => { worker?.terminate(); worker = undefined; user.close(); });
+}
+/** Self-contained JS: workers cannot import the application's TypeScript facade. */
+export function shellWorkerFfi(target: typeof runtime): string {
+  if (target === "bun") return 'const { dlopen, JSCallback, ptr } = await import("bun:ffi");';
+  const backend = target === "node" ?
+    'const ffi = require("node:ffi");\n' +
+    'const types = { void:"void", ptr:"pointer", u16:"uint16", i32:"int32", u32:"uint32", i64:"int64", u64:"uint64" };\n' +
+    'const sig = s => ({ arguments: (s.args || []).map(t => types[t]), return: types[s.returns || "void"] });\n' +
+    'const nativePtr = v => v instanceof Uint8Array ? ffi.getRawPointer(v) : BigInt(v || 0);\n' +
+    'const address = v => Number(v || 0);\n' +
+    'const open = (path, specs) => { const lib = new ffi.DynamicLibrary(path); libraries.push(lib); return Object.fromEntries(Object.entries(specs).map(([name, s]) => [name, lib.getFunction(name, sig(s))])); };\n' +
+    'const callback = (fn, s) => { const lib = new ffi.DynamicLibrary("kernel32.dll"); libraries.push(lib); return lib.registerCallback(sig(s), fn); };\n'
+    : 'const ffi = await import("tjs:ffi");\n' +
+    'const integer64 = signed => new ffi.AdvancedType(ffi.types[signed ? "sint64" : "uint64"], { name: signed ? "bigint64" : "biguint64", toBuffer(value) { const b = new Uint8Array(8), v = new DataView(b.buffer); if (signed) v.setBigInt64(0, BigInt(value), true); else v.setBigUint64(0, BigInt(value), true); return b; }, fromBuffer(b) { const v = new DataView(b.buffer, b.byteOffset, b.byteLength); return signed ? v.getBigInt64(0, true) : v.getBigUint64(0, true); } });\n' +
+    'const types = { void:ffi.types.void, ptr:ffi.types.pointer, u16:ffi.types.uint16, i32:ffi.types.sint32, u32:ffi.types.uint32, i64:integer64(true), u64:integer64(false) };\n' +
+    'const sig = s => ({ args: (s.args || []).map(t => types[t]), returns: types[s.returns || "void"] });\n' +
+    'const nativePtr = v => { if (v instanceof Uint8Array) return ffi.bufferToPointer(v); const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(v || 0), true); return ffi.types.pointer.fromBuffer(b); };\n' +
+    'const address = p => { if (p == null) return 0; const b = ffi.types.pointer.toBuffer(p); return Number(new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true)); };\n' +
+    'const open = (path, specs) => { const lib = ffi.dlopen(path, Object.fromEntries(Object.entries(specs).map(([n,s]) => [n,sig(s)]))); libraries.push(lib); return lib.symbols; };\n' +
+    'const callback = (fn,s) => { /* txiki 26.6 cannot marshal a void callback result; WinEventProc ignores the return register. */ const returnsVoid = !s.returns || s.returns === "void"; const cb = new ffi.JSCallback(returnsVoid ? types.i32 : types[s.returns], (s.args || []).map(t => types[t]), returnsVoid ? (...args) => { fn(...args); return 0; } : fn); callbacks.push(cb); return cb.addr; };\n';
+  return 'const libraries = [], callbacks = [];\n' + backend +
+    'const input = (t,v) => t === "ptr" ? nativePtr(v) : t === "i64" || t === "u64" ? BigInt(v) : v;\n' +
+    'const output = (t,v) => t === "ptr" ? address(v) : t === "i64" || t === "u64" ? BigInt(v) : v;\n' +
+    'const ptr = b => address(nativePtr(b));\n' +
+    'const dlopen = (path,specs) => { const symbols = open(path,specs); return { symbols: Object.fromEntries(Object.entries(specs).map(([n,s]) => [n,(...args) => output(s.returns, symbols[n](...(s.args || []).map((t,i) => input(t,args[i]))))])) }; };\n' +
+    'class JSCallback { constructor(fn,s) { this.ptr = address(callback((...args) => input(s.returns, fn(...(s.args || []).map((t,i) => output(t,args[i])))), s)); } }\n';
+}
+export function shellWorkerSource(target: typeof runtime = runtime): string {
+  return `
+${shellWorkerFfi(target)}
 const u = dlopen("user32.dll", {
   RegisterClassExW: { args: ["ptr"], returns: "u16" },
   CreateWindowExW: { args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
@@ -38,10 +83,13 @@ const u = dlopen("user32.dll", {
   RegisterShellHookWindow: { args: ["ptr"], returns: "i32" },
   SetWinEventHook: { args: ["u32", "u32", "ptr", "ptr", "u32", "u32", "u32"], returns: "ptr" },
   GetForegroundWindow: { args: [], returns: "ptr" },
+  DestroyWindow: { args: ["ptr"], returns: "i32" },
+  UnhookWinEvent: { args: ["ptr"], returns: "i32" },
+  DeregisterShellHookWindow: { args: ["ptr"], returns: "i32" },
 }).symbols;
 const shell = dlopen("shell32.dll", { SHAppBarMessage: { args: ["u32", "ptr"], returns: "u64" } }).symbols;
-const k = dlopen("kernel32.dll", { GetModuleHandleW: { args: ["ptr"], returns: "ptr" } }).symbols;
-const wide = (s) => Buffer.from(s + "\\0", "utf16le");
+const k = dlopen("kernel32.dll", { GetModuleHandleW: { args: ["ptr"], returns: "ptr" }, GetCurrentThreadId: { args: [], returns: "u32" } }).symbols;
+const wide = (s) => { const units = new Uint16Array(s.length + 1); for (let i = 0; i < s.length; i++) units[i] = s.charCodeAt(i); return new Uint8Array(units.buffer); };
 const APPBAR_CALLBACK = 0x8000 + 0x51;
 let shellHook = 0;
 const proc = new JSCallback((hwnd, msg, wParam, lParam) => {
@@ -87,26 +135,18 @@ const onEvent = new JSCallback((hook, event, target, idObject) => {
   }
 }, { args: ["ptr", "u32", "ptr", "i32", "i32", "u32", "u32"], returns: "void" });
 // WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS; delivered to this thread's GetMessage.
-u.SetWinEventHook(0x0003, 0x0003, null, onEvent.ptr, 0, 0, 0x2);
-u.SetWinEventHook(0x800b, 0x800b, null, onEvent.ptr, 0, 0, 0x2);
-postMessage({ type: "ready" });
+const foregroundHook = u.SetWinEventHook(0x0003, 0x0003, null, onEvent.ptr, 0, 0, 0x2);
+const movedHook = u.SetWinEventHook(0x800b, 0x800b, null, onEvent.ptr, 0, 0, 0x2);
+postMessage({ type: "ready", threadId: k.GetCurrentThreadId() });
 const msg = new Uint8Array(48);
 while (u.GetMessageW(msg, null, 0, 0) > 0) {
   u.TranslateMessage(msg);
   u.DispatchMessageW(msg);
 }
+u.UnhookWinEvent(foregroundHook);
+u.UnhookWinEvent(movedHook);
+shell.SHAppBarMessage(1, abd);
+u.DeregisterShellHookWindow(hwnd);
+u.DestroyWindow(hwnd);
 `;
-
-let worker: Worker | undefined;
-
-export function startShellEvents(onEvent: (event: ShellEvent) => void) {
-  if (worker) return;
-  const url = URL.createObjectURL(new Blob([workerSource], { type: "application/typescript" }));
-  worker = new Worker(url);
-  worker.onmessage = (e: MessageEvent) => {
-    const data = e.data as ShellEvent | { type: "ready" };
-    if (data.type !== "ready") onEvent(data);
-  };
-  worker.onerror = (e) => console.error("[shell-events]", e);
-  process.on("exit", () => worker?.terminate());
 }

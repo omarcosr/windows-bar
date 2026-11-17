@@ -1,4 +1,6 @@
-import { CFunction, dlopen, read, type Pointer } from "bun:ffi";
+import { CFunction, dlopen, read, type Pointer, FfiUnsupported } from "./ffi";
+import { output } from "../runtime/proc";
+import { decodeWide } from "./wide";
 
 /** Volume (Core Audio over raw COM vtables), network and keyboard layout, through plain FFI. */
 
@@ -42,10 +44,10 @@ function com(obj: Pointer, index: number, args: string[], ...values: unknown[]):
   const key = `${fn}:${args.join(",")}`;
   let call = fnCache.get(key);
   if (!call) {
-    call = CFunction({ ptr: fn, args: ["ptr", ...args] as never, returns: "i32" }) as never;
+    call = new CFunction({ ptr: fn, args: ["ptr", ...args] as never, returns: "i32" }) as never;
     fnCache.set(key, call!);
   }
-  return call!(obj, ...values);
+  return call!(obj, ...values.map(value => ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : value));
 }
 
 const release = (obj: Pointer) => com(obj, 2, []);
@@ -59,33 +61,38 @@ const out = new BigUint64Array(1);
 
 /** Master volume of the default playback device (0..100), or null without one. */
 export function readVolume(): { level: number; muted: boolean } | null {
-  if (!comReady) {
-    ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
-    comReady = true;
-  }
-  if (!enumerator) {
-    out[0] = 0n;
-    if (ole32.symbols.CoCreateInstance(CLSID_MMDeviceEnumerator, null, 0x17, IID_IMMDeviceEnumerator, out) !== 0) return null;
-    enumerator = Number(out[0]) as unknown as Pointer;
-  }
-  out[0] = 0n;
-  if (com(enumerator, 4, ["i32", "i32", "ptr"], 0 /* eRender */, 1 /* eMultimedia */, out) !== 0 || !out[0]) return null;
-  const device = Number(out[0]) as unknown as Pointer;
   try {
-    out[0] = 0n;
-    if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) return null;
-    const volume = Number(out[0]) as unknown as Pointer;
-    try {
-      const level = new Float32Array(1);
-      const muted = new Int32Array(1);
-      com(volume, 9, ["ptr"], level);
-      com(volume, 15, ["ptr"], muted);
-      return { level: Math.round(level[0]! * 100), muted: !!muted[0] };
-    } finally {
-      release(volume);
+    if (!comReady) {
+      ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
+      comReady = true;
     }
-  } finally {
-    release(device);
+    if (!enumerator) {
+      out[0] = 0n;
+      if (ole32.symbols.CoCreateInstance(CLSID_MMDeviceEnumerator, null, 0x17, IID_IMMDeviceEnumerator, new Uint8Array(out.buffer)) !== 0) return null;
+      enumerator = Number(out[0]) as unknown as Pointer;
+    }
+    out[0] = 0n;
+    if (com(enumerator, 4, ["i32", "i32", "ptr"], 0 /* eRender */, 1 /* eMultimedia */, out) !== 0 || !out[0]) return null;
+    const device = Number(out[0]) as unknown as Pointer;
+    try {
+      out[0] = 0n;
+      if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) return null;
+      const volume = Number(out[0]) as unknown as Pointer;
+      try {
+        const level = new Float32Array(1);
+        const muted = new Int32Array(1);
+        com(volume, 9, ["ptr"], level);
+        com(volume, 15, ["ptr"], muted);
+        return { level: Math.round(level[0]! * 100), muted: !!muted[0] };
+      } finally {
+        release(volume);
+      }
+    } finally {
+      release(device);
+    }
+  } catch (error) {
+    if (error instanceof FfiUnsupported) return null;
+    throw error;
   }
 }
 
@@ -105,10 +112,8 @@ let wifi = { signal: 100, name: "", at: 0, running: false };
 function refreshWifi() {
   if (wifi.running || Date.now() - wifi.at < 20_000) return;
   wifi.running = true;
-  const proc = Bun.spawn(["netsh", "wlan", "show", "interfaces"], { stdout: "pipe", stderr: "ignore", windowsHide: true });
-  new Response(proc.stdout)
-    .text()
-    .then((text) => {
+  output(["netsh", "wlan", "show", "interfaces"])
+    .then(({ stdout: text }) => {
       const signal = /:\s*(\d+)\s*%/.exec(text);
       const ssid = /^\s*SSID\s*:\s*(.+)$/m.exec(text);
       wifi = { signal: signal ? Number(signal[1]) : wifi.signal, name: ssid?.[1]?.trim() ?? "", at: Date.now(), running: false };
@@ -125,7 +130,7 @@ export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: n
     internet = level === 3 || level === 0;
   }
   // The interface the route to the internet goes through; Wi-Fi is IF_TYPE_IEEE80211 (71).
-  if (iphlpapi.symbols.GetBestInterface(0x08080808, ifIndex) !== 0) return { kind: "none", internet: false, signal: 0, name: "" };
+  if (iphlpapi.symbols.GetBestInterface(0x08080808, new Uint8Array(ifIndex.buffer)) !== 0) return { kind: "none", internet: false, signal: 0, name: "" };
   ifRow.fill(0);
   const v = new DataView(ifRow.buffer);
   v.setUint32(8, ifIndex[0]!, true);
@@ -143,8 +148,8 @@ export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: n
 const localeBuf = new Uint16Array(128);
 
 function localeInfo(lcid: number, type: number) {
-  const n = kernel32.symbols.GetLocaleInfoW(lcid, type, localeBuf, localeBuf.length);
-  return n > 1 ? Buffer.from(localeBuf.buffer, 0, (n - 1) * 2).toString("utf16le") : "";
+  const n = kernel32.symbols.GetLocaleInfoW(lcid, type, new Uint8Array(localeBuf.buffer), localeBuf.length);
+  return n > 1 ? decodeWide(localeBuf.buffer, 0, (n - 1) * 2) : "";
 }
 
 /**
@@ -158,7 +163,7 @@ export function keyboardLayout(hwnd: Pointer | null): { language: string; layout
   const language = localeInfo(langId, 0x67 /* LOCALE_SISO639LANGNAME2 */).toUpperCase();
   const abbrev = localeInfo(langId, 0x3 /* LOCALE_SABBREVLANGNAME */).toUpperCase();
   const list = new BigUint64Array(16);
-  const count = user32.symbols.GetKeyboardLayoutList(16, list);
+  const count = user32.symbols.GetKeyboardLayoutList(16, new Uint8Array(list.buffer));
   // Base layout first (ABNT before ABNT2), so the numbers follow the ones Windows shows.
   const base = (h: bigint) => ((h >> 16n) & 0xffffn) === (h & 0xffffn);
   const same = [...list.slice(0, count)]

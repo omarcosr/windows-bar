@@ -1,22 +1,23 @@
-import { dlopen } from "bun:ffi";
+import { dlopen } from "../native/ffi";
 import { Icon, Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle, type ScreenInfo } from "@tarve/core";
 import { config } from "../config";
 import { DockWindow } from "../native/dock-window";
 import {
   closeWindow,
+  cursorPos,
   peekWindow,
   placeThumbnail,
   registerThumbnail,
   thumbnailSourceSize,
   unregisterThumbnail,
   visibleFrame,
+  windowRect,
   type HWND,
   type Thumbnail,
 } from "../native/win32";
 import { iconFor } from "../services/icons";
 import { desktop, focusWindow, scheduleRefresh } from "../services/windows";
 import { ui } from "../theme";
-
 const TITLE = "WindowsBar Preview";
 // Fixed geometry: DWM paints each live thumbnail into a rectangle we compute from these.
 const BORDER = 1;
@@ -56,8 +57,6 @@ let scale = 1;
 let area = { x: 0, y: 0, width: 1920, height: 1080 };
 /** The app icon under the pointer, as reported by the icons' hover events. */
 let hoveredKey = "";
-/** The pointer is over the preview's panel, as reported by its own pointer events. */
-let overPreview = false;
 let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 let peekTimer: ReturnType<typeof setTimeout> | undefined;
 let peeking = false;
@@ -67,15 +66,17 @@ let peeking = false;
 const dwm = dlopen("dwmapi.dll", { DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" } });
 
 function excludeFromPeek(window: HWND) {
-  dwm.symbols.DwmSetWindowAttribute(window, 12 /* DWMWA_EXCLUDED_FROM_PEEK */, new Uint32Array([1]), 4);
+    dwm.symbols.DwmSetWindowAttribute(window, 12 /* DWMWA_EXCLUDED_FROM_PEEK */, new Uint32Array([1]), 4);
 }
 
 function startPeek(target: HWND) {
   clearTimeout(peekTimer);
   peekTimer = setTimeout(() => {
     peeking = true;
-    // The dock is the window kept on top, as the taskbar is; the preview is excluded from peek.
-    peekWindow(target, DockWindow.handle());
+    // Exclusion keeps a window visible, but only keepOnTop keeps it above the peek target.
+    const dock = DockWindow.handle();
+    if (dock) excludeFromPeek(dock);
+    peekWindow(target, hwnd);
   }, 350);
 }
 
@@ -206,15 +207,8 @@ function PreviewView() {
       style={{ background: "rgba(0,0,0,0)" }}
     >
       <View
-        onPointerMove={() => {
-          if (overPreview) return;
-          overPreview = true;
-          checkPointer();
-        }}
-        onPointerLeave={() => {
-          overPreview = false;
-          checkPointer();
-        }}
+        onPointerMove={checkPointer}
+        onPointerLeave={checkPointer}
         onSize={() => layout()}
         style={{
           alignSelf: "start",
@@ -239,6 +233,13 @@ function PreviewView() {
       </View>
     </Window>
   );
+}
+
+function pointerInsidePreview() {
+  if (!hwnd || !preview.key) return false;
+  const p = cursorPos();
+  const r = windowRect(hwnd);
+  return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
 }
 
 function clearThumbs() {
@@ -319,9 +320,10 @@ function layout() {
  */
 function checkPointer() {
   clearTimeout(leaveTimer);
-  if (!preview.key || pinned || overPreview || hoveredKey) return;
+  // DWM transitions can invalidate hover events without the physical pointer leaving.
+  if (!preview.key || pinned || hoveredKey || pointerInsidePreview()) return;
   leaveTimer = setTimeout(() => {
-    if (!overPreview && !hoveredKey) hidePreview(true);
+    if (!hoveredKey && !pointerInsidePreview()) hidePreview(true);
   }, 300);
 }
 
@@ -342,7 +344,9 @@ export async function initWindowPreview(app: AppHandle) {
   handle.onFocusChange((focused) => {
     // A list opened by a click closes when something else is clicked (it lost focus). Clicking
     // its own icon again is handled by clickApp, which runs after this; let it see the state.
-    if (!focused && pinned) setTimeout(() => pinned && hidePreview(true), 120);
+    if (!focused && pinned) setTimeout(() => {
+      if (pinned && !(peeking && pointerInsidePreview())) hidePreview(true);
+    }, 120);
   });
 }
 
@@ -419,7 +423,6 @@ export function hidePreview(now = false) {
   pinned = false;
   if (!preview.key) return;
   preview.key = "";
-  overPreview = false;
   clearTimeout(leaveTimer);
   clearThumbs();
   handle?.hide();

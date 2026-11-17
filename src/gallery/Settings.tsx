@@ -336,6 +336,9 @@ export function SettingsPage() {
             onChange={(v) => set("colorTransition", v)}
           />
         </Setting>
+        <Setting label="Mostrar área de trabalho no canto da barra" description="Clique no canto direito para mostrar a área de trabalho ou restaurar as janelas.">
+          <Toggle label="Mostrar área de trabalho no canto da barra" checked={config.showDesktop} onChange={(v) => set("showDesktop", v)} />
+        </Setting>
         <Setting
           label="Esconder a barra do Windows"
           description={full ? "A barra inteira sempre esconde a do Windows." : "A barra do Windows volta quando o WindowsBar fecha."}

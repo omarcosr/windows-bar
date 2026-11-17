@@ -46,6 +46,8 @@ export interface DockConfig {
   opacity: number;
   /** Live window previews when the pointer rests on an app icon. */
   hoverPreview: boolean;
+  /** Narrow desktop toggle at the right edge of the dock. */
+  showDesktop: boolean;
   /** Gap between the dock and the bottom of the screen, in logical px. */
   bottomMargin: number;
   /** Where Start and the apps sit: following Windows' own taskbar alignment, or fixed. */
@@ -80,6 +82,7 @@ export const defaultConfig = (): DockConfig => ({
   stripFollowsApp: true,
   mode: "floating",
   hoverPreview: true,
+  showDesktop: true,
   opacity: 1,
   barHeight: 64,
   iconScale: 100,
