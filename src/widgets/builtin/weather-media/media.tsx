@@ -1,4 +1,4 @@
-import { Circle, Column, Path, Pressable, Row, Svg, Text, View, store } from "@tarve/core";
+import { Circle, Column, Path, Pressable, Row, Svg, Text, View } from "@tarve/core";
 import { media, mediaControls, mediaPosition, openPlayer, sourceName, useMedia } from "../../../services/media";
 import { HoverTip } from "../../../menu/hover-tip";
 import type { DockMenuItem } from "../../../menu/dock-menu";
@@ -35,12 +35,12 @@ const idleSetting = {
 
 function setup<C extends object>(ctx: WidgetContext<C>): { progress: number } {
   ctx.onDispose(useMedia());
-  const state = store({ progress: 0 });
-  // Extrapolated between session updates, as now-playing does, for a smooth bar.
-  ctx.every(1000, () => {
-    state.progress = media.duration ? mediaPosition() / media.duration : 0;
-  });
-  return state;
+  // Read at render: the session poll (every second while playing) re-renders with a new position.
+  return {
+    get progress() {
+      return media.duration ? mediaPosition() / media.duration : 0;
+    },
+  };
 }
 
 function hidden<C extends typeof defaultConfig>({ ctx }: { ctx: WidgetContext<C> }) {

@@ -80,6 +80,15 @@ function top(groups: Map<string, { name: string; pid: number; count: number; val
     .map((g) => ({ name: displayName(g.name), path: exePathOf(g.pid), count: g.count, value: g.value }));
 }
 
+/**
+ * Writes a top list only when what it shows changed (values compared at `unit`: 1 MB, 1 %), so
+ * a sample that moves nothing visible renders nothing.
+ */
+function setIfChanged(key: "topRam" | "topCpu", next: TopProcess[], unit: number) {
+  const shape = (list: readonly TopProcess[]) => JSON.stringify(list.map((p) => [p.name, p.count, Math.round(p.value / unit)]));
+  if (shape(processes[key]) !== shape(next)) processes[key] = next;
+}
+
 export const processPoller = createPoller(2000, () => {
   const list = processSnapshot();
   if (!list.length) return;
@@ -105,7 +114,7 @@ export const processPoller = createPoller(2000, () => {
   }
   const primed = lastTimes.size > 0;
   lastTimes = times;
-  processes.topRam = top(ram, 3);
+  setIfChanged("topRam", top(ram, 3), 2 ** 20);
   if (!primed || total <= 0n) return;
   for (const d of deltas) {
     const group = d.name.toLowerCase();
@@ -114,8 +123,8 @@ export const processPoller = createPoller(2000, () => {
     c.value += Number((d.delta * 10000n) / total) / 100;
     cpu.set(group, c);
   }
-  processes.topCpu = top(cpu, 3);
-  processes.ready = true;
+  setIfChanged("topCpu", top(cpu, 3), 1);
+  if (!processes.ready) processes.ready = true;
 });
 
 // ---------- Formatting ----------

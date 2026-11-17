@@ -75,7 +75,8 @@ async function poll() {
     }
     const session = pick(sessions);
     if (!session) {
-      Object.assign(media, { active: false, title: "", artist: "", album: "", app: "", playing: false, position: 0, duration: 0, art: "" });
+      if (media.active || media.title || media.app)
+        Object.assign(media, { active: false, title: "", artist: "", album: "", app: "", playing: false, position: 0, duration: 0, art: "" });
       lastArtwork = undefined;
       return;
     }
@@ -95,11 +96,21 @@ async function poll() {
       lastArtwork = session.artwork;
       Object.assign(next, { art: artUrl(session.artwork) });
     }
-    Object.assign(media, next);
+    // The position is extrapolated between polls (mediaPosition): keep the old sample while it
+    // still predicts the session's position, so a poll that changes nothing renders nothing.
+    const same = next.app === media.app && next.title === media.title && next.playing === media.playing && next.duration === media.duration;
+    if (same && Math.abs(next.position - mediaPosition()) < 1.5) {
+      next.position = media.position;
+      next.sampledAt = media.sampledAt;
+    }
+    for (const [key, value] of Object.entries(next)) {
+      if ((media as Record<string, unknown>)[key] !== value) (media as Record<string, unknown>)[key] = value;
+    }
   } catch (error) {
     console.error("[media]", error);
   } finally {
     polling = false;
+    syncClock();
   }
 }
 
@@ -122,6 +133,7 @@ export function useMedia(): () => void {
     if (--users === 0) {
       generation++;
       clearTimeout(timer);
+      syncClock();
       timer = undefined;
     }
   };
@@ -142,7 +154,20 @@ export const mediaControls = {
 };
 
 /** Seconds played now, extrapolated from the last sample while playing. */
+/** Ticks once a second only while something plays, so progress bars move between polls. */
+export const mediaClock = store({ tick: 0 });
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
+function syncClock() {
+  if (media.playing && users) clockTimer ??= setInterval(() => mediaClock.tick++, 1000);
+  else {
+    clearInterval(clockTimer);
+    clockTimer = undefined;
+  }
+}
+
 export function mediaPosition() {
+  void mediaClock.tick; // a render that shows the position follows the clock
   if (!media.duration) return 0;
   const elapsed = media.playing ? (Date.now() - media.sampledAt) / 1000 : 0;
   return Math.min(media.duration, media.position + elapsed);

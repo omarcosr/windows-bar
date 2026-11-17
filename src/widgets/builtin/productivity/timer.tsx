@@ -26,6 +26,18 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
   ],
   setup(ctx) {
     const state = makeState();
+    // Ticks only while counting down or flashing "time's up"; an idle timer wakes nothing.
+    const tick = ctx.ticker(250, () => {
+      const now = Date.now();
+      if (state.running && now >= state.endsAt) {
+        state.running = false;
+        state.active = false;
+        state.left = 0;
+        ring(state, ctx.config.sound);
+      }
+      if (state.running || now < state.flashUntil + 600) state.now = now;
+      else tick.stop();
+    });
     const startFor = (min: number) => {
       state.total = state.left = min * 60_000;
       state.endsAt = Date.now() + state.left;
@@ -33,6 +45,7 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       state.active = true;
       state.flashUntil = 0;
       state.now = Date.now();
+      tick.start();
     };
     const toggle = () => {
       if (!state.active) return startFor(Number(ctx.config.preset) || 5);
@@ -42,19 +55,10 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       } else {
         state.endsAt = Date.now() + state.left;
         state.running = true;
+        tick.start();
       }
       state.now = Date.now();
     };
-    ctx.every(250, () => {
-      const now = Date.now();
-      if (state.running && now >= state.endsAt) {
-        state.running = false;
-        state.active = false;
-        state.left = 0;
-        ring(state, ctx.config.sound);
-      }
-      if (state.running || now < state.flashUntil + 600) state.now = now;
-    });
     actions.set(toRaw(state), {
       click: () => {
         if (Date.now() < state.flashUntil) {

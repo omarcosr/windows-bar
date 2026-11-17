@@ -2,6 +2,7 @@ import { store } from "@tarve/core";
 import { keyboardLayout, readNetwork, readVolume, setMuted, setVolume, type NetworkKind } from "../native/status";
 import { powerStatus } from "../native/win32";
 import { createPoller } from "./poller";
+import { HSHELL, onShellEvent } from "../native/shell-events";
 import { foregroundApp } from "./windows";
 
 /** What the right end of the Windows taskbar shows: network, volume, battery, input language. */
@@ -31,10 +32,14 @@ function assign(next: Partial<typeof status>) {
   }
 }
 
+function refreshBattery() {
+  const power = powerStatus();
+  assign({ hasBattery: power.hasBattery, battery: power.percent, charging: power.charging });
+}
+
 export function refreshStatus() {
   const net = readNetwork();
   const volume = readVolume();
-  const power = powerStatus();
   assign({
     network: net.kind,
     internet: net.internet,
@@ -44,9 +49,6 @@ export function refreshStatus() {
     audioDevice: volume?.device ?? "",
     volume: volume?.level ?? 0,
     muted: volume?.muted ?? false,
-    hasBattery: power.hasBattery,
-    battery: power.percent,
-    charging: power.charging,
   });
 }
 
@@ -55,7 +57,26 @@ export function refreshLanguage() {
   assign({ language: kb.language, layout: kb.layout, languageName: kb.name });
 }
 
-export const statusPoller = createPoller(1000, refreshStatus);
+/**
+ * Volume and network are read every second: their change events (IAudioEndpointVolumeCallback,
+ * NotifyNetworkConnectivityHintChange) call back on a system thread pool, which the JS runtime's FFI
+ * cannot take. The battery follows WM_POWERBROADCAST instead (shell-events.ts).
+ */
+const volumePoller = createPoller(1000, refreshStatus);
+
+export const statusPoller = {
+  acquire(): () => void {
+    refreshBattery();
+    const off = onShellEvent((event) => {
+      if (event.type === "power") refreshBattery();
+    });
+    const release = volumePoller.acquire();
+    return () => {
+      off();
+      release();
+    };
+  },
+};
 
 /** Master volume (0..100) of the default device; shown at once, then confirmed by a read. */
 export function changeVolume(level: number) {
@@ -68,4 +89,15 @@ export function changeVolume(level: number) {
 export function toggleMute() {
   if (setMuted(!status.muted)) assign({ muted: !status.muted });
 }
-export const languagePoller = createPoller(400, refreshLanguage);
+/**
+ * The input language is per window: it is read again when the shell says it changed
+ * (HSHELL_LANGUAGE) and when another window comes forward, as the taskbar's language button does.
+ */
+export const languagePoller = {
+  acquire(): () => void {
+    refreshLanguage();
+    return onShellEvent((event) => {
+      if (event.type === "foreground" || (event.type === "shell" && event.code === HSHELL.LANGUAGE)) refreshLanguage();
+    });
+  },
+};

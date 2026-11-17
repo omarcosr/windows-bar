@@ -15,12 +15,14 @@ export function Tile(props: {
   style?: Style;
   children?: Child;
 }) {
+  // Joined widgets sit on one shared card (the dock draws it); a tile with its own colour keeps it.
+  const joined = config.joinWidgets === true;
   const style: Style = {
     width: props.width,
     height: ui.tile.height,
     radius: ui.tile.radius,
-    background: props.background ?? ui.tile.background,
-    borderWidth: 1,
+    background: props.background ?? (joined ? "rgba(0,0,0,0)" : ui.tile.background),
+    borderWidth: joined ? 0 : 1,
     borderColor: ui.tile.border,
     // Content is centred vertically by the row; the tile only pads the sides.
     padding: props.padding ?? { left: 8, right: 8 },

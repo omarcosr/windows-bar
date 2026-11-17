@@ -1,7 +1,7 @@
 import { store } from "@tarve/core";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createPoller } from "./poller";
+import { onWatchChange } from "../native/shell-events";
 import { acquireTaskbarHost, overlays } from "./taskbar-host";
 import { acquireExplorerButtons, explorerStateFor } from "./explorer-buttons";
 import { openReadonly } from "../runtime/sqlite";
@@ -50,7 +50,8 @@ async function readPackageBadges() {
   for (const [key, value] of Object.entries(next)) if (packageBadges[key] !== value) packageBadges[key] = value;
 }
 
-const dbPoller = createPoller(3000, async () => {
+/** Reads the notification database's badges; runs when Windows writes the database (its folder's change notification). */
+async function refreshBadges() {
   if (readingBadges) return;
   readingBadges = true;
   try {
@@ -63,12 +64,13 @@ const dbPoller = createPoller(3000, async () => {
   } finally {
     readingBadges = false;
   }
-});
+}
 
 /** Starts both badge sources; returns the release function. */
 export function acquireBadges(): () => void {
   const host = acquireTaskbarHost();
-  const poll = dbPoller.acquire();
+  void refreshBadges();
+  const poll = onWatchChange(["notifications"], () => void refreshBadges(), 300);
   const explorer = acquireExplorerButtons();
   return () => {
     host();

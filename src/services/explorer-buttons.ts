@@ -19,11 +19,13 @@ export interface ButtonState {
 export const explorerButtons = store({ list: [] as ExplorerButton[] });
 
 /**
- * A UIA search of Explorer's taskbar blocks this thread for 100+ ms (measured 125–140 ms, also when
- * it finds nothing, as with Explorer's taskbar hidden). It runs every 2 s only while some button shows
- * a badge or progress; otherwise the pause doubles up to 30 s, so an idle dock does not stutter.
+ * A UIA search of Explorer's taskbar costs 15–20 ms in the app (130 ms under Bun). There is no event
+ * to wait for instead: UIA change handlers call back on UIA's own threads, which the JS runtime's FFI
+ * cannot take. So it runs every 2 s while a button shows progress, every 5 s while one shows a
+ * badge, and otherwise backs off (doubling) to 30 s.
  */
 const FAST = 2000;
+const BADGES = 5000;
 const SLOW = 30_000;
 let delay = FAST;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -33,7 +35,9 @@ function tick() {
   try {
     const buttons = readExplorerButtons();
     const list = buttons ? buttons.filter((b) => b.help.trim()) : [];
-    delay = list.length ? FAST : Math.min(SLOW, delay * 2);
+    // Progress moves by the second; a count changes now and then; nothing shown, back off.
+    const progress = list.some((b) => parse(b.help).progress !== undefined);
+    delay = progress ? FAST : list.length ? BADGES : Math.min(SLOW, delay * 2);
     if (buttons && JSON.stringify(list) !== JSON.stringify(explorerButtons.list)) {
       if (process.env.TRAY_DEBUG) console.log("[explorer-buttons]", buttons.length, JSON.stringify(list));
       explorerButtons.list = list;

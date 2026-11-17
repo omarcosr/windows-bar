@@ -14,7 +14,6 @@ import {
 import { windowAppId } from "../native/app-id";
 import { openUri, showInFolder } from "../native/desktop";
 import { fileDescription } from "../native/version-info";
-import { createPoller } from "./poller";
 
 export interface AppWindow {
   hwnd: HWND;
@@ -49,7 +48,8 @@ export const desktop = store({
   activeKey: "",
 });
 
-let lastForeground: HWND | null = null;
+/** The window in front before the dock was clicked: set at start, then by foreground events (noteForeground). */
+let lastForeground: HWND | null = foregroundWindow();
 /** Keys in the order apps first appeared, so icons keep their place when focus changes. */
 let appOrder: string[] = [];
 let signature = "";
@@ -106,8 +106,30 @@ export const prettyName = (exe: string) => {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 };
 
+/**
+ * Windows the shell said are going away (HSHELL_WINDOWDESTROYED, sent while the window still
+ * exists, and also when it is hidden). Explorer drops the button right then; the list skips them
+ * the same way instead of waiting for the window to be gone, until the shell shows one again.
+ */
+const closing = new Set<number>();
+
+/** HSHELL_WINDOWDESTROYED: the button goes at once, as on the taskbar. */
+export function windowGone(hwnd: number) {
+  closing.add(hwnd);
+  scheduleRefresh();
+}
+
+/** HSHELL_WINDOWCREATED: a hidden window shown again gets its button back. */
+export function windowShown(hwnd: number) {
+  closing.delete(hwnd);
+  scheduleRefresh();
+}
+
 export function refreshWindows() {
-  const windows = listTaskbarWindows();
+  const all = listTaskbarWindows();
+  const listed = new Set(all.map((w) => w.hwnd as unknown as number));
+  for (const hwnd of closing) if (!listed.has(hwnd)) closing.delete(hwnd);
+  const windows = all.filter((w) => !closing.has(w.hwnd as unknown as number));
   const groups = new Map<string, RunningApp>();
   // The app in front is the one owning the last non-dock foreground window; the desktop or a
   // window that is not on the taskbar leaves no app active, as on the Windows taskbar.
@@ -154,7 +176,17 @@ export function refreshWindows() {
   }
 }
 
-export const windowsPoller = createPoller(2000, refreshWindows);
+/**
+ * The list follows the shell's own signals (main.tsx): the shell hook (created, destroyed,
+ * activated, title redrawn) and WinEvents (foreground, minimized/restored, cloaked), as
+ * Explorer's task band does. Acquiring it reads the list once; nothing is polled.
+ */
+export const windowsPoller = {
+  acquire(): () => void {
+    refreshWindows();
+    return () => {};
+  },
+};
 
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -174,14 +206,6 @@ export function clearFlashing(hwnd: number) {
   if (i >= 0) desktop.flashing.splice(i, 1);
 }
 
-/**
- * The window that was in front before the dock was clicked. Clicking the dock brings the dock
- * forward, so the click handler cannot ask Windows; this follows the foreground closely instead.
- */
-setInterval(() => {
-  const fg = foregroundWindow();
-  if (fg && countsAsApp(fg)) lastForeground = fg;
-}, 150);
 
 /** Other apps' windows, and this app's own taskbar windows (settings); not the dock or its popups. */
 function countsAsApp(hwnd: HWND) {

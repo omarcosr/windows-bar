@@ -8,6 +8,7 @@ import { WindowsLogo, iconHover } from "../ui";
 import { defineWidget } from "../types";
 import { dockIndex, dockMetrics, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
+import { followForeground } from "../../native/shell-events";
 
 /** Segoe Fluent Icons characters, as Windows draws these entries' icons. */
 const glyphs = {
@@ -34,8 +35,8 @@ const START_HOSTS = /\\(SearchHost|StartMenuExperienceHost|SearchApp)\.exe$/i;
 
 const isStartHost = (hwnd: ReturnType<typeof foregroundWindow>) => !!hwnd && START_HOSTS.test(exePathOf(windowPid(hwnd)));
 
-/** When the Start menu was last seen in front (sampled every 100 ms while the widget is up). */
-let startSeenAt = 0;
+/** Whether the Start menu is, or just was, in front (from foreground events). */
+const start = followForeground((hwnd) => isStartHost(hwnd as unknown as ReturnType<typeof foregroundWindow>), foregroundWindow() as number | null);
 
 /**
  * The Start button toggles the Start menu, as on the taskbar. Clicking the dock takes the focus,
@@ -44,10 +45,10 @@ let startSeenAt = 0;
  */
 function toggleStart() {
   // Pressing the dock closed it a moment ago (or it is still closing).
-  if (isStartHost(foregroundWindow()) || Date.now() - startSeenAt < 500) {
+  if (isStartHost(foregroundWindow()) || start.recently(500)) {
     // Still open: the same SC_TASKLIST command closes it, as a second press of the Start button.
     if (isStartHost(foregroundWindow())) openStartMenu();
-    startSeenAt = 0;
+    start.reset();
     return;
   }
   openStartMenu();
@@ -102,10 +103,7 @@ export default defineWidget({
   description: "Abre o menu Iniciar do Windows.",
   category: "apps",
   defaultConfig: {},
-  setup(ctx) {
-    ctx.every(100, () => {
-      if (isStartHost(foregroundWindow())) startSeenAt = Date.now();
-    });
+  setup() {
     return {};
   },
   View({ ctx }) {

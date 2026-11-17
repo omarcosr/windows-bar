@@ -1,5 +1,5 @@
 import { Icon, Image, Pressable, Row, View } from "@tarve/core";
-import { holdDockMenu, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
+import { holdDockMenu, toggleDockMenu, updateDockMenu, type DockMenuItem, type DockMenuSpec } from "../../menu/dock-menu";
 import { windowPidOf } from "../../native/tray-host";
 import { acquireTaskbarHost, clickTrayIcon, tray, type TrayIcon } from "../../services/taskbar-host";
 import { launch, prettyName } from "../../services/windows";
@@ -47,7 +47,19 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
 
 const label = (icon: TrayIcon) => icon.tip.split("\n")[0]!.trim() || (icon.exe ? prettyName(icon.exe) : "Ícone");
 
+const OVERFLOW_MENU = "tray-overflow";
+
+/** The icons the open flyout shows; it is refreshed only when this changes (no render loop). */
+let shownOverflow = "";
+const overflowKey = (icons: TrayIcon[]) => icons.map((i) => `${i.key}\u0001${i.tip}`).join("\u0002");
+
 function openOverflow(icons: TrayIcon[]) {
+  shownOverflow = overflowKey(icons);
+  // A second press of the arrow puts the flyout away, as on the taskbar.
+  toggleDockMenu(overflowSpec(icons));
+}
+
+function overflowSpec(icons: TrayIcon[]): DockMenuSpec & { id: string } {
   // The same flyout as Windows: an icon grid that stays open while you click, so an app that
   // opens on a double click gets both clicks.
   const items: DockMenuItem[] = icons.map((icon) => ({
@@ -60,7 +72,7 @@ function openOverflow(icons: TrayIcon[]) {
       clickTrayIcon(icon, "right");
     },
   }));
-  showDockMenu({ title: "Ícones ocultos", sections: [items], grid: true });
+  return { id: OVERFLOW_MENU, title: "Ícones ocultos", sections: [items], grid: true };
 }
 
 /**
@@ -100,6 +112,14 @@ export default defineWidget({
     const mode = ctx.config.inline;
     const inline = mode === "all" ? icons : mode === "none" ? [] : icons.filter((i) => i.promoted);
     const overflow = icons.filter((i) => !inline.includes(i));
+    // An open flyout follows the icons: one whose app quit leaves it at once, as on the taskbar.
+    // Only when the hidden icons really changed: updating the menu re-renders, which renders this
+    // again, so an unconditional update would loop forever.
+    const key = overflowKey(overflow);
+    if (!preview && key !== shownOverflow) {
+      shownOverflow = key;
+      queueMicrotask(() => updateDockMenu(OVERFLOW_MENU, overflow.length ? overflowSpec(overflow) : null));
+    }
     return (
       <Tile padding={{ left: 4, right: 4 }} gap={0}>
         <Pressable

@@ -1,6 +1,7 @@
 import { store } from "@tarve/core";
 import { invokeVerb, itemStrings, listFiles, PKEY, readUserValue } from "../native/shell-item";
 import { appIdKey } from "./windows";
+import { onWatchChange } from "../native/shell-events";
 
 /**
  * The apps pinned to the Windows taskbar, in the taskbar's order, read from where Explorer keeps
@@ -125,5 +126,7 @@ export function watchTaskbarPins() {
     await tick();
   };
   void tick();
-  setInterval(tick, 3000);
+  // Explorer writes Taskband\Favorites and the User Pinned\TaskBar shortcuts on every pin,
+  // unpin and reorder: their change notifications drive the refresh, nothing is polled.
+  onWatchChange(["taskband", "pinned"], () => void tick());
 }

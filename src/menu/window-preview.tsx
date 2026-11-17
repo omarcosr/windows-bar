@@ -2,6 +2,7 @@ import { dlopen } from "../native/ffi";
 import { Icon, Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle, type ScreenInfo } from "@tarve/core";
 import { config } from "../config";
 import { DockWindow } from "../native/dock-window";
+import { onShellEvent } from "../native/shell-events";
 import {
   closeWindow,
   cursorPos,
@@ -432,7 +433,11 @@ export function hidePreview(now = false) {
   handle?.hide();
 }
 
-// Windows open, close and resize while a preview is up: keeps the cards' thumbnails in step.
-setInterval(() => {
-  if (preview.key) layout(false);
-}, 700);
+// Windows open, close, resize or minimize while a preview is up: the shell events keep the cards'
+// thumbnails in step (one layout per burst), instead of a timer.
+let relayout: ReturnType<typeof setTimeout> | undefined;
+onShellEvent((event) => {
+  if (!preview.key || event.type === "setting" || event.type === "changed" || event.type === "power") return;
+  clearTimeout(relayout);
+  relayout = setTimeout(() => preview.key && layout(false), 60);
+});

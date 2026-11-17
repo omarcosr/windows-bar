@@ -1,8 +1,9 @@
 import { Circle, Column, Line, Path, Row, Svg, Text, View, store } from "@tarve/core";
-import { systemPoller } from "../../../services/system";
+import { batteryWatch, system } from "../../../services/system";
+import { onShellEvent } from "../../../native/shell-events";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
-import { defineWidget } from "../../types";
+import { defineWidget, type WidgetContext } from "../../types";
 import {
   Bolt,
   Metric,
@@ -16,10 +17,30 @@ import {
   type BatteryReading,
 } from "./shared";
 
-/** Every battery tile polls the shared system service and hides itself on a desktop without a battery. */
+/** Every battery tile follows Windows' power notifications and hides itself on a desktop without a battery. */
 function batterySetup(ctx: { onDispose(fn: () => void): void }) {
-  ctx.onDispose(systemPoller.acquire());
+  ctx.onDispose(batteryWatch.acquire());
   return {};
+}
+
+/**
+ * Blinks `state[key]` every `ms` only while the battery charges: the ticker starts on a power
+ * notification and stops itself once unplugged, so an idle tile wakes nothing.
+ */
+function chargeBlink<K extends string>(ctx: WidgetContext<object>, state: Record<K, boolean>, key: K, ms: number) {
+  ctx.onDispose(batteryWatch.acquire());
+  const tick = ctx.ticker(ms, () => {
+    if (system.battery.charging) state[key] = !state[key];
+    else {
+      state[key] = false;
+      tick.stop();
+    }
+  });
+  const sync = () => {
+    if (system.battery.charging) tick.start();
+  };
+  sync();
+  ctx.onDispose(onShellEvent((event) => event.type === "power" && sync()));
 }
 
 const base = {
@@ -102,11 +123,8 @@ export const batteryRing = defineWidget({
   name: "Anel de bateria",
   description: "Carga num anel; uma faísca acende enquanto está na tomada.",
   setup(ctx) {
-    ctx.onDispose(systemPoller.acquire());
     const state = store({ pulse: false });
-    ctx.every(700, () => {
-      state.pulse = !state.pulse;
-    });
+    chargeBlink(ctx, state, "pulse", 700);
     return state;
   },
   View({ state, preview }) {
@@ -140,11 +158,8 @@ export const batteryCore = defineWidget({
   name: "Núcleo de bateria",
   description: "Doze células acendem com a carga; a próxima pisca enquanto carrega.",
   setup(ctx) {
-    ctx.onDispose(systemPoller.acquire());
     const state = store({ blink: false });
-    ctx.every(600, () => {
-      state.blink = !state.blink;
-    });
+    chargeBlink(ctx, state, "blink", 600);
     return state;
   },
   View({ state, preview }) {

@@ -229,8 +229,27 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   const before = widgets.filter((w, i) => !inGroup(w) && (firstGroup < 0 || i < firstGroup));
   const after = widgets.filter((w, i) => !inGroup(w) && firstGroup >= 0 && i > firstGroup);
   const left = dockAlign() === "left";
+  // "Juntar widgets": the widgets on each side of the group share one card, with thin dividers.
+  const run = (list: WidgetInstance[]) => {
+    if (!config.joinWidgets || list.length === 0) return list.map(slot);
+    return [
+      <Row
+        key={`join-${list[0]!.id}`}
+        style={{ align: "center", gap: 0, shrink: 0, radius: ui.tile.radius, background: ui.tile.background }}
+      >
+        {list.flatMap((w, i) =>
+          i === 0
+            ? [slot(w)]
+            : [
+                <View key={`div-${w.id}`} style={{ width: 1, height: Math.round(ui.tile.height * 0.5), shrink: 0, background: "rgba(255,255,255,0.1)" }} />,
+                slot(w),
+              ],
+        )}
+      </Row>,
+    ];
+  };
   const side = (list: WidgetInstance[], justify: "start" | "end") => (
-    <Row style={{ flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{list.map(slot)}</Row>
+    <Row style={{ flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{run(list)}</Row>
   );
   // Start and the app icons share one row with no gap, so their 44 px slots space evenly.
   // macOS magnification follows the pointer over the whole group. A centred group grows on both
@@ -265,9 +284,9 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
     </Row>
   ) : null;
   const content = !full
-    ? [...(left ? [groupRow] : []), ...before.map(slot), ...(left ? [] : [groupRow]), ...after.map(slot)]
+    ? [...(left ? [groupRow] : []), ...run(before), ...(left ? [] : [groupRow]), ...run(after)]
     : left
-      ? [groupRow, ...before.map(slot), side(after, "end")]
+      ? [groupRow, ...run(before), side(after, "end")]
       : [side(before, "start"), groupRow, side(after, "end")];
   return (
     <Window

@@ -18,6 +18,7 @@ import {
   type BrightnessSource,
 } from "../native/actions-native";
 import { openUri } from "../native/desktop";
+import { onShellEvent, SPI_SETDESKWALLPAPER } from "../native/shell-events";
 import { createPoller } from "./poller";
 
 /** Shared state of the "actions" widgets, polled only while one of them is placed. */
@@ -70,7 +71,16 @@ export function changeBrightness(level: number) {
 
 // ---------- Theme ----------
 
-export const themePoller = createPoller(2000, () => assign({ lightTheme: readTheme().appsLight }));
+/** Light/dark follows WM_SETTINGCHANGE "ImmersiveColorSet", the broadcast Windows sends when it flips. */
+export const themePoller = {
+  acquire(): () => void {
+    const read = () => assign({ lightTheme: readTheme().appsLight });
+    read();
+    return onShellEvent((event) => {
+      if (event.type === "setting" && event.area === "ImmersiveColorSet") read();
+    });
+  },
+};
 
 export function toggleTheme() {
   const light = !actions.lightTheme;
@@ -126,10 +136,19 @@ export function formatBytes(bytes: number) {
 
 // ---------- Wallpaper ----------
 
-export const wallpaperPoller = createPoller(10_000, () => {
-  const w = readWallpaper();
-  assign({ wallpaper: w?.path ?? "", slideshow: w?.slideshow ?? false });
-});
+/** The wallpaper follows WM_SETTINGCHANGE SPI_SETDESKWALLPAPER, sent on every change (slideshows too). */
+export const wallpaperPoller = {
+  acquire(): () => void {
+    const read = () => {
+      const w = readWallpaper();
+      assign({ wallpaper: w?.path ?? "", slideshow: w?.slideshow ?? false });
+    };
+    read();
+    return onShellEvent((event) => {
+      if (event.type === "setting" && event.action === SPI_SETDESKWALLPAPER) read();
+    });
+  },
+};
 
 export function applyWallpaper(path: string) {
   if (setWallpaper(path)) assign({ wallpaper: path, slideshow: false });

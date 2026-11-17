@@ -28,6 +28,13 @@ export type WidgetSetting<C extends object> =
   | (SettingBase<C> & { kind: "choice"; key: KeysOf<C, string>; options: readonly { value: string; label: string }[] })
   | (SettingBase<C> & { kind: "text"; key: KeysOf<C, string>; placeholder?: string; secret?: boolean });
 
+export interface Ticker {
+  /** Starts ticking (no-op while running); the first tick comes after `ms`. */
+  start(): void;
+  stop(): void;
+  readonly running: boolean;
+}
+
 export interface WidgetContext<C extends object> {
   readonly instanceId: string;
   /** The instance's saved config (a store: edits re-render). Call save() after changing it. */
@@ -36,6 +43,11 @@ export interface WidgetContext<C extends object> {
   save(): void;
   /** Runs fn now and then every ms while the widget is mounted. Errors are logged, not thrown. */
   every(ms: number, fn: () => unknown): void;
+  /**
+   * A timer that runs only between start() and stop() (and never after the widget is removed):
+   * for clocks that tick only while something counts, so an idle widget wakes nothing.
+   */
+  ticker(ms: number, fn: () => unknown): Ticker;
   onDispose(fn: () => void): void;
 }
 

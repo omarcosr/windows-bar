@@ -56,6 +56,8 @@ export interface DockConfig {
   cornerRadius: number;
   /** Space between widgets, in logical px. */
   widgetGap: number;
+  /** Widgets side by side form one continuous card, with thin dividers (off: separate cards, widgetGap apart). */
+  joinWidgets: boolean;
   /** The strip's colour changes with the top-down gradient (off: at once). */
   colorTransition: boolean;
   /** The small pill under the icon of a running app. */
@@ -95,6 +97,7 @@ export const defaultConfig = (): DockConfig => ({
   align: "system",
   cornerRadius: 18,
   widgetGap: 6,
+  joinWidgets: false,
   colorTransition: true,
   runningIndicator: true,
   stackedIcons: true,
@@ -129,7 +132,22 @@ export const config = store(load());
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+const savedListeners = new Set<() => void>();
+
+/** Runs `fn` each time the configuration is changed and saved; returns the unsubscribe function. */
+export function onConfigSaved(fn: () => void): () => void {
+  savedListeners.add(fn);
+  return () => savedListeners.delete(fn);
+}
+
 export function saveConfig() {
+  for (const fn of savedListeners) {
+    try {
+      fn();
+    } catch (error) {
+      console.error("[config]", error);
+    }
+  }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {

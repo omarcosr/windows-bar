@@ -1,4 +1,4 @@
-import { Column, Image, Pressable, Row, Text, View, store } from "@tarve/core";
+import { Column, Image, Pressable, Row, Text, View } from "@tarve/core";
 import { media, mediaControls, mediaPosition, openPlayer, playerIcon, selectSource, sourceName, useMedia } from "../../services/media";
 import { status, statusPoller, toggleMute } from "../../services/status";
 import { launch } from "../../services/windows";
@@ -147,12 +147,12 @@ export default defineWidget({
     ctx.onDispose(useMedia());
     ctx.onDispose(statusPoller.acquire());
     ctx.onDispose(hideMediaFlyout);
-    const state = store({ progress: 0 });
-    // Extrapolate playback between helper updates for a smooth bar.
-    ctx.every(1000, () => {
-      state.progress = media.duration ? mediaPosition() / media.duration : 0;
-    });
-    return state;
+    // Read at render: the session poll (every second while playing) re-renders with a new position.
+    return {
+        get progress() {
+          return media.duration ? mediaPosition() / media.duration : 0;
+        },
+    };
   },
   hidden({ ctx }) {
     if (!ctx.config.hideWhenIdle) return false;

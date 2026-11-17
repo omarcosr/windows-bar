@@ -27,8 +27,10 @@ export default defineWidget({
   setup(ctx) {
     const state = store({ running: false, startAt: 0, acc: 0, laps: [] as number[], now: Date.now() });
     const elapsed = () => state.acc + (state.running ? Date.now() - state.startAt : 0);
-    ctx.every(100, () => {
+    // Tenths only move while it runs: the clock ticks only then.
+    const tick = ctx.ticker(100, () => {
       if (state.running) state.now = Date.now();
+      else tick.stop();
     });
     actions.set(toRaw(state), {
       toggle: () => {
@@ -38,6 +40,7 @@ export default defineWidget({
         } else {
           state.startAt = Date.now();
           state.running = true;
+          tick.start();
         }
         state.now = Date.now();
       },

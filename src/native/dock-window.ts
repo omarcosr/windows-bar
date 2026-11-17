@@ -29,6 +29,7 @@ import { configDir } from "../config";
 import restoreScript from "../../scripts/restore-taskbar.ps1" with { type: "text" };
 import { output } from "../runtime/proc";
 import { exitApp, onExit } from "../services/exit";
+import { onShellEvent, SPI_SETWORKAREA, type ShellEvent } from "./shell-events";
 
 const dwmapi = dlopen("dwmapi.dll", {
   DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
@@ -72,9 +73,9 @@ export class DockWindow {
   #layoutRun = 0;
   #taskbar: { hwnd: HWND; state: number } | null = null;
   #hiddenForFullscreen = false;
-  #timer: ReturnType<typeof setInterval>;
-  #ticks = 0;
+  #offShell: () => void;
   #lostChecks = 0;
+  #recheck: ReturnType<typeof setTimeout> | undefined;
   #win32Registered = false;
   #granted: Rect | null = null;
   #watchdog = false;
@@ -85,7 +86,7 @@ export class DockWindow {
     this.#hwnd = hwnd;
     this.#options = options;
     excludeFromPeek(hwnd);
-    this.#timer = setInterval(() => this.#watch(), 250);
+    this.#offShell = onShellEvent((event) => this.#onShellEvent(event));
     if (DockWindow.#hidesTaskbar(options)) this.#hideTaskbar();
     const cleanup = () => this.dispose();
     onExit(cleanup);
@@ -314,6 +315,8 @@ export class DockWindow {
       // Step behind the full-screen window instead of hiding: a hidden AppBar loses its reserved
       // strip, windows then grow over it, look full-screen themselves and the dock never returns.
       setBehind(this.#hwnd, fullscreen ? foregroundWindow() : null);
+      // Explorer may have shown its taskbar meanwhile (not hidden again during full screen).
+      if (!fullscreen) this.#rehideTaskbar();
     }
     return fullscreen;
   }
@@ -327,20 +330,35 @@ export class DockWindow {
     return a.left === b.left && a.top === b.top;
   }
 
-  #watch() {
-    this.#ticks++;
-    // Explorer shows the taskbar again on its own (Start menu, notifications, Explorer restart).
-    if (this.#taskbar && !this.#hiddenForFullscreen) {
-      const tray = explorerTray();
-      if (tray && tray !== this.#taskbar.hwnd) this.#taskbar.hwnd = tray;
-      if (tray && isWindowVisible(tray)) {
-        setTaskbarState(ABS_AUTOHIDE);
-        showWindow(tray, SW_HIDE);
+  /**
+   * What used to be polled, from Windows' own signals: Explorer showing its taskbar again (Start
+   * menu, notifications), Explorer restarting (it forgets every AppBar), and the work area or the
+   * displays changing (the reservation may be gone). Full screen comes from the shell events in main.tsx.
+   */
+  #onShellEvent(event: ShellEvent) {
+    if (this.#disposed) return;
+    if (event.type === "trayShown") return this.#rehideTaskbar();
+    if (event.type === "explorerRestarted") {
+      this.#rehideTaskbar();
+      if (this.#reserved > 0) {
+        this.#unreserve();
+        // A short pause before registering again, so the new Explorer is ready for AppBars.
+        setTimeout(() => this.layout(), 1500);
       }
+      return;
     }
-    if (this.#ticks % 8 !== 0) return;
-    this.checkFullscreen();
-    void this.#verifyReservation();
+    if (event.type === "display" || (event.type === "setting" && event.action === SPI_SETWORKAREA)) void this.#verifyReservation();
+  }
+
+  /** Explorer shows the taskbar again on its own (Start menu, notifications, Explorer restart). */
+  #rehideTaskbar() {
+    if (!this.#taskbar || this.#hiddenForFullscreen) return;
+    const tray = explorerTray();
+    if (tray && tray !== this.#taskbar.hwnd) this.#taskbar.hwnd = tray;
+    if (tray && isWindowVisible(tray)) {
+      setTaskbarState(ABS_AUTOHIDE);
+      showWindow(tray, SW_HIDE);
+    }
   }
 
   /** Checks that the strip is really reserved: the work area must end where the strip starts. */
@@ -355,14 +373,19 @@ export class DockWindow {
     const over = Math.round(this.#options.stripOverlap * screen.scale);
     const ok = Math.abs(workBottom - (r.top + over)) <= 1 && Math.abs(r.bottom - r.top - px - over) <= 1;
     this.#lostChecks = ok ? 0 : this.#lostChecks + 1;
+    clearTimeout(this.#recheck);
+    if (ok) return;
 
-    // Explorer forgets every AppBar when it restarts: the work area then reaches into our strip.
-    if (this.#lostChecks >= 5) {
+    // The work area reaches into our strip (Explorer dropped the AppBar). Work areas settle over
+    // a few hundred ms while AppBars rearrange: look again, and register anew if it stays so.
+    if (this.#lostChecks >= 3) {
+      this.#lostChecks = 0;
       this.#unreserve();
       // A short pause before registering again, so Explorer has dropped the old AppBar.
       setTimeout(() => this.layout(), 1500);
       return;
     }
+    this.#recheck = setTimeout(() => void this.#verifyReservation(), 1000);
     // A strip moved by the taskbar or another AppBar shows up as the same mismatch. (No
     // ABM_QUERYPOS here: every AppBar call briefly steps our tray host aside, see tray-host.ts.)
   }
@@ -370,7 +393,8 @@ export class DockWindow {
   dispose() {
     if (this.#disposed) return;
     this.#disposed = true;
-    clearInterval(this.#timer);
+    this.#offShell();
+    clearTimeout(this.#recheck);
     try {
       this.#unreserve();
     } catch {

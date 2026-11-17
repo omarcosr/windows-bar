@@ -41,6 +41,8 @@ export interface DockMenuSpec {
    * close it; it closes when something else comes to the front, a press lands outside or Esc.
    */
   grid?: boolean;
+  /** Names a live menu, so its owner can refresh it while open (updateDockMenu). */
+  id?: string;
 }
 
 const MENU_TITLE = "WindowsBar Menu";
@@ -376,8 +378,36 @@ export function showDockMenu(spec: DockMenuSpec) {
   });
 }
 
+/**
+ * Replaces the open menu's content when it is still menu `id` (its items changed while open, e.g.
+ * a tray icon whose app quit); null closes it. Does nothing when another menu, or none, is open.
+ */
+export function updateDockMenu(id: string, spec: DockMenuSpec | null) {
+  if (!menu.spec || menu.spec.id !== id) return;
+  if (!spec) closeDockMenu();
+  else menu.spec = { ...spec, id };
+}
+
 export function menuOpen() {
   return !!menu.spec;
+}
+
+/** The named menu that closed last, and when. */
+let lastClosed = { id: "", at: 0 };
+
+/**
+ * Opens menu `spec.id`, or closes it when it is open: a second press of the button that opened it
+ * puts it away, as the taskbar's flyouts do. Pressing the dock takes the focus from the menu, which
+ * closes it (light dismiss) before the click arrives; a click right after that closing is that
+ * second press, so it must not open the menu again.
+ */
+export function toggleDockMenu(spec: DockMenuSpec & { id: string }) {
+  if (menu.spec?.id === spec.id) return closeDockMenu();
+  if (lastClosed.id === spec.id && Date.now() - lastClosed.at < 500) {
+    lastClosed = { id: "", at: 0 };
+    return;
+  }
+  showDockMenu(spec);
 }
 
 export function closeDockMenu() {
@@ -385,6 +415,7 @@ export function closeDockMenu() {
   opening++;
   pending = false;
   if (!menu.spec) return;
+  if (menu.spec.id) lastClosed = { id: menu.spec.id, at: Date.now() };
   menu.spec = null;
   handle?.hide();
 }

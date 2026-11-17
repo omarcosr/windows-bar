@@ -288,7 +288,10 @@ export function SettingsPage() {
             onChange={(v) => set("opacity", Math.round(v) / 100)}
           />
         </Setting>
-        <Setting label="Espaço entre widgets">
+        <Setting label="Juntar widgets" description="Os widgets lado a lado viram um só cartão, separados por linhas finas.">
+          <Toggle checked={config.joinWidgets === true} label="Juntar widgets" onChange={(v) => set("joinWidgets", v)} />
+        </Setting>
+        <Setting label="Espaço entre widgets" when={config.joinWidgets !== true}>
           <Range
             label="Espaço"
             value={ui.dock.gap}

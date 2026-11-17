@@ -13,6 +13,7 @@ import {
   type Rect,
 } from "../native/win32";
 import { foregroundApp } from "./windows";
+import { onConfigSaved } from "../config";
 
 type RGB = [number, number, number];
 
@@ -95,14 +96,13 @@ const distance = (a: RGB, b: RGB) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1
  * (preview, menu) sit right above the strip and would be read back.
  */
 export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, paused: () => boolean) {
-  clearInterval(timer);
-  timer = setInterval(() => {
+  const clear = () => {
+    current = null;
+    if (appColor.color !== null) Object.assign(appColor, { color: null, touching: false });
+  };
+  const sample = () => {
     const hwnd = dock();
-    if (!enabled() || !hwnd) {
-      current = null;
-      if (appColor.color !== null) Object.assign(appColor, { color: null, touching: false });
-      return;
-    }
+    if (!enabled() || !hwnd) return clear();
     if (paused() || shellFlyoutInFront()) return;
     const { work } = monitorOf(hwnd);
     // Without a reserved strip the rows above it are the dock itself: nothing to read. (The
@@ -122,5 +122,19 @@ export function watchAppColor(dock: () => HWND | null, enabled: () => boolean, p
     if (next && current && distance(next, current) < 18 && touching === appColor.touching) return;
     current = next;
     Object.assign(appColor, { color: next ? `rgb(${next[0]},${next[1]},${next[2]})` : null, touching });
-  }, 150);
+  };
+  // Pixels have no change event, so the strip samples on a timer, but only while the option is on
+  // (it is re-checked when the settings are saved); otherwise no timer runs at all.
+  const sync = () => {
+    if (enabled()) timer ??= setInterval(sample, 150);
+    else {
+      clearInterval(timer);
+      timer = undefined;
+      clear();
+    }
+  };
+  offConfig?.();
+  offConfig = onConfigSaved(sync);
+  sync();
 }
+let offConfig: (() => void) | undefined;

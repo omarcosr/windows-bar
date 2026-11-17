@@ -1,4 +1,5 @@
 import { CFunction, dlopen, read } from "./ffi";
+import { followForeground } from "./shell-events";
 import { exePathOf, explorerTray, foregroundWindow, tapKey, tapKeys, VK, windowPid, type HWND } from "./win32";
 
 const user32 = dlopen("user32.dll", {
@@ -144,16 +145,13 @@ function isFlyout(hwnd: HWND | null) {
   return host;
 }
 
-/** When a flyout was last the active window: clicking the dock closes it before the click lands. */
-let flyoutSeenAt = 0;
-setInterval(() => {
-  if (isFlyout(foregroundWindow())) flyoutSeenAt = Date.now();
-}, 100);
+/** Whether a flyout is, or just was, the active window: clicking the dock closes it before the click lands. */
+const flyout = followForeground((hwnd) => isFlyout(hwnd as unknown as HWND), foregroundWindow() as number | null);
 
 function toggleFlyout(uri: string, windowClass: string | null, keys: number[]) {
   // It was open a moment ago: the click on the dock closed it, as the taskbar button's second press.
-  if (isFlyout(foregroundWindow()) || Date.now() - flyoutSeenAt < 400) {
-    flyoutSeenAt = 0;
+  if (isFlyout(foregroundWindow()) || flyout.recently(400)) {
+    flyout.reset();
     return;
   }
   user32.symbols.AllowSetForegroundWindow(0xffffffff /* ASFW_ANY */);

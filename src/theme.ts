@@ -91,7 +91,9 @@ export const ui = {
      * and the icon inside it land on whole pixels.
      */
     get plate() {
-      return Math.min(this.slot, ui.tile.height);
+      // 4 px narrower than the slot, as Windows 11 draws its 40 px plate in a 44 px button:
+      // neighbouring plates (in front + asking for attention) keep a gap instead of touching.
+      return Math.min(this.slot - devicePx(4, true), ui.tile.height);
     },
   },
   text: "#f5f5f7",

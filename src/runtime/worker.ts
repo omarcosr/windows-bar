@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { runtime } from "../native/ffi.ts";
+import { measure } from "./perf-probe.ts";
 
 export interface RuntimeWorker { terminate(): void }
 
@@ -24,7 +25,8 @@ export function startWorker<T>(source: string, onMessage: (message: T) => void, 
   const url = URL.createObjectURL(new Blob([source], { type: "application/javascript" }));
   try {
     const worker = new Worker(url, { type: "module" });
-    worker.onmessage = (event: MessageEvent<T>) => onMessage(event.data);
+    const key = `worker ${source.slice(0, 400).match(/dlopen\("(\w+)/)?.[1] ?? "?"}:${source.length}`;
+    worker.onmessage = (event: MessageEvent<T>) => measure(`${key} ${(event.data as { type?: string })?.type ?? ""}`, () => onMessage(event.data));
     worker.onerror = onError;
     return { terminate() { shutdown?.(); worker.terminate(); URL.revokeObjectURL(url); } };
   } catch (error) {

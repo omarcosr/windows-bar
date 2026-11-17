@@ -1,6 +1,6 @@
-import "./runtime/perf-probe";
+import { probeEvents } from "./runtime/perf-probe";
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
-import { config, saveConfig } from "./config";
+import { config, onConfigSaved, saveConfig } from "./config";
 import { ui } from "./theme";
 import { DOCK_TITLE, DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
@@ -10,11 +10,11 @@ import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { initHoverTip } from "./menu/hover-tip";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
-import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh } from "./services/windows";
+import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, windowGone, windowShown } from "./services/windows";
 import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
 import { setGalleryOpener } from "./dock/widget-menu";
-import { dockAlign, watchTaskbarPrefs } from "./services/taskbar-prefs";
+import { dockAlign, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
 import { readAutostart, setAutostart } from "./services/autostart";
 import { checkNow, restartToUpdate, startUpdater, updateNow, updater } from "./services/updater";
 import { watchAppColor, appColor } from "./services/app-color";
@@ -158,6 +158,7 @@ void readAutostart().then((on) => {
 setGalleryOpener(() => openGallery());
 
 await app.ready;
+probeEvents("dock", app);
 
 watchTaskbarPrefs();
 /**
@@ -207,6 +208,8 @@ startShellEvents((event) => {
     clearFlashing(event.hwnd);
     return scheduleRefresh();
   }
+  if (event.type === "windowState") return scheduleRefresh();
+  if (event.type !== "shell") return;
   switch (event.code) {
     case HSHELL.FLASH:
       return markFlashing(event.hwnd);
@@ -216,7 +219,9 @@ startShellEvents((event) => {
       dockWindow?.checkFullscreen();
       return scheduleRefresh();
     case HSHELL.WINDOWCREATED:
+        return windowShown(event.hwnd);
     case HSHELL.WINDOWDESTROYED:
+      return windowGone(event.hwnd);
     case HSHELL.REDRAW:
       return scheduleRefresh();
   }
@@ -232,14 +237,17 @@ await initWindowPreview(app);
 await initHoverTip(app);
 await initMediaFlyout(app);
 
-// Settings changed in the gallery apply to the native window right away.
+// Settings changed in the gallery (saved) or in Windows (taskbar alignment, height) apply to the
+// native window right away; nothing is polled.
 let applied = JSON.stringify(nativeOptions());
-setInterval(() => {
+const applyNative = () => {
   const next = JSON.stringify(nativeOptions());
   if (next === applied) return;
   applied = next;
   dockWindow?.update(nativeOptions());
-}, 300);
+};
+onConfigSaved(applyNative);
+onTaskbarPrefsChange(applyNative);
 
 app.tray({
   tooltip: "WindowsBar",

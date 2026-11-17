@@ -1,6 +1,7 @@
 import { Column, Row, Svg, SvgRect, Text, View, store, toRaw } from "@tarve/core";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { launch } from "../../../services/windows";
+import { onConfigSaved } from "../../../config";
 import {
   asPeriod,
   errorText,
@@ -157,18 +158,33 @@ export function revenueSettings(options: { original: boolean; gross: boolean }):
  * any setting changes (debounced so typing a key does not fire a request per keystroke).
  */
 export function poll<C extends object>(ctx: WidgetContext<C>, load: () => Promise<void>, minutes: number) {
-  let applied: string | null = null;
-  let pending = "";
-  let at = 0;
-  ctx.every(1000, () => {
-    const config = toRaw(ctx.config) as Record<string, unknown>;
-    const sig = JSON.stringify(config);
-    const ms = (Number(config.refresh) || minutes) * 60_000;
-    if (applied === null || (sig !== applied && sig === pending) || Date.now() - at >= ms) {
-      applied = pending = sig;
-      at = Date.now();
+  const signature = () => JSON.stringify(toRaw(ctx.config));
+  let applied = signature();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  // The refresh period is a real interval (no per-second check), restarted when it changes.
+  const restart = () => {
+    clearInterval(timer);
+    const ms = (Number((toRaw(ctx.config) as Record<string, unknown>).refresh) || minutes) * 60_000;
+    timer = setInterval(() => void load(), ms);
+  };
+  void load();
+  restart();
+  // Settings are saved as they are typed: reload once they rest for a second.
+  const off = onConfigSaved(() => {
+    clearTimeout(settle);
+    settle = setTimeout(() => {
+      const sig = signature();
+      if (sig === applied) return;
+      applied = sig;
       void load();
-    } else pending = sig;
+      restart();
+    }, 1000);
+  });
+  ctx.onDispose(() => {
+    off();
+    clearInterval(timer);
+    clearTimeout(settle);
   });
 }
 

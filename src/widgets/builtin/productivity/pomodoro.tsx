@@ -3,6 +3,7 @@ import { numeric, ui } from "../../../theme";
 import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
 import { clock, flashBackground, minuteOptions, ring, Ring } from "./shared";
+import { onConfigSaved } from "../../../config";
 
 type Phase = "focus" | "short" | "long";
 const PHASE_LABEL: Record<Phase, string> = { focus: "Foco", short: "Pausa", long: "Pausa longa" };
@@ -44,9 +45,20 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
   ],
   setup(ctx) {
     const state = makeState(minutes(ctx, "focus"));
+    // Ticks only while a phase counts down or the end flashes; an idle pomodoro wakes nothing.
+    const tick = ctx.ticker(250, () => {
+      const now = Date.now();
+      if (state.running && now >= state.endsAt) {
+        ring(state, ctx.config.sound);
+        next(true);
+      }
+      if (state.running || now < state.flashUntil + 600) state.now = now;
+      else tick.stop();
+    });
     const start = () => {
       state.endsAt = Date.now() + state.left;
       state.running = true;
+      tick.start();
     };
     const pause = () => {
       state.left = Math.max(0, state.endsAt - Date.now());
@@ -63,17 +75,13 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       state.running = false;
       if (keep) start();
     };
-    ctx.every(250, () => {
-      const now = Date.now();
-      if (state.running && now >= state.endsAt) {
-        ring(state, ctx.config.sound);
-        next(true);
-      }
-      if (state.running || now < state.flashUntil + 600) state.now = now;
-      // Durations changed while idle: show the new length.
-      if (!state.running && state.left === state.total && state.total !== minutes(ctx, state.phase))
-        state.total = state.left = minutes(ctx, state.phase);
-    });
+    // Durations changed in the settings while idle: show the new length.
+    ctx.onDispose(
+      onConfigSaved(() => {
+        if (!state.running && state.left === state.total && state.total !== minutes(ctx, state.phase))
+          state.total = state.left = minutes(ctx, state.phase);
+      }),
+    );
     actions.set(toRaw(state), {
       toggle: () => {
         state.flashUntil = 0;

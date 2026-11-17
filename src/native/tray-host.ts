@@ -1,7 +1,9 @@
-import { dlopen, JSCallback, ptr, read, toArrayBuffer, type Pointer } from "./ffi";
+import { dlopen, runtime, type Pointer } from "./ffi";
 import { deflateSync } from "node:zlib";
 import { setAppBarRoute } from "./win32";
 import { encodeWide, decodeWide } from "./wide";
+import { shellWorkerFfi } from "./shell-events";
+import { startWorker, type RuntimeWorker } from "../runtime/worker";
 
 /**
  * Hosts the notification area the way RetroBar/ManagedShell do. Shell_NotifyIcon and
@@ -10,24 +12,13 @@ import { encodeWide, decodeWide } from "./wide";
  * it receives (WM_COPYDATA) and forwards every message to Explorer's tray, so Explorer keeps
  * working as before. A "TaskbarCreated" broadcast makes running apps re-add their icons here.
  *
- * Everything runs on the JS thread: Windows calls the window procedure while pump() peeks
- * messages, so a pump every few ms keeps senders (who wait up to seconds) from noticing.
+ * The windows live on a worker thread that sleeps in GetMessage, as Explorer's tray thread does:
+ * senders get their answer at once and the JS thread is only told what arrived.
  */
 
 const user32 = dlopen("user32.dll", {
-  RegisterClassExW: { args: ["ptr"], returns: "u16" },
-  UnregisterClassW: { args: ["ptr", "ptr"], returns: "i32" },
-  CreateWindowExW: {
-    args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"],
-    returns: "ptr",
-  },
-  DefWindowProcW: { args: ["ptr", "u32", "u64", "ptr"], returns: "i64" },
-  DestroyWindow: { args: ["ptr"], returns: "i32" },
-  PeekMessageW: { args: ["ptr", "ptr", "u32", "u32", "u32"], returns: "i32" },
-  GetQueueStatus: { args: ["u32"], returns: "u32" },
-  TranslateMessage: { args: ["ptr"], returns: "i32" },
-  DispatchMessageW: { args: ["ptr"], returns: "i64" },
-  SendMessageTimeoutW: { args: ["ptr", "u32", "u64", "ptr", "u32", "u32", "ptr"], returns: "i64" },
+  PostThreadMessageW: { args: ["u32", "u32", "u64", "i64"], returns: "i32" },
+  DestroyIcon: { args: ["ptr"], returns: "i32" },
   SendNotifyMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
   PostMessageW: { args: ["ptr", "u32", "u64", "i64"], returns: "i32" },
   RegisterWindowMessageW: { args: ["ptr"], returns: "u32" },
@@ -92,51 +83,16 @@ export interface TrayHostHandlers {
   onTaskband?(message: TaskbandMessage): void;
 }
 
-// ---------- Window classes ----------
+// ---------- The host windows, on their own thread ----------
 
 const classNames = ["Shell_TrayWnd", "TrayNotifyWnd", "ReBarWindow32", "MSTaskSwWClass", "MSTaskListWClass"] as const;
 type ClassName = (typeof classNames)[number];
 
 let handlers: TrayHostHandlers | null = null;
-let wndProc: JSCallback | null = null;
-const classBufs = new Map<string, Uint8Array>();
+let worker: RuntimeWorker | undefined;
+let threadId = 0;
 const windows = new Map<ClassName, HWND>();
-const byHwnd = new Map<number, ClassName>();
-let pumpTimer: ReturnType<typeof setInterval> | undefined;
-let topTimer: ReturnType<typeof setInterval> | undefined;
 const debug = !!process.env.TRAY_DEBUG;
-
-const hInstance = kernel32.symbols.GetModuleHandleW(null);
-
-/** Explorer's window of the same class (top level, or under Explorer's tray), skipping ours. */
-function explorerWindow(cls: ClassName): HWND | null {
-  const own = new Set([...windows.values()].map(Number));
-  const tray = (() => {
-    let h: HWND | null = null;
-    while ((h = U.FindWindowExW(null, h, classBufs.get("Shell_TrayWnd") ?? wide("Shell_TrayWnd"), null) as HWND | null)) {
-      if (!own.has(Number(h))) return h;
-    }
-    return null;
-  })();
-  if (!tray || cls === "Shell_TrayWnd") return tray;
-  if (cls === "TrayNotifyWnd") return U.FindWindowExW(tray, null, wide("TrayNotifyWnd"), null) as HWND | null;
-  const rebar = U.FindWindowExW(tray, null, wide("ReBarWindow32"), null) as HWND | null;
-  if (!rebar || cls === "ReBarWindow32") return rebar;
-  const sw = U.FindWindowExW(rebar, null, wide("MSTaskSwWClass"), null) as HWND | null;
-  if (!sw || cls === "MSTaskSwWClass") return sw;
-  return U.FindWindowExW(sw, null, wide("MSTaskListWClass"), null) as HWND | null;
-}
-
-const resultBuf = new BigUint64Array(1);
-
-/** Sends the same message to Explorer's twin of `cls` and returns its answer. */
-function forward(cls: ClassName, msg: number, wParam: bigint | number, lParam: Pointer | null): number {
-  const target = explorerWindow(cls);
-  if (!target) return 0;
-  resultBuf[0] = 0n;
-  const ok = U.SendMessageTimeoutW(target, msg, BigInt(wParam), lParam, 0x2 /* SMTO_ABORTIFHUNG */, 2000, new Uint8Array(resultBuf.buffer));
-  return ok ? Number(BigInt.asIntN(64, resultBuf[0]!)) : 0;
-}
 
 function readWide(view: Uint8Array, offset: number, chars: number) {
   const s = decodeWide(view.buffer, view.byteOffset + offset, chars * 2);
@@ -152,10 +108,10 @@ function guidString(b: Uint8Array) {
 }
 
 /** SHELLTRAYDATA: signature 0x34753423, message, then a NOTIFYICONDATA with 32-bit handles. */
-function parseTrayData(data: Pointer, size: number): NotifyIconMessage | null {
+function parseTrayData(bytes: Uint8Array): NotifyIconMessage | null {
+  const size = bytes.length;
   if (size < 8 + 24) return null;
-  const bytes = new Uint8Array(toArrayBuffer(data, 0, size).slice(0));
-  const v = new DataView(bytes.buffer);
+  const v = new DataView(bytes.buffer, bytes.byteOffset, size);
   if (v.getUint32(0, true) !== 0x34753423) return null;
   const n = 8;
   const has = (o: number, len: number) => n + o + len <= size;
@@ -175,88 +131,226 @@ function parseTrayData(data: Pointer, size: number): NotifyIconMessage | null {
   };
 }
 
-function windowProc(hwnd: HWND, msg: number, wParam: bigint, lParam: Pointer | null): number | bigint {
+type TrayWorkerMessage =
+  | { type: "ready"; threadId: number; windows: Record<ClassName, number> }
+  /** SHELLTRAYDATA bytes; `copied`: the icon handle in it is our copy, to destroy after use. */
+  | { type: "notify"; bytes: Uint8Array; copied: number }
+  | { type: "taskband"; msg: number; wParam: string; lParam: number; copied: number }
+  | { type: "log"; text: string };
+
+/**
+ * The worker: the five windows Explorer's tray has, a window procedure and a GetMessage loop, so
+ * senders get their answer at once and nothing is polled. Each message is forwarded to Explorer's
+ * twin window and passed on to the JS thread. Icon handles are copied before answering, as
+ * Explorer does: apps destroy theirs right after Shell_NotifyIcon/SetOverlayIcon return.
+ */
+function trayWorkerSource(): string {
+  return `
+${shellWorkerFfi(runtime)}
+const u = dlopen("user32.dll", {
+  RegisterClassExW: { args: ["ptr"], returns: "u16" },
+  CreateWindowExW: { args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
+  DefWindowProcW: { args: ["ptr", "u32", "u64", "i64"], returns: "i64" },
+  GetMessageW: { args: ["ptr", "ptr", "u32", "u32"], returns: "i32" },
+  TranslateMessage: { args: ["ptr"], returns: "i32" },
+  DispatchMessageW: { args: ["ptr"], returns: "i64" },
+  SendMessageTimeoutW: { args: ["ptr", "u32", "u64", "i64", "u32", "u32", "ptr"], returns: "i64" },
+  FindWindowExW: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
+  SetPropW: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  ChangeWindowMessageFilterEx: { args: ["ptr", "u32", "u32", "ptr"], returns: "i32" },
+  CopyIcon: { args: ["ptr"], returns: "ptr" },
+  DestroyWindow: { args: ["ptr"], returns: "i32" },
+  SetWindowPos: { args: ["ptr", "i64", "i32", "i32", "i32", "i32", "u32"], returns: "i32" },
+  SetTimer: { args: ["ptr", "u64", "u32", "ptr"], returns: "u64" },
+}).symbols;
+const k = dlopen("kernel32.dll", {
+  GetModuleHandleW: { args: ["ptr"], returns: "ptr" },
+  GetCurrentThreadId: { args: [], returns: "u32" },
+  RtlMoveMemory: { args: ["ptr", "ptr", "u64"], returns: "void" },
+}).symbols;
+const wide = (s) => { const units = new Uint16Array(s.length + 1); for (let i = 0; i < s.length; i++) units[i] = s.charCodeAt(i); return new Uint8Array(units.buffer); };
+const names = ${JSON.stringify(classNames)};
+const bufs = {};
+for (const n of names) bufs[n] = wide(n);
+const byHwnd = new Map();
+const own = new Set();
+/** Explorer's window of the same class (top level, or under Explorer's tray), skipping ours. */
+function explorerWindow(cls) {
+  let h = null, tray = null;
+  while ((h = u.FindWindowExW(null, h, bufs.Shell_TrayWnd, null))) {
+    if (!own.has(Number(h))) { tray = h; break; }
+  }
+  if (!tray || cls === "Shell_TrayWnd") return tray;
+  if (cls === "TrayNotifyWnd") return u.FindWindowExW(tray, null, bufs.TrayNotifyWnd, null);
+  const rebar = u.FindWindowExW(tray, null, bufs.ReBarWindow32, null);
+  if (!rebar || cls === "ReBarWindow32") return rebar;
+  const sw = u.FindWindowExW(rebar, null, bufs.MSTaskSwWClass, null);
+  if (!sw || cls === "MSTaskSwWClass") return sw;
+  return u.FindWindowExW(sw, null, bufs.MSTaskListWClass, null);
+}
+const result = new BigUint64Array(1);
+const resultBytes = new Uint8Array(result.buffer);
+/** Sends the same message to Explorer's twin of cls and returns its answer. */
+function forward(cls, msg, wParam, lParam) {
+  const target = explorerWindow(cls);
+  if (!target) return 0n;
+  result[0] = 0n;
+  const ok = u.SendMessageTimeoutW(target, msg, BigInt(wParam), BigInt(lParam), 0x2 /* SMTO_ABORTIFHUNG */, 2000, resultBytes);
+  return ok ? BigInt.asIntN(64, result[0]) : 0n;
+}
+const copyIcon = (h) => Number(u.CopyIcon(h) || 0) & 0xffffffff;
+const head = new Uint8Array(24);
+const hv = new DataView(head.buffer);
+const proc = new JSCallback((hwnd, msg, wParam, lParam) => {
   const cls = byHwnd.get(Number(hwnd));
-  if (!cls) return U.DefWindowProcW(hwnd, msg, wParam, lParam);
+  if (!cls) return u.DefWindowProcW(hwnd, msg, wParam, lParam);
   try {
-    if (cls === "Shell_TrayWnd" && msg === WM_COPYDATA && lParam) {
+    if (cls === "Shell_TrayWnd" && msg === 0x4a /* WM_COPYDATA */ && lParam) {
       // COPYDATASTRUCT: dwData (0 appbar, 1 notify icon, 3 icon rect), cbData, lpData.
-      const kind = Number(read.u64(lParam, 0));
-      const size = read.u32(lParam, 8);
-      const data = read.ptr(lParam, 16) as Pointer | null;
-      if (kind === 1 && data) {
-        const parsed = parseTrayData(data, size);
+      k.RtlMoveMemory(head, Number(lParam), 24n);
+      const kind = Number(hv.getBigUint64(0, true));
+      const size = hv.getUint32(8, true);
+      const data = Number(hv.getBigUint64(16, true));
+      if (kind === 1 && data && size >= 32 && size <= 0x10000) {
+        const bytes = new Uint8Array(size);
+        k.RtlMoveMemory(bytes, data, BigInt(size));
         // Explorer keeps its copy, so its own flyouts and a crash of the dock lose nothing.
         forward(cls, msg, wParam, lParam);
-        if (parsed) {
-          if (debug) console.log("[tray]", parsed.message, parsed.hwnd, parsed.uid, parsed.tip);
-          handlers?.onNotifyIcon(parsed);
-          return 1;
+        const v = new DataView(bytes.buffer);
+        if (v.getUint32(0, true) !== 0x34753423) return 0n;
+        let copied = 0;
+        const hicon = v.getUint32(8 + 20, true);
+        if (v.getUint32(8 + 12, true) & 0x2 /* NIF_ICON */ && hicon) {
+          const copy = copyIcon(hicon);
+          if (copy) { v.setUint32(8 + 20, copy, true); copied = 1; }
         }
-        return 0;
+        postMessage({ type: "notify", bytes, copied });
+        return 1n;
       }
       return forward(cls, msg, wParam, lParam);
     }
-    if (msg >= WM_USER && msg < 0xc000 + 0x4000) {
-      if (debug && msg !== 0x4ef) console.log(`[tray] ${cls} msg 0x${msg.toString(16)} w=${wParam} l=${Number(lParam ?? 0)}`);
-      if (cls === "MSTaskSwWClass" || cls === "MSTaskListWClass") handlers?.onTaskband?.({ msg, wParam, lParam: Number(lParam ?? 0) });
-      const result = forward(cls, msg, wParam, lParam);
-      if (debug && msg !== 0x4ef) console.log(`[tray]   -> ${result}`);
-      return result;
+    if (msg >= 0x400 && msg < 0x10000) {
+      const answer = forward(cls, msg, wParam, lParam);
+      if (cls === "MSTaskSwWClass" || cls === "MSTaskListWClass") {
+        let l = Number(lParam), copied = 0;
+        // SetOverlayIcon (WM_USER + 0x4f): lParam is the badge HICON.
+        if (msg === 0x44f && l) { const copy = copyIcon(l); if (copy) { l = copy; copied = 1; } }
+        postMessage({ type: "taskband", msg, wParam: String(wParam), lParam: l, copied });
+      }
+      return answer;
     }
   } catch (error) {
-    console.error("[tray]", error);
+    postMessage({ type: "log", text: String((error && error.stack) || error) });
   }
-  return U.DefWindowProcW(hwnd, msg, wParam, lParam);
+  return u.DefWindowProcW(hwnd, msg, wParam, lParam);
+}, { args: ["ptr", "u32", "u64", "i64"], returns: "i64" });
+const inst = k.GetModuleHandleW(null);
+for (const n of names) {
+  const wc = new Uint8Array(80);
+  const v = new DataView(wc.buffer);
+  v.setUint32(0, 80, true);
+  v.setUint32(4, 0x8 /* CS_DBLCLKS */, true);
+  v.setBigUint64(8, BigInt(proc.ptr), true);
+  v.setBigUint64(24, BigInt(inst ?? 0), true);
+  v.setBigUint64(64, BigInt(ptr(bufs[n])), true);
+  u.RegisterClassExW(wc);
+}
+const created = {};
+function create(cls, parent, exStyle, style) {
+  const h = u.CreateWindowExW(exStyle, bufs[cls], null, style, 0, 0, 0, 0, parent, null, inst, null);
+  if (!h) throw new Error("CreateWindowEx " + cls + " failed");
+  created[cls] = Number(h);
+  byHwnd.set(Number(h), cls);
+  own.add(Number(h));
+  return h;
+}
+// WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WS_POPUP; the rest WS_CHILD.
+const tray = create("Shell_TrayWnd", null, 0x88, 0x80000000);
+create("TrayNotifyWnd", tray, 0, 0x40000000);
+const rebar = create("ReBarWindow32", tray, 0, 0x40000000);
+const sw = create("MSTaskSwWClass", rebar, 0, 0x40000000);
+create("MSTaskListWClass", sw, 0, 0x40000000);
+// ITaskbarList finds the task band through this property of the tray window.
+u.SetPropW(tray, wide("TaskbandHWND"), sw);
+// Medium-integrity apps reach us anyway; this lets sandboxed (low-integrity) ones in too.
+for (const h of byHwnd.keys()) u.ChangeWindowMessageFilterEx(h, 0x4a, 1, null);
+postMessage({ type: "ready", threadId: k.GetCurrentThreadId(), windows: created });
+// Explorer raises its own taskbar above ours now and then (seen after AppBar state changes), and
+// Windows raises no event for a z-order change of a hidden window (tested: no WinEvent, no
+// message). So this thread checks the order 4 times a second with a native timer: one FindWindow,
+// on this thread, without waking the JS thread.
+const keepOnTop = () => {
+  if (Number(u.FindWindowExW(null, null, bufs.Shell_TrayWnd, null)) !== Number(tray)) u.SetWindowPos(tray, -1n, 0, 0, 0, 0, 0x13);
+};
+u.SetTimer(null, 0n, 250, null);
+const msg = new Uint8Array(48);
+const mv = new DataView(msg.buffer);
+while (u.GetMessageW(msg, null, 0, 0) > 0) {
+  if (mv.getUint32(8, true) === 0x113 /* WM_TIMER */ && !mv.getBigUint64(0, true)) { keepOnTop(); continue; }
+  u.TranslateMessage(msg);
+  u.DispatchMessageW(msg);
+}
+u.DestroyWindow(tray);
+`;
 }
 
-function registerClasses() {
-  wndProc ??= new JSCallback(windowProc, { args: ["ptr", "u32", "u64", "ptr"], returns: "i64" });
-  for (const name of classNames) {
-    const nameBuf = wide(name);
-    classBufs.set(name, nameBuf);
-    const wc = new Uint8Array(80);
-    const v = new DataView(wc.buffer);
-    v.setUint32(0, 80, true);
-    v.setUint32(4, 0x8 /* CS_DBLCLKS */, true);
-    v.setBigUint64(8, BigInt(wndProc.ptr as number), true);
-    v.setBigUint64(24, BigInt((hInstance as number) ?? 0), true);
-    v.setBigUint64(64, BigInt(ptr(nameBuf)), true);
-    U.RegisterClassExW(wc);
+function onWorkerMessage(m: TrayWorkerMessage) {
+  if (m.type === "ready") {
+    threadId = m.threadId;
+    for (const [cls, hwnd] of Object.entries(m.windows)) windows.set(cls as ClassName, hwnd as HWND);
+    const tray = windows.get("Shell_TrayWnd")!;
+    // The dock's own AppBar calls go straight to Explorer: our tray drops to the bottom of the
+    // z-order for the call, so FindWindow("Shell_TrayWnd") inside SHAppBarMessage finds Explorer's.
+    setAppBarRoute((call) => {
+      U.SetWindowPos(tray, 1 /* HWND_BOTTOM */, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+      try {
+        return call();
+      } finally {
+        keepTrayOnTop();
+        // Icons added while our tray was out of the way (apps answering the startup broadcast)
+        // went to Explorer only: ask again once things settle, so none goes missing here.
+        clearTimeout(reannounce);
+        reannounce = setTimeout(broadcastTaskbarCreated, 1500);
+      }
+    });
+    keepTrayOnTop();
+    broadcastTaskbarCreated();
+    return;
   }
-}
-
-function create(cls: ClassName, parent: HWND | null, exStyle: number, style: number) {
-  const hwnd = U.CreateWindowExW(exStyle, classBufs.get(cls)!, null, style, 0, 0, 0, 0, parent, null, hInstance, null) as HWND | null;
-  if (!hwnd) throw new Error(`CreateWindowEx ${cls} failed`);
-  windows.set(cls, hwnd);
-  byHwnd.set(Number(hwnd), cls);
-  return hwnd;
-}
-
-const msgBuf = new Uint8Array(48);
-
-/** Processes pending messages for our windows (sent ones are handled inside PeekMessage). */
-function pump() {
-  // One cheap call per tick instead of a PeekMessage per window: the high word lists what is
-  // waiting in this thread's queue (QS_ALLINPUT | QS_SENDMESSAGE); nothing waiting, nothing to do.
-  if (!(U.GetQueueStatus(0x4ff) >>> 16)) return;
-  for (const hwnd of windows.values()) {
-    for (let i = 0; i < 64 && U.PeekMessageW(msgBuf, hwnd, 0, 0, 1 /* PM_REMOVE */); i++) {
-      U.TranslateMessage(msgBuf);
-      U.DispatchMessageW(msgBuf);
+  if (m.type === "log") return console.error("[tray]", m.text);
+  if (m.type === "notify") {
+    const parsed = parseTrayData(m.bytes);
+    try {
+      if (!parsed) return;
+      if (debug) console.log("[tray]", parsed.message, parsed.hwnd, parsed.uid, parsed.tip);
+      handlers?.onNotifyIcon(parsed);
+    } catch (error) {
+      console.error("[tray]", error);
+    } finally {
+      if (m.copied && parsed?.hicon) U.DestroyIcon(parsed.hicon as unknown as Pointer);
     }
+    return;
+  }
+  try {
+    if (debug && m.msg !== 0x4ef) console.log(`[tray] taskband msg 0x${m.msg.toString(16)} w=${m.wParam} l=${m.lParam}`);
+    handlers?.onTaskband?.({ msg: m.msg, wParam: BigInt(m.wParam), lParam: m.lParam });
+  } catch (error) {
+    console.error("[tray]", error);
+  } finally {
+    if (m.copied) U.DestroyIcon(m.lParam as unknown as Pointer);
   }
 }
 
-function keepOnTop() {
+/** Puts our tray first among the Shell_TrayWnd windows again (FindWindow returns the topmost one). */
+function keepTrayOnTop() {
   const tray = windows.get("Shell_TrayWnd");
   if (!tray) return;
-  const first = U.FindWindowW(classBufs.get("Shell_TrayWnd")!, null);
+  const first = U.FindWindowW(trayClass, null);
   if (Number(first) !== Number(tray)) {
     U.SetWindowPos(tray, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
   }
 }
+const trayClass = wide("Shell_TrayWnd");
 
 let taskbarCreated = 0;
 let reannounce: ReturnType<typeof setTimeout> | undefined;
@@ -277,60 +371,24 @@ export function broadcastTaskbarButtonCreated(hwnds: readonly Pointer[]) {
 
 export function startTrayHost(h: TrayHostHandlers) {
   handlers = h;
-  if (windows.size) return;
-  registerClasses();
-  const WS_POPUP = 0x80000000;
-  const WS_CHILD = 0x40000000;
-  const WS_EX_TOOLWINDOW = 0x80;
-  const WS_EX_TOPMOST = 0x8;
-  const tray = create("Shell_TrayWnd", null, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WS_POPUP);
-  create("TrayNotifyWnd", tray, 0, WS_CHILD);
-  const rebar = create("ReBarWindow32", tray, 0, WS_CHILD);
-  const sw = create("MSTaskSwWClass", rebar, 0, WS_CHILD);
-  create("MSTaskListWClass", sw, 0, WS_CHILD);
-  // ITaskbarList finds the task band through this property of the tray window.
-  const explorer = explorerWindow("Shell_TrayWnd");
-  if (debug && explorer)
-    console.log("[tray] explorer TaskbandHWND", U.GetPropW(explorer, wide("TaskbandHWND")), "MSTaskSw", explorerWindow("MSTaskSwWClass"));
-  U.SetPropW(tray, wide("TaskbandHWND"), sw);
-  // Medium-integrity apps reach us anyway; this lets sandboxed (low-integrity) ones in too.
-  for (const hwnd of windows.values()) {
-    U.ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, 1, null);
-  }
-  // The dock's own AppBar calls go straight to Explorer: our tray drops to the bottom of the
-  // z-order for the call, so FindWindow("Shell_TrayWnd") inside SHAppBarMessage finds Explorer's.
-  setAppBarRoute((call) => {
-    U.SetWindowPos(tray, 1 /* HWND_BOTTOM */, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
-    try {
-      return call();
-    } finally {
-      keepOnTop();
-      // Icons added while our tray was out of the way (apps answering the startup broadcast)
-      // went to Explorer only: ask again once things settle, so none goes missing here.
-      clearTimeout(reannounce);
-      reannounce = setTimeout(broadcastTaskbarCreated, 1500);
-    }
+  if (worker) return;
+  worker = startWorker<TrayWorkerMessage>(trayWorkerSource(), onWorkerMessage, (error) => console.error("[tray]", error), () => {
+    if (threadId) U.PostThreadMessageW(threadId, 0x12 /* WM_QUIT */, 0n, 0n);
   });
-  // 16 ms: a tray icon's SendMessage waits at most a frame; at 8 ms the FFI calls alone cost ~1.5% of a core.
-  pumpTimer = setInterval(pump, 16);
-  keepOnTop();
-  topTimer = setInterval(keepOnTop, 250);
-  broadcastTaskbarCreated();
 }
 
 export function stopTrayHost() {
   setAppBarRoute(null);
-  clearInterval(pumpTimer);
-  clearInterval(topTimer);
-  const tray = windows.get("Shell_TrayWnd");
-  if (tray) U.DestroyWindow(tray);
+  clearTimeout(reannounce);
+  worker?.terminate();
+  worker = undefined;
+  threadId = 0;
   windows.clear();
-  byHwnd.clear();
   handlers = null;
 }
 
 process.on("exit", () => {
-  if (windows.size) stopTrayHost();
+  if (worker) stopTrayHost();
 });
 
 // ---------- Talking to icon owners ----------

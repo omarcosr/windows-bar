@@ -19,6 +19,7 @@ import {
   type TaskbandMessage,
 } from "../native/tray-host";
 import { hash } from "../runtime/proc";
+import { HSHELL, onShellEvent, onWatchChange } from "../native/shell-events";
 import { encodeWide, decodeWide } from "../native/wide";
 
 /**
@@ -217,21 +218,48 @@ function onTaskband(m: TaskbandMessage) {
 // ---------- Lifetime ----------
 
 let users = 0;
-let sweep: ReturnType<typeof setInterval> | undefined;
+let offEvents: (() => void)[] = [];
+let pruneTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Drops icons, badges and progress whose window is gone (an app that quit without NIM_DELETE). */
+function prune() {
+  const alive = tray.icons.filter((i) => windowAlive(i.hwnd));
+  if (alive.length !== tray.icons.length) tray.icons = alive;
+  for (const id of Object.keys(overlays)) if (!windowAlive(Number(id))) delete overlays[id];
+  for (const id of Object.keys(progress)) if (!windowAlive(Number(id))) delete progress[id];
+}
+
+/** "Mostrar na barra de tarefas" changed in Settings: the registry key's change notification. */
+function applyPromoted() {
+  readPromoted();
+  const icons = tray.icons.map((i) => (i.promoted === isPromoted(i.exe) ? i : { ...i, promoted: !i.promoted }));
+  if (icons.some((i, n) => i !== tray.icons[n])) tray.icons = icons;
+}
 
 function start() {
   readPromoted();
   startTrayHost({ onNotifyIcon, onTaskband });
   // Apps (re)apply overlay badges when told their taskbar button exists.
   setTimeout(() => broadcastTaskbarButtonCreated(listTaskbarWindows().map((w) => w.hwnd)), 500);
-  sweep = setInterval(() => {
-    readPromoted();
-    const alive = tray.icons.filter((i) => windowAlive(i.hwnd));
-    const icons = alive.map((i) => (i.promoted === isPromoted(i.exe) ? i : { ...i, promoted: !i.promoted }));
-    if (icons.length !== tray.icons.length || icons.some((i, n) => i !== tray.icons[n])) tray.icons = icons;
-    for (const id of Object.keys(overlays)) if (!windowAlive(Number(id))) delete overlays[id];
-    for (const id of Object.keys(progress)) if (!windowAlive(Number(id))) delete progress[id];
-  }, 5000);
+  // Settings come from their registry key's change notification. Dead icons are dropped when a
+  // window is destroyed or Explorer restarts, and by a light sweep: an app that quits after hiding
+  // its windows (closed to the tray) or without NIM_DELETE destroys only hidden windows, which the
+  // shell hook never reports. The sweep is one IsWindow per icon every 2 s.
+  const sweep = setInterval(() => tray.icons.length && prune(), 2000);
+  offEvents = [
+    () => clearInterval(sweep),
+    onWatchChange(["notifyIcons"], applyPromoted),
+    onShellEvent((event) => {
+      if (!(event.type === "shell" && event.code === HSHELL.WINDOWDESTROYED) && event.type !== "explorerRestarted") return;
+      clearTimeout(pruneTimer);
+      // The hook reports the window before it is gone, and the app's hidden tray window often
+      // goes a little later: look soon, then once more.
+      pruneTimer = setTimeout(() => {
+        prune();
+        pruneTimer = setTimeout(prune, 1000);
+      }, 150);
+    }),
+  ];
 }
 
 /** Starts hosting the tray and task band; returns the release function. */
@@ -242,7 +270,9 @@ export function acquireTaskbarHost(): () => void {
     if (released) return;
     released = true;
     if (--users === 0) {
-      clearInterval(sweep);
+      for (const off of offEvents) off();
+      offEvents = [];
+      clearTimeout(pruneTimer);
       stopTrayHost();
       tray.icons = [];
       for (const id of Object.keys(overlays)) delete overlays[id];

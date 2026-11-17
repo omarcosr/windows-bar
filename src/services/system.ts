@@ -1,6 +1,7 @@
 import { store } from "@tarve/core";
 import { cpuUsage, memoryStatus, powerStatus } from "../native/win32";
 import { createPoller } from "./poller";
+import { onShellEvent } from "../native/shell-events";
 
 const HISTORY = 24;
 
@@ -24,6 +25,23 @@ export const systemPoller = createPoller(1500, () => {
   system.ramTotalGb = mem.total / 1024 ** 3;
   const history = [...system.cpuHistory, cpu].slice(-HISTORY);
   system.cpuHistory = history;
-  const power = powerStatus();
-  if (power.percent !== system.battery.percent || power.charging !== system.battery.charging) system.battery = power;
 });
+
+function readBattery() {
+  const power = powerStatus();
+  const b = system.battery;
+  if (power.percent !== b.percent || power.charging !== b.charging || power.hasBattery !== b.hasBattery) system.battery = power;
+}
+
+/**
+ * The battery, read when Windows reports a change (WM_POWERBROADCAST for each percent of charge and
+ * each plug/unplug, see shell-events.ts) instead of with the CPU/RAM sampling.
+ */
+export const batteryWatch = {
+  acquire(): () => void {
+    readBattery();
+    return onShellEvent((event) => {
+      if (event.type === "power") readBattery();
+    });
+  },
+};

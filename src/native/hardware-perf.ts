@@ -110,6 +110,8 @@ export interface ProcessSample {
 
 let procBuf = new Uint8Array(1 << 20);
 
+let names = new Map<string, string>();
+
 export function processSnapshot(): ProcessSample[] {
   const needed = new Uint32Array(1);
   let status = -1;
@@ -122,13 +124,18 @@ export function processSnapshot(): ProcessSample[] {
   const base = ptr(procBuf);
   const view = new DataView(procBuf.buffer, procBuf.byteOffset, procBuf.byteLength);
   const out: ProcessSample[] = [];
+  const seen = new Map<string, string>();
   let offset = 0;
   for (;;) {
     const next = view.getUint32(offset, true);
     const nameBytes = view.getUint16(offset + 56, true);
     const namePtr = Number(view.getBigUint64(offset + 64, true));
-    let name = "";
-    if (nameBytes && namePtr) {
+    const pid = Number(view.getBigUint64(offset + 80, true));
+    const created = view.getBigInt64(offset + 32, true);
+    // Names are decoded once per process (pid + creation time), not on every sample.
+    const id = `${pid}:${created}`;
+    let name = names.get(id) ?? "";
+    if (!names.has(id) && nameBytes && namePtr) {
       // ImageName.Buffer points inside the buffer we passed.
       const rel = namePtr - base;
       name =
@@ -136,15 +143,17 @@ export function processSnapshot(): ProcessSample[] {
           ? decodeWide(procBuf.buffer, procBuf.byteOffset + rel, nameBytes)
           : decodeWide(toArrayBuffer(namePtr, 0, nameBytes), 0, nameBytes);
     }
+    seen.set(id, name);
     out.push({
-      pid: Number(view.getBigUint64(offset + 80, true)),
+      pid,
       name,
-      created: view.getBigInt64(offset + 32, true),
+      created,
       cpuTime: view.getBigInt64(offset + 40, true) + view.getBigInt64(offset + 48, true),
       privateBytes: Number(view.getBigInt64(offset + 8, true)),
     });
     if (next === 0 || offset + next >= procBuf.byteLength) break;
     offset += next;
   }
+  names = seen;
   return out;
 }

@@ -31,6 +31,7 @@ export function mountWidget(instance: WidgetInstance): MountedWidget | undefined
 
   const timers: ReturnType<typeof setInterval>[] = [];
   const disposers: (() => void)[] = [];
+  let disposed = false;
   const label = `[widget ${instance.id}]`;
   const run = (fn: () => unknown) => {
     try {
@@ -52,6 +53,24 @@ export function mountWidget(instance: WidgetInstance): MountedWidget | undefined
       run(fn);
       timers.push(setInterval(() => run(fn), ms));
     },
+    ticker(ms, fn) {
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const ticker = {
+        start() {
+          if (timer || disposed) return;
+          timer = setInterval(() => run(fn), ms);
+        },
+        stop() {
+          clearInterval(timer);
+          timer = undefined;
+        },
+        get running() {
+          return !!timer;
+        },
+      };
+      disposers.push(ticker.stop);
+      return ticker;
+    },
     onDispose(fn) {
       disposers.push(fn);
     },
@@ -62,6 +81,7 @@ export function mountWidget(instance: WidgetInstance): MountedWidget | undefined
     ctx,
     state: definition.setup(ctx),
     dispose() {
+      disposed = true;
       timers.forEach(clearInterval);
       disposers.forEach((fn) => run(fn));
       mounted.delete(instance.id);

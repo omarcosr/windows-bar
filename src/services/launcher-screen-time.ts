@@ -6,18 +6,21 @@ import { idleMs } from "../native/launcher-idle";
 import { desktop, windowsPoller } from "./windows";
 import { createPoller } from "./poller";
 import { onExit } from "./exit";
+import { onShellEvent } from "../native/shell-events";
 
 /**
- * Screen time: which app is in front, sampled every few seconds while the user is at the computer.
+ * Screen time: which app is in front while the user is at the computer. Time is credited to the
+ * app in front when the foreground changes (shell events) and once a minute while it stays.
  * The app is the one the dock's app list marks active (desktop.activeKey), so it carries the same
  * identity the taskbar groups by (AppUserModelID, package or exe). Away (no input for 5 min) counts
  * nothing. Daily totals live in screen-time.json next to the dock's config.
  */
 
-const TICK_MS = 5_000;
+/** Credits the app that stays in front, and refreshes the views, once a minute. */
+const TICK_MS = 60_000;
 const IDLE_MS = 5 * 60_000;
 /** A gap longer than this between two samples (sleep, a stalled loop) is not counted. */
-const MAX_STEP_S = 15;
+const MAX_STEP_S = 90;
 const KEEP_DAYS = 14;
 const filePath = join(configDir, "screen-time.json");
 
@@ -111,12 +114,20 @@ function sample() {
 const poller = createPoller(TICK_MS, sample);
 let stopExitHook: (() => void) | null = null;
 
-/** Starts tracking (and the window list it reads); returns the release function. */
+/**
+ * Starts tracking (and the window list it reads); returns the release function. A foreground
+ * change credits the app that was in front up to now: the shell event comes before the app list
+ * moves on to the new one (scheduleRefresh), so desktop.activeKey is still the previous app.
+ */
 export function acquireScreenTime(): () => void {
   const releaseWindows = windowsPoller.acquire();
   const release = poller.acquire();
+  const off = onShellEvent((event) => {
+    if (event.type === "foreground") sample();
+  });
   stopExitHook ??= onExit(save);
   return () => {
+    off();
     release();
     releaseWindows();
     save();

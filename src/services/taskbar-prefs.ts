@@ -3,6 +3,7 @@ import { config } from "../config";
 import { readUserValue } from "../native/shell-item";
 import { ABS_AUTOHIDE, explorerTray, taskbarState, windowRect } from "../native/win32";
 import { systemScale } from "../native/shell-icon";
+import { onShellEvent, onWatchChange, SPI_SETWORKAREA } from "../native/shell-events";
 
 /** Windows taskbar settings the dock mirrors (Settings > Personalization > Taskbar). */
 export const taskbarPrefs = store({
@@ -46,21 +47,54 @@ function readAlignment(): "center" | "left" {
   return readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "TaskbarAl", "dword") === 0 ? "left" : "center";
 }
 
+const prefsListeners = new Set<() => void>();
+
+/** Runs `fn` after a taskbar setting the dock mirrors changed; returns the unsubscribe function. */
+export function onTaskbarPrefsChange(fn: () => void): () => void {
+  prefsListeners.add(fn);
+  return () => prefsListeners.delete(fn);
+}
+
+let watching = false;
+
+/**
+ * Reads the settings now and again whenever Windows says they changed: the registry keys they
+ * live in (Explorer\Advanced, Search, DWM), WM_SETTINGCHANGE ("TraySettings",
+ * "ImmersiveColorSet") and display/DPI changes for the taskbar's height. Nothing is polled.
+ */
 export function watchTaskbarPrefs() {
+  if (watching) return;
+  watching = true;
   const tick = () => {
+    let changed = false;
+    const set = <K extends keyof typeof taskbarPrefs>(key: K, value: (typeof taskbarPrefs)[K] | null) => {
+      if (value === null || value === taskbarPrefs[key]) return;
+      taskbarPrefs[key] = value;
+      changed = true;
+    };
     try {
-      const align = readAlignment();
-      if (align !== taskbarPrefs.align) taskbarPrefs.align = align;
-      const height = readTaskbarHeight();
-      if (height && height !== taskbarPrefs.height) taskbarPrefs.height = height;
-      const accent = readAccent();
-      if (accent && accent !== taskbarPrefs.accent) taskbarPrefs.accent = accent;
+      set("align", readAlignment());
+      set("height", readTaskbarHeight());
+      set("accent", readAccent());
+      set("search", readSearchMode());
     } catch (error) {
       console.error("[taskbar-prefs]", error);
     }
+    if (changed) for (const fn of prefsListeners) fn();
   };
   tick();
-  setInterval(tick, 5000);
+  onWatchChange(["advanced", "search", "dwm"], tick);
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  onShellEvent((event) => {
+    const relevant =
+      event.type === "display" ||
+      event.type === "explorerRestarted" ||
+      (event.type === "setting" && (event.area === "TraySettings" || event.area === "ImmersiveColorSet" || event.action === SPI_SETWORKAREA));
+    if (!relevant) return;
+    clearTimeout(settle);
+    // Explorer resizes its taskbar a moment after announcing the change.
+    settle = setTimeout(tick, 300);
+  });
 }
 
 /** The dock's alignment: the user's choice, or Windows' own when set to follow it. */
