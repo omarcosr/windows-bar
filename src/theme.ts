@@ -1,4 +1,5 @@
 import { config } from "./config";
+import { systemScale } from "./native/shell-icon";
 /**
  * Visual tokens for the dock. Spacing runs on a 2 px grid: the dock pads its 52 px tiles by 6,
  * widgets sit 6 apart, app icons sit in 44 px slots (12 px between 32 px icons).
@@ -10,6 +11,17 @@ export const BAR_HEIGHT_MAX = 80;
 function barHeight() {
   const h = Number(config.barHeight) || 64;
   return Math.max(BAR_HEIGHT_MIN, Math.min(BAR_HEIGHT_MAX, Math.round(h / 2) * 2));
+}
+
+/**
+ * A logical length that lands on whole device pixels (even ones with `even`). Icons drawn at a
+ * fractional size or position are resampled by the renderer and come out blurred; on scaled
+ * screens (125 %, 150 %) most logical lengths do, so icon sizes and their offsets snap to this.
+ */
+export function devicePx(logical: number, even = false) {
+  const scale = systemScale();
+  const px = even ? Math.round((logical * scale) / 2) * 2 : Math.round(logical * scale);
+  return px / scale;
 }
 
 export const ui = {
@@ -36,7 +48,8 @@ export const ui = {
     radius: 12,
     /** The bar minus its padding. */
     get height() {
-      return barHeight() - 12;
+      // Even device pixels, so an icon centred in the tile sits on whole pixels.
+      return devicePx(barHeight() - 12, true);
     },
   },
   /** One slot per app icon (and the Start button): the icon sits centred, the indicator below it. */
@@ -45,11 +58,12 @@ export const ui = {
     get icon() {
       const scale = Math.max(0.7, Math.min(1.3, Number(config.iconScale ?? 100) / 100));
       const base = ((barHeight() - 12) * 32) / 52;
-      // Even pixels, and never taller than the tile minus room for the running indicator.
-      return Math.max(16, Math.min(barHeight() - 22, Math.round((base * scale) / 2) * 2));
+      // Never taller than the tile minus room for the running indicator; even device pixels: the shell renders the icon at exactly that size and the GPU draws it 1:1.
+      return devicePx(Math.max(16, Math.min(barHeight() - 22, base * scale)), true);
     },
     get slot() {
-      return this.icon + 12;
+      // Even device pixels too, so the centred icon starts on a whole pixel.
+      return devicePx(this.icon + 12, true);
     },
   },
   text: "#f5f5f7",

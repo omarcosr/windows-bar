@@ -109,7 +109,8 @@ function AppIcon(props: {
 }) {
   const { item } = props;
   // Sharp when magnified: the bitmap is read at the largest size the icon reaches.
-  const icon = iconFor(item.exe, magnifying() ? peakSize(dockMetrics()) : ui.app.icon);
+  // A pin shows its shortcut's icon, as the taskbar does (it can differ from the program's).
+  const icon = iconFor(item.pin?.path ?? item.exe, magnifying() ? peakSize(dockMetrics()) : ui.app.icon);
   const magnify = magnifyStyles("dock", props.dockIndex, dockMetrics());
   return (
     <Pressable

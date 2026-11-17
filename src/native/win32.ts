@@ -463,6 +463,24 @@ export function storeAppId(frame: HWND): string {
   }
 }
 
+
+/**
+ * The AppUserModelID of a packaged process (MSIX desktop apps such as ChatGPT), or "" for a plain
+ * Win32 one. The taskbar shows such apps as their package entry: its name and its logo assets
+ * (sized for the taskbar, unplated) instead of the exe's embedded icon.
+ */
+export function packagedAppId(pid: number): string {
+  const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+  if (!handle) return "";
+  try {
+    const len = new Uint32Array([textBuf.length]);
+    if (K.GetApplicationUserModelId(handle, new Uint8Array(len.buffer), new Uint8Array(textBuf.buffer)) !== 0) return "";
+    return decodeWide(textBuf.buffer, 0, Math.max(0, len[0]! - 1) * 2);
+  } finally {
+    K.CloseHandle(handle);
+  }
+}
+
 // ---------- Live window thumbnails (what the taskbar previews use) ----------
 
 export type Thumbnail = bigint;

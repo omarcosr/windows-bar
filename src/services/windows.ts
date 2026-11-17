@@ -2,6 +2,7 @@ import { store } from "@tarve/core";
 import { basename, dirname } from "node:path";
 import {
   storeAppId,
+  packagedAppId,
   windowPid,
   activateWindow,
   foregroundWindow,
@@ -50,8 +51,18 @@ let seenCounter = 0;
 
 /** Store apps run inside ApplicationFrameHost.exe; each is told apart by its AppUserModelID. */
 const appIdCache = new Map<HWND, string>();
-function appPathOf(hwnd: HWND, exe: string) {
-  if (!/\\ApplicationFrameHost\.exe$/i.test(exe)) return exe;
+/** Packaged desktop apps (their AppUserModelID, or "" for plain Win32), by process id. */
+const packageCache = new Map<number, string>();
+function appPathOf(hwnd: HWND, exe: string, pid: number) {
+  if (!/\\ApplicationFrameHost\.exe$/i.test(exe)) {
+    // A packaged app is its package entry on the taskbar (name, logo), not its exe.
+    let id = packageCache.get(pid);
+    if (id === undefined) {
+      id = packagedAppId(pid);
+      packageCache.set(pid, id);
+    }
+    return id ? `shell:AppsFolder\\${id}` : exe;
+  }
   // As the taskbar does, the frame's own AppUserModelID first: it is there even while the app is
   // minimized and its CoreWindow (the process asked by storeAppId) is gone.
   let id = appIdCache.get(hwnd);
@@ -75,7 +86,7 @@ export function refreshWindows() {
   let activeKey = "";
   for (const w of windows) {
     if (!w.exe) continue;
-    w.exe = appPathOf(w.hwnd, w.exe);
+    w.exe = appPathOf(w.hwnd, w.exe, w.pid);
     const key = w.exe.toLowerCase();
     let group = groups.get(key);
     if (!group) {
@@ -90,6 +101,8 @@ export function refreshWindows() {
   const alive = new Set(windows.map((w) => w.hwnd));
   for (const hwnd of firstSeen.keys()) if (!alive.has(hwnd)) firstSeen.delete(hwnd);
   for (const hwnd of appIdCache.keys()) if (!alive.has(hwnd)) appIdCache.delete(hwnd);
+  const pids = new Set(windows.map((w) => w.pid));
+  for (const pid of packageCache.keys()) if (!pids.has(pid)) packageCache.delete(pid);
   if (desktop.flashing.some((h) => !alive.has(h as unknown as HWND)))
     desktop.flashing = desktop.flashing.filter((h) => alive.has(h as unknown as HWND));
   for (const group of groups.values()) group.windows.sort((a, b) => firstSeen.get(a.hwnd)! - firstSeen.get(b.hwnd)!);
