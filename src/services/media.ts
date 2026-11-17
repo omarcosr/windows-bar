@@ -5,11 +5,26 @@ import {
   type ExternalMediaSession,
   type SystemMediaSessionAction,
 } from "@tarve/core";
+import { basename } from "node:path";
+import { itemStrings, PKEY, programOfAppId } from "../native/shell-item";
+import { desktop, focusWindow, launch } from "./windows";
+import { iconFor } from "./icons";
+
+/** One app's media session, as the Windows media flyout pages through them. */
+export interface MediaSource {
+  appId: string;
+  title: string;
+  artist: string;
+  playing: boolean;
+  /** The session Windows routes media keys to. */
+  current: boolean;
+}
 
 export const media = store({
   active: false,
   title: "",
   artist: "",
+  album: "",
   app: "",
   playing: false,
   position: 0,
@@ -18,16 +33,26 @@ export const media = store({
   sampledAt: 0,
   /** Artwork as a data URL (the session's thumbnail), or "". */
   art: "",
+  /** Every app with a media session, in the order Windows lists them. */
+  sources: [] as MediaSource[],
 });
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let users = 0;
 let polling = false;
 let lastArtwork: string | undefined;
+let lastSources = "";
+/** A session the user picked (flyout or menu); followed until it goes away. */
+let chosen = "";
 
-/** The session to show: the one media keys reach, else one that is playing, else the first. */
+/** The session to show: the one picked, else the one media keys reach, else one playing, else the first. */
 function pick(sessions: ExternalMediaSession[]) {
-  return sessions.find((s) => s.current) ?? sessions.find((s) => s.playing) ?? sessions[0];
+  return (
+    (chosen ? sessions.find((s) => s.appId === chosen) : undefined) ??
+    sessions.find((s) => s.current) ??
+    sessions.find((s) => s.playing) ??
+    sessions[0]
+  );
 }
 
 function artUrl(base64: string | undefined) {
@@ -40,9 +65,17 @@ async function poll() {
   if (polling) return;
   polling = true;
   try {
-    const session = pick(await systemMediaSessions());
+    const sessions = await systemMediaSessions();
+    if (chosen && !sessions.some((s) => s.appId === chosen)) chosen = "";
+    const sources = sessions.map((s) => ({ appId: s.appId, title: s.title ?? "", artist: s.artist ?? "", playing: s.playing, current: s.current }));
+    const signature = JSON.stringify(sources);
+    if (signature !== lastSources) {
+      lastSources = signature;
+      media.sources = sources;
+    }
+    const session = pick(sessions);
     if (!session) {
-      Object.assign(media, { active: false, title: "", artist: "", app: "", playing: false, position: 0, duration: 0, art: "" });
+      Object.assign(media, { active: false, title: "", artist: "", album: "", app: "", playing: false, position: 0, duration: 0, art: "" });
       lastArtwork = undefined;
       return;
     }
@@ -50,6 +83,7 @@ async function poll() {
       active: true,
       title: session.title ?? "",
       artist: session.artist ?? "",
+      album: session.album ?? "",
       app: session.appId,
       playing: session.playing,
       position: session.position ?? 0,
@@ -95,3 +129,70 @@ export const mediaControls = {
   next: () => control("next"),
   previous: () => control("previous"),
 };
+
+/** Seconds played now, extrapolated from the last sample while playing. */
+export function mediaPosition() {
+  if (!media.duration) return 0;
+  const elapsed = media.playing ? (Date.now() - media.sampledAt) / 1000 : 0;
+  return Math.min(media.duration, media.position + elapsed);
+}
+
+/** Shows another app's session (the flyout's arrows, the menu's player list). */
+export function selectSource(appId: string) {
+  chosen = appId;
+  void poll();
+}
+
+/** Steps through the sessions, as the arrows of the Windows media flyout. */
+export function cycleSource(step: 1 | -1) {
+  const list = media.sources;
+  if (list.length < 2) return;
+  const index = list.findIndex((s) => s.appId === media.app);
+  selectSource(list[(index + step + list.length) % list.length]!.appId);
+}
+
+const names = new Map<string, string>();
+
+/** The player's name as Start lists it ("Spotify", "Google Chrome"), else its running app or exe name. */
+export function sourceName(appId: string): string {
+  const cached = names.get(appId);
+  if (cached !== undefined) return cached;
+  let name = "";
+  try {
+    name = itemStrings(`shell:AppsFolder\\${appId}`, [PKEY.displayName])[0] ?? "";
+  } catch {}
+  if (!name) name = runningApp(appId)?.name ?? "";
+  if (!name) name = basename(appId.replace(/\\/g, "/")).replace(/\.exe$/i, "").replace(/^.*!/, "");
+  names.set(appId, name);
+  return name;
+}
+
+/** The program behind a session's AppUserModelID, lower-cased; "" when the shell knows none. */
+function programOf(appId: string) {
+  return /\.exe$/i.test(appId) ? programOfAppId(appId.replace(/^.*\\/, "")) || appId.toLowerCase() : programOfAppId(appId);
+}
+
+function runningApp(appId: string) {
+  const key = `shell:appsfolder\\${appId}`.toLowerCase();
+  const byKey = desktop.apps.find((a) => a.key === key);
+  if (byKey) return byKey;
+  const exe = basename((programOf(appId) || appId).replace(/\\/g, "/")).toLowerCase();
+  return desktop.apps.find((a) => basename(a.program.replace(/\\/g, "/")) === exe);
+}
+
+/** Brings the player forward (the Windows flyout's title click), or starts it if no window is open. */
+export function openPlayer(appId = media.app) {
+  if (!appId) return;
+  const app = runningApp(appId);
+  const target = app?.recent[0];
+  if (target) return focusWindow(target);
+  const program = programOf(appId);
+  launch(/\.exe$/i.test(appId) && program ? program : `shell:AppsFolder\\${appId}`);
+}
+
+/** The player's own icon, as the Windows media flyout shows beside its name and when a track has no artwork. */
+export function playerIcon(appId: string, size: number): ReturnType<typeof iconFor> {
+  if (!appId) return undefined;
+  if (/\.exe$/i.test(appId)) return iconFor(programOf(appId) || appId, size);
+  return iconFor(`shell:AppsFolder\\${appId}`, size);
+}

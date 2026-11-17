@@ -8,6 +8,7 @@ import { showOwnWindowOnTaskbar, windowExists } from "./native/win32";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { initHoverTip } from "./menu/hover-tip";
+import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
 import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh } from "./services/windows";
 import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
@@ -219,11 +220,12 @@ startShellEvents((event) => {
 watchAppColor(
   () => DockWindow.handle(),
   () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,
-  () => previewOpen() || menuOpen(),
+  () => previewOpen() || menuOpen() || mediaFlyoutOpen(),
 );
 await initDockMenu(app);
 await initWindowPreview(app);
 await initHoverTip(app);
+await initMediaFlyout(app);
 
 // Settings changed in the gallery apply to the native window right away.
 let applied = JSON.stringify(nativeOptions());

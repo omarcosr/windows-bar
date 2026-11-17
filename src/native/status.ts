@@ -95,8 +95,8 @@ function deviceName(device: Pointer): string {
   }
 }
 
-/** Master volume of the default playback device (0..100) and its name, or null without one. */
-export function readVolume(): { level: number; muted: boolean; device: string } | null {
+/** Runs `fn` on the default playback device's IAudioEndpointVolume (the one the taskbar's speaker drives); null without one. */
+function withEndpoint<T>(fn: (volume: Pointer, device: Pointer) => T): T | null {
   try {
     if (!comReady) {
       ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
@@ -115,11 +115,7 @@ export function readVolume(): { level: number; muted: boolean; device: string } 
       if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) return null;
       const volume = Number(out[0]) as unknown as Pointer;
       try {
-        const level = new Float32Array(1);
-        const muted = new Int32Array(1);
-        com(volume, 9, ["ptr"], level);
-        com(volume, 15, ["ptr"], muted);
-        return { level: Math.round(level[0]! * 100), muted: !!muted[0], device: deviceName(device) };
+        return fn(volume, device);
       } finally {
         release(volume);
       }
@@ -130,6 +126,34 @@ export function readVolume(): { level: number; muted: boolean; device: string } 
     if (error instanceof FfiUnsupported) return null;
     throw error;
   }
+}
+
+/** Master volume of the default playback device (0..100) and its name, or null without one. */
+export function readVolume(): { level: number; muted: boolean; device: string } | null {
+  return withEndpoint((volume, device) => {
+    const level = new Float32Array(1);
+    const muted = new Int32Array(1);
+    com(volume, 9, ["ptr"], level); // GetMasterVolumeLevelScalar
+    com(volume, 15, ["ptr"], muted); // GetMute
+    return { level: Math.round(level[0]! * 100), muted: !!muted[0], device: deviceName(device) };
+  });
+}
+
+/** Sets the master volume (0..100), as the quick settings slider does; unmutes like it when raised. */
+export function setVolume(level: number): boolean {
+  const scalar = Math.max(0, Math.min(100, level)) / 100;
+  return (
+    withEndpoint((volume) => {
+      const ok = com(volume, 7, ["f32", "ptr"], scalar, null) >= 0; // SetMasterVolumeLevelScalar
+      if (scalar > 0) com(volume, 14, ["i32", "ptr"], 0, null); // SetMute(FALSE)
+      return ok;
+    }) ?? false
+  );
+}
+
+/** Mutes or unmutes the default playback device, as the speaker button in quick settings. */
+export function setMuted(muted: boolean): boolean {
+  return withEndpoint((volume) => com(volume, 14, ["i32", "ptr"], muted ? 1 : 0, null) >= 0) ?? false; // SetMute (S_FALSE: already so)
 }
 
 // ---------- Network ----------

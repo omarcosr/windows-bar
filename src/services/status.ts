@@ -1,5 +1,5 @@
 import { store } from "@tarve/core";
-import { keyboardLayout, readNetwork, readVolume, type NetworkKind } from "../native/status";
+import { keyboardLayout, readNetwork, readVolume, setMuted, setVolume, type NetworkKind } from "../native/status";
 import { powerStatus } from "../native/win32";
 import { createPoller } from "./poller";
 import { foregroundApp } from "./windows";
@@ -56,4 +56,16 @@ export function refreshLanguage() {
 }
 
 export const statusPoller = createPoller(1000, refreshStatus);
+
+/** Master volume (0..100) of the default device; shown at once, then confirmed by a read. */
+export function changeVolume(level: number) {
+  const next = Math.round(Math.max(0, Math.min(100, level)));
+  if (!setVolume(next)) return;
+  assign({ volume: next, muted: next === 0 ? status.muted : false });
+}
+
+/** Mute toggle of the default device, as the speaker button in quick settings. */
+export function toggleMute() {
+  if (setMuted(!status.muted)) assign({ muted: !status.muted });
+}
 export const languagePoller = createPoller(400, refreshLanguage);
