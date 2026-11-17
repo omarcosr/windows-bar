@@ -1,5 +1,4 @@
 import { store } from "@tarve/core";
-import { createPoller } from "./poller";
 import { programOfAppId } from "../native/shell-item";
 import { readExplorerButtons, type ExplorerButton } from "../native/taskbar-buttons";
 
@@ -19,18 +18,44 @@ export interface ButtonState {
 /** Only the buttons Explorer shows something on (overlay or progress). */
 export const explorerButtons = store({ list: [] as ExplorerButton[] });
 
-const poller = createPoller(2000, () => {
-  const buttons = readExplorerButtons();
-  if (!buttons) return;
-  const list = buttons.filter((b) => b.help.trim());
-  if (JSON.stringify(list) === JSON.stringify(explorerButtons.list)) return;
-  if (process.env.TRAY_DEBUG) console.log("[explorer-buttons]", buttons.length, JSON.stringify(list));
-  explorerButtons.list = list;
-});
+/**
+ * A UIA search of Explorer's taskbar blocks this thread for 100+ ms (measured 125–140 ms, also when
+ * it finds nothing, as with Explorer's taskbar hidden). It runs every 2 s only while some button shows
+ * a badge or progress; otherwise the pause doubles up to 30 s, so an idle dock does not stutter.
+ */
+const FAST = 2000;
+const SLOW = 30_000;
+let delay = FAST;
+let timer: ReturnType<typeof setTimeout> | undefined;
+let users = 0;
+
+function tick() {
+  try {
+    const buttons = readExplorerButtons();
+    const list = buttons ? buttons.filter((b) => b.help.trim()) : [];
+    delay = list.length ? FAST : Math.min(SLOW, delay * 2);
+    if (buttons && JSON.stringify(list) !== JSON.stringify(explorerButtons.list)) {
+      if (process.env.TRAY_DEBUG) console.log("[explorer-buttons]", buttons.length, JSON.stringify(list));
+      explorerButtons.list = list;
+    }
+  } catch (error) {
+    console.error("[explorer-buttons]", error);
+  }
+  if (users) timer = setTimeout(tick, delay);
+}
 
 /** Starts reading Explorer's buttons; returns the release function. */
 export function acquireExplorerButtons(): () => void {
-  return poller.acquire();
+  if (users++ === 0) {
+    delay = FAST;
+    tick();
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--users === 0) clearTimeout(timer);
+  };
 }
 
 // "Operação 29.999695 porcentagem concluída", "Operation 30 percent complete", "30%".

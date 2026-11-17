@@ -257,6 +257,22 @@ export function setTaskbarState(state: number) {
 }
 
 const qunsBuf = new Int32Array(1);
+let qunsAt = -Infinity;
+let qunsBusy = false;
+
+/**
+ * SHQueryUserNotificationState asks Explorer across processes: ~7 ms a call (measured). The window
+ * moves of a drag check full screen up to 20 times a second, so its answer is reused for 1 s; the
+ * geometry check below and ABN_FULLSCREENAPP (shell-events.ts) still react at once.
+ */
+function shellBusy(): boolean {
+  const now = performance.now();
+  if (now - qunsAt < 1000) return qunsBusy;
+  qunsAt = now;
+  const state = shell32.symbols.SHQueryUserNotificationState(new Uint8Array(qunsBuf.buffer)) === 0 ? qunsBuf[0]! : 0;
+  qunsBusy = state === 2 || state === 3 || state === 4; // BUSY, D3D full screen, presentation
+  return qunsBusy;
+}
 
 const frameBuf = new Int32Array(4);
 
@@ -267,10 +283,7 @@ const frameBuf = new Int32Array(4);
  * not maximized, and its visible frame covers the whole monitor.
  */
 export function fullscreenAppActive(dock?: HWND | null): boolean {
-  if (shell32.symbols.SHQueryUserNotificationState(new Uint8Array(qunsBuf.buffer)) === 0) {
-    const state = qunsBuf[0]!;
-    if (state === 2 || state === 3 || state === 4) return true; // BUSY, D3D full screen, presentation
-  }
+  if (shellBusy()) return true;
   const fg = U.GetForegroundWindow() as HWND | null;
   if (!fg) return false;
   // A maximized window with a title bar fills the work area, not the screen (with the taskbar on

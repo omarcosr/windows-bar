@@ -163,7 +163,10 @@ export class DockWindow {
     const full = this.#options.mode === "full";
     const screen = await this.#screen();
     if (run !== this.#layoutRun || this.#disposed) return;
-    if (screen) this.#scale = screen.scale;
+    if (screen) {
+      this.#scale = screen.scale;
+      this.onScreen?.(screen.width / screen.scale);
+    }
 
     if (this.#options.reserveSpace) {
       // Not before the first render: the strip's thickness depends on the dock's size.
@@ -375,4 +378,7 @@ export class DockWindow {
     }
     this.#restoreTaskbar();
   }
+
+    /** Told the logical width of the dock's monitor on every layout (the room the dock may take). */
+    onScreen?: (logicalWidth: number) => void;
 }

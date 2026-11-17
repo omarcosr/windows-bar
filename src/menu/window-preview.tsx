@@ -255,7 +255,7 @@ function sourceOf(source: HWND, thumb: Thumbnail) {
 }
 
 /** Sizes and places the window above the pointer, then lays the live thumbnails into their cards. */
-function layout() {
+function layout(reanchor = true) {
   if (!hwnd || !preview.key) return;
   const windows = windowsOf(preview.key);
   if (!windows.length) return hidePreview(true);
@@ -288,8 +288,12 @@ function layout() {
   const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
   // Centred on the app's icon, as the taskbar does, wherever on the icon the pointer was; it
   // follows the icon when the dock re-centres (an app opened or closed).
-  const iconX = DockWindow.nodeCenterX("app:" + preview.key);
-  if (iconX !== null) anchorX = iconX;
+  // nodeCenterX is a synchronous round trip to the renderer that can block up to 1 s when it is
+  // busy (measured 1000 ms): only on open and on resize, not on the periodic refresh.
+  if (reanchor) {
+    const iconX = DockWindow.nodeCenterX("app:" + preview.key);
+    if (iconX !== null) anchorX = iconX;
+  }
   const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
   handle?.setBounds({ x, y: Math.max(area.y + gap, top - gap - height), width, height, physical: true });
 
@@ -430,5 +434,5 @@ export function hidePreview(now = false) {
 
 // Windows open, close and resize while a preview is up: keeps the cards' thumbnails in step.
 setInterval(() => {
-  if (preview.key) layout();
+  if (preview.key) layout(false);
 }, 700);

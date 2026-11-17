@@ -1,3 +1,4 @@
+import "./runtime/perf-probe";
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
 import { config, saveConfig } from "./config";
 import { ui } from "./theme";
@@ -19,6 +20,7 @@ import { checkNow, restartToUpdate, startUpdater, updateNow, updater } from "./s
 import { watchAppColor, appColor } from "./services/app-color";
 import { disposeWidget, setWidgetApp } from "./widgets/host";
 import { allWidgets } from "./widgets/registry";
+import { dockRoom } from "./widgets/magnify";
 import { exitApp } from "./services/exit";
 import "./widgets/builtin";
 import appIcon from "../assets/icon.png";
@@ -174,6 +176,9 @@ const nativeOptions = () => ({
   stripOverlap: stripOverlap(),
 });
 dockWindow = DockWindow.attach(app, nativeOptions());
+dockWindow.onScreen = (width) => {
+  if (Math.abs(dockRoom.screen - width) > 0.5) dockRoom.screen = width;
+};
 if (pendingSize) dockWindow.setContentSize(...pendingSize);
 // The foreground window's moves, coalesced: at most one check per 50 ms, and always one after the
 // last move, so the final size of an F11 or a game switching to full screen is never missed.

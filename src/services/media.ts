@@ -37,7 +37,7 @@ export const media = store({
   sources: [] as MediaSource[],
 });
 
-let timer: ReturnType<typeof setInterval> | undefined;
+let timer: ReturnType<typeof setTimeout> | undefined;
 let users = 0;
 let polling = false;
 let lastArtwork: string | undefined;
@@ -103,14 +103,25 @@ async function poll() {
   }
 }
 
+/** Each poll asks Windows for every media session (~8 ms): every second while playing, else every 2 s. */
+let generation = 0;
+function schedule() {
+  const run = generation;
+  timer = setTimeout(async () => {
+    await poll();
+    if (users && run === generation) schedule();
+  }, media.playing ? 1000 : 2000);
+}
+
 export function useMedia(): () => void {
   if (users++ === 0) {
-    poll();
-    timer = setInterval(poll, 1000);
+    void poll();
+    schedule();
   }
   return () => {
     if (--users === 0) {
-      clearInterval(timer);
+      generation++;
+      clearTimeout(timer);
       timer = undefined;
     }
   };

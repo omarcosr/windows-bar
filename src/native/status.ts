@@ -96,7 +96,7 @@ function deviceName(device: Pointer): string {
 }
 
 /** Runs `fn` on the default playback device's IAudioEndpointVolume (the one the taskbar's speaker drives); null without one. */
-function withEndpoint<T>(fn: (volume: Pointer, device: Pointer) => T): T | null {
+function withEndpoint<T>(fn: (volume: Pointer, device: Pointer) => T, fresh = false): T | null {
   try {
     if (!comReady) {
       ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
@@ -107,25 +107,34 @@ function withEndpoint<T>(fn: (volume: Pointer, device: Pointer) => T): T | null 
       if (ole32.symbols.CoCreateInstance(CLSID_MMDeviceEnumerator, null, 0x17, IID_IMMDeviceEnumerator, new Uint8Array(out.buffer)) !== 0) return null;
       enumerator = Number(out[0]) as unknown as Pointer;
     }
-    out[0] = 0n;
-    if (com(enumerator, 4, ["i32", "i32", "ptr"], 0 /* eRender */, 1 /* eMultimedia */, out) !== 0 || !out[0]) return null;
-    const device = Number(out[0]) as unknown as Pointer;
-    try {
+    // Finding the default device and activating its volume asks the audio service (~2 ms): the
+    // pair is kept for 5 s, so a new default device shows within 5 s; changes always re-resolve.
+    if (fresh || !endpoint || Date.now() - endpoint.at > 5_000) {
+      dropEndpoint();
       out[0] = 0n;
-      if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) return null;
-      const volume = Number(out[0]) as unknown as Pointer;
-      try {
-        return fn(volume, device);
-      } finally {
-        release(volume);
+      if (com(enumerator, 4, ["i32", "i32", "ptr"], 0 /* eRender */, 1 /* eMultimedia */, out) !== 0 || !out[0]) return null;
+      const device = Number(out[0]) as unknown as Pointer;
+      out[0] = 0n;
+      if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) {
+        release(device);
+        return null;
       }
-    } finally {
-      release(device);
+      endpoint = { device, volume: Number(out[0]) as unknown as Pointer, at: Date.now() };
     }
+    return fn(endpoint.volume, endpoint.device);
   } catch (error) {
     if (error instanceof FfiUnsupported) return null;
     throw error;
   }
+}
+
+let endpoint: { device: Pointer; volume: Pointer; at: number } | null = null;
+
+function dropEndpoint() {
+  if (!endpoint) return;
+  release(endpoint.volume);
+  release(endpoint.device);
+  endpoint = null;
 }
 
 /** Master volume of the default playback device (0..100) and its name, or null without one. */
@@ -147,13 +156,13 @@ export function setVolume(level: number): boolean {
       const ok = com(volume, 7, ["f32", "ptr"], scalar, null) >= 0; // SetMasterVolumeLevelScalar
       if (scalar > 0) com(volume, 14, ["i32", "ptr"], 0, null); // SetMute(FALSE)
       return ok;
-    }) ?? false
+    }, true) ?? false
   );
 }
 
 /** Mutes or unmutes the default playback device, as the speaker button in quick settings. */
 export function setMuted(muted: boolean): boolean {
-  return withEndpoint((volume) => com(volume, 14, ["i32", "ptr"], muted ? 1 : 0, null) >= 0) ?? false; // SetMute (S_FALSE: already so)
+  return withEndpoint((volume) => com(volume, 14, ["i32", "ptr"], muted ? 1 : 0, null) >= 0, true) ?? false; // SetMute (S_FALSE: already so)
 }
 
 // ---------- Network ----------

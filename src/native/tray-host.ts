@@ -24,6 +24,7 @@ const user32 = dlopen("user32.dll", {
   DefWindowProcW: { args: ["ptr", "u32", "u64", "ptr"], returns: "i64" },
   DestroyWindow: { args: ["ptr"], returns: "i32" },
   PeekMessageW: { args: ["ptr", "ptr", "u32", "u32", "u32"], returns: "i32" },
+  GetQueueStatus: { args: ["u32"], returns: "u32" },
   TranslateMessage: { args: ["ptr"], returns: "i32" },
   DispatchMessageW: { args: ["ptr"], returns: "i64" },
   SendMessageTimeoutW: { args: ["ptr", "u32", "u64", "ptr", "u32", "u32", "ptr"], returns: "i64" },
@@ -237,6 +238,9 @@ const msgBuf = new Uint8Array(48);
 
 /** Processes pending messages for our windows (sent ones are handled inside PeekMessage). */
 function pump() {
+  // One cheap call per tick instead of a PeekMessage per window: the high word lists what is
+  // waiting in this thread's queue (QS_ALLINPUT | QS_SENDMESSAGE); nothing waiting, nothing to do.
+  if (!(U.GetQueueStatus(0x4ff) >>> 16)) return;
   for (const hwnd of windows.values()) {
     for (let i = 0; i < 64 && U.PeekMessageW(msgBuf, hwnd, 0, 0, 1 /* PM_REMOVE */); i++) {
       U.TranslateMessage(msgBuf);
@@ -307,7 +311,8 @@ export function startTrayHost(h: TrayHostHandlers) {
       reannounce = setTimeout(broadcastTaskbarCreated, 1500);
     }
   });
-  pumpTimer = setInterval(pump, 8);
+  // 16 ms: a tray icon's SendMessage waits at most a frame; at 8 ms the FFI calls alone cost ~1.5% of a core.
+  pumpTimer = setInterval(pump, 16);
   keepOnTop();
   topTimer = setInterval(keepOnTop, 250);
   broadcastTaskbarCreated();

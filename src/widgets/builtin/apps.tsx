@@ -11,7 +11,7 @@ import { taskbarPins, unpinFromTaskbar, watchTaskbarPins, type TaskbarPin } from
 import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
 import { explorerStateFor } from "../../services/explorer-buttons";
 import { iconHover } from "../ui";
-import { dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
+import { appRoom, dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
 
 interface Item {
@@ -259,6 +259,53 @@ interface DockPin {
   name: string;
 }
 
+/**
+ * The taskbar's overflow button: apps without room on the bar sit behind "•••", in a flyout
+ * grid, as Windows 11 does when the taskbar fills up.
+ */
+function OverflowButton(props: { items: Item[]; dockIndex: number; onContextMenu: (item: Item) => void }) {
+  const magnify = magnifyStyles("dock", props.dockIndex, dockMetrics());
+  const open = () => {
+    hidePreview(true);
+    showDockMenu({
+      title: "Mais apps",
+      grid: true,
+      sections: [
+        props.items.map((item): DockMenuItem => {
+          const icon = iconFor(item.pin?.path ?? item.exe, 32);
+          return {
+            label: item.name,
+            icon: icon ? { image: icon } : glyph.window,
+            onSelect: () => activateApp(item.key, item.launch),
+            onContextMenu: () => props.onContextMenu(item),
+          };
+        }),
+      ],
+    });
+  };
+  const attention = props.items.some((i) => i.attention);
+  return (
+    <Pressable
+      onClick={open}
+      style={{
+        position: "relative",
+        width: ui.app.slot,
+        height: ui.tile.height,
+        align: "center",
+        justify: "center",
+        cursor: "pointer",
+        radius: 10,
+        ...iconHover({ magnified: true }),
+        ...magnify.slot,
+      }}
+    >
+      <Text size={16} color={attention ? "#ff9f0a" : ui.text} style={{ fontFamily: "Segoe Fluent Icons, Segoe MDL2 Assets", lineHeight: 1 }}>
+        {String.fromCharCode(0xe712)}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default defineWidget({
   type: "apps",
   name: "Apps",
@@ -337,7 +384,11 @@ export default defineWidget({
         attention: attention(app.key),
       });
     }
-    setAppCount(ctx.instanceId, items.length);
+    // No room for every icon: the last slot becomes the overflow button, as on the taskbar.
+    const room = appRoom(ctx.instanceId, items.length);
+    const overflow = items.length > room ? items.slice(Math.max(0, room - 1)) : [];
+    const visible = overflow.length ? items.slice(0, Math.max(0, room - 1)) : items;
+    setAppCount(ctx.instanceId, visible.length + (overflow.length ? 1 : 0));
     const pinToDock = (item: Item) => {
       const app = desktop.apps.find((a) => a.key === item.key);
       if (!app || dockPins.some((p) => p.key === app.key)) return;
@@ -388,7 +439,7 @@ export default defineWidget({
     };
     return (
       <Row style={{ height: ui.tile.height, align: "center", gap: 0, shrink: 0 }}>
-        {items.map((item, index) => (
+        {visible.map((item, index) => (
           <AppIcon
             key={item.key}
             item={item}
@@ -397,6 +448,9 @@ export default defineWidget({
             onContextMenu={() => showMenu(item)}
           />
         ))}
+        {overflow.length ? (
+          <OverflowButton items={overflow} dockIndex={dockIndex(ctx.instanceId, visible.length)} onContextMenu={showMenu} />
+        ) : null}
       </Row>
     );
   },

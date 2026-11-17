@@ -234,6 +234,45 @@ function slotsOf(w: WidgetInstance) {
   return 0;
 }
 
+/**
+ * Room for the Start + Apps group. Like the taskbar, app icons that do not fit go behind a "•••"
+ * button instead of running under the other widgets: the dock measures the other widgets and the
+ * screen, and each apps widget takes the slots left, in order.
+ */
+export const dockRoom = store({
+  /** Logical width of the dock's monitor (0 until known). */
+  screen: 0,
+  /** Measured widths of the widgets outside the group. */
+  widths: {} as Record<string, number>,
+  /** App slots the group has room for. */
+  appSlots: Infinity,
+});
+
+export function noteSlotWidth(id: string, width: number) {
+  if (Math.abs((dockRoom.widths[id] ?? -1) - width) > 0.5) dockRoom.widths = { ...dockRoom.widths, [id]: width };
+}
+
+/** Slots the group spends on Start and Search (everything but app icons). */
+export function fixedGroupSlots() {
+  let n = 0;
+  for (const w of config.widgets) if (w.type !== "apps") n += slotsOf(w);
+  return n;
+}
+
+const appWanted = new Map<string, number>();
+
+/** How many icon slots apps widget `id` may use when it has `wanted` icons. */
+export function appRoom(id: string, wanted: number) {
+  appWanted.set(id, wanted);
+  let left = dockRoom.appSlots;
+  for (const w of config.widgets) {
+    if (w.type !== "apps") continue;
+    if (w.id === id) break;
+    left -= appWanted.get(w.id) ?? 0;
+  }
+  return Math.max(1, left);
+}
+
 /** Index of `local` (an icon of widget `instanceId`) across the whole group. */
 export function dockIndex(instanceId: string, local: number) {
   let index = 0;

@@ -8,7 +8,7 @@ import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./s
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { glyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
-import { currentExtra, dockCount, dockMetrics, inDockGroup, magnifying, magnifyRowProps, maxExtra } from "../widgets/magnify";
+import { currentExtra, dockCount, dockMetrics, dockRoom, fixedGroupSlots, inDockGroup, magnifying, magnifyRowProps, maxExtra, noteSlotWidth } from "../widgets/magnify";
 
 export const DOCK_TITLE = "WindowsBar Dock";
 
@@ -73,14 +73,14 @@ function SettingsBadge(props: { onClick: () => void }) {
     <Pressable
       onClick={props.onClick}
       style={{
-        // Bottom-right, inside the tile: diagonal from the remove badge, so even a narrow widget
-        // keeps the two apart.
+        // Top-right, outside the content like the remove badge on the left, so it never covers
+        // the widget's own buttons or numbers.
         position: "absolute",
-        bottom: 3,
-        right: 3,
-        width: 20,
-        height: 20,
-        radius: 10,
+        top: -7,
+        right: -7,
+        width: 18,
+        height: 18,
+        radius: 9,
         background: "rgba(58,58,64,0.92)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
@@ -142,6 +142,7 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
     <Pressable
       {...(props.editing ? {} : drag)}
       onContextMenu={() => openWidgetMenu(widget)}
+      onSize={({ borderBox }: { borderBox: { width: number } }) => noteSlotWidth(instance.id, borderBox.width)}
       style={{
         position: "relative",
         shrink: 0,
@@ -244,6 +245,20 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   if (reserving) maxExtra(1, dockMetrics());
   report = props.onSize;
   queueMicrotask(reportSize);
+  // Room left for the group's app icons; the rest go behind the apps widget's "•••" button.
+  if (dockRoom.screen && group.length) {
+    const others = widgets.filter((w) => !inGroup(w));
+    const used = others.reduce((sum, w) => sum + (dockRoom.widths[w.id] ?? 0) + ui.dock.gap, 0);
+    const m = dockMetrics();
+    const chrome =
+      (full ? 16 : ui.dock.padding * 2) +
+      (config.showDesktop && !editing ? 8 : 0) +
+      (full ? 0 : 2 * (Number(config.bottomMargin) || 0)) +
+      (editing ? 11 : 0) +
+      (reserving ? maxExtra(7, m) : 0);
+    const slots = Math.max(1, Math.floor((dockRoom.screen - chrome - used) / m.slot) - fixedGroupSlots());
+    if (slots !== dockRoom.appSlots) queueMicrotask(() => (dockRoom.appSlots = slots));
+  }
   const groupRow = group.length ? (
     <Row key="group" {...magnify} style={{ align: "center", gap: 0, shrink: 0 }}>
       {group.map(slot)}

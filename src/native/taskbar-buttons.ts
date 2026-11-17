@@ -71,12 +71,25 @@ const FindAll = 6;
 const get_CurrentName = 23;
 const get_CurrentAutomationId = 29;
 const get_CurrentHelpText = 31;
+const CreateCacheRequest = 20;
+const FindAllBuildCache = 8;
+const get_CachedName = 55;
+const get_CachedAutomationId = 61;
+const get_CachedHelpText = 63;
+// IUIAutomationCacheRequest slots and property ids.
+const AddProperty = 3;
+const put_AutomationElementMode = 11;
+const UIA_NamePropertyId = 30005;
+const UIA_AutomationIdPropertyId = 30011;
+const UIA_HelpTextPropertyId = 30013;
 // IUIAutomationElementArray slots.
 const get_Length = 3;
 const GetElement = 4;
 
 let automation: Pointer | null = null;
 let condition: Pointer | null = null;
+/** Fetches the three properties with the search, in one cross-process call instead of 3 per button. */
+let cache: Pointer | null = null;
 let unsupported = false;
 const out = new BigUint64Array(1);
 
@@ -115,6 +128,13 @@ function init(): boolean {
   const hr = com(automation, CreatePropertyCondition, ["i32", "ptr", "ptr"], UIA_ClassNamePropertyId, variant, out);
   oleaut32.symbols.SysFreeString(bstr);
   condition = hr === 0 ? outPtr() : null;
+  out[0] = 0n;
+  if (com(automation, CreateCacheRequest, ["ptr"], out) === 0 && out[0]) {
+    cache = outPtr()!;
+    for (const id of [UIA_NamePropertyId, UIA_AutomationIdPropertyId, UIA_HelpTextPropertyId]) com(cache, AddProperty, ["i32"], id);
+    // AutomationElementMode_None: only the cached values come back, no live element references.
+    com(cache, put_AutomationElementMode, ["i32"], 0);
+  }
   return !!condition;
 }
 
@@ -140,7 +160,10 @@ export function readExplorerButtons(tray: Pointer | null = taskbarRoot()): Explo
     const root = outPtr()!;
     try {
       out[0] = 0n;
-      if (com(root, FindAll, ["i32", "ptr", "ptr"], TreeScope_Descendants, condition, out) !== 0 || !out[0]) return null;
+      const found = cache
+        ? com(root, FindAllBuildCache, ["i32", "ptr", "ptr", "ptr"], TreeScope_Descendants, condition, cache, out)
+        : com(root, FindAll, ["i32", "ptr", "ptr"], TreeScope_Descendants, condition, out);
+      if (found !== 0 || !out[0]) return null;
       const array = outPtr()!;
       try {
         const length = new Int32Array(1);
@@ -151,11 +174,11 @@ export function readExplorerButtons(tray: Pointer | null = taskbarRoot()): Explo
           if (com(array, GetElement, ["i32", "ptr"], i, out) !== 0 || !out[0]) continue;
           const element = outPtr()!;
           try {
-            const id = stringProp(element, get_CurrentAutomationId);
+            const id = stringProp(element, cache ? get_CachedAutomationId : get_CurrentAutomationId);
             buttons.push({
               appId: id.replace(/^Appid:\s*/i, ""),
-              name: stringProp(element, get_CurrentName),
-              help: stringProp(element, get_CurrentHelpText),
+              name: stringProp(element, cache ? get_CachedName : get_CurrentName),
+              help: stringProp(element, cache ? get_CachedHelpText : get_CurrentHelpText),
             });
           } finally {
             release(element);

@@ -21,7 +21,9 @@ export function iconFor(exe: string, size = 32): ImageRgbaSource | string | unde
       pixels = null;
     }
     // <Image> cannot load a shell: path (Store apps): no icon then, the caller draws its placeholder.
-    if (!pixels && /^shell:/i.test(exe)) return undefined;
+    // Nor a bare file name ("mygo music.exe", a process whose path could not be read): the runtime
+    // resolves it next to the dock's exe, fails, and logs the error again on every render.
+    if (!pixels && (/^shell:/i.test(exe) || !/^([a-z]:)?[\\/]/i.test(exe))) return undefined;
     icon = pixels ? { ...pixels, cacheKey: `icon:${key}` } : exe;
     cache.set(key, icon);
   }

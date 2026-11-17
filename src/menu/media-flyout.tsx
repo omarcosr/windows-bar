@@ -238,12 +238,14 @@ function Sources() {
   return (
     <View style={{ gap: 2 }}>
       <View style={{ height: 1, background: "rgba(255,255,255,0.07)", margin: { bottom: 4 } }} />
-      {media.sources.map((s) => {
+      {media.sources.map((s, i) => {
         const icon = playerIcon(s.appId, 16);
         const selected = s.appId === media.app;
         return (
           <Pressable
-            key={s.appId}
+            // One app can hold several sessions (two YouTube Music players): a duplicate key makes the
+            // renderer fail and retry on every frame (measured ~45% of a core).
+            key={`${s.appId}#${i}`}
             onClick={() => selectSource(s.appId)}
             style={{
               direction: "row",
