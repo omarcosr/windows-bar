@@ -8,7 +8,7 @@ import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./s
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { glyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
-import { currentExtra, dockCount, dockMetrics, magnifying, magnifyRowProps, maxExtra } from "../widgets/magnify";
+import { currentExtra, dockCount, dockMetrics, inDockGroup, magnifying, magnifyRowProps, maxExtra } from "../widgets/magnify";
 
 export const DOCK_TITLE = "WindowsBar Dock";
 
@@ -222,7 +222,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   // Start and Apps form one group, placed like the Windows taskbar's icons: centred or on the
   // left, following Windows' own taskbar alignment. Other widgets keep their side of the group.
   const slot = (instance: WidgetInstance) => <WidgetSlot key={instance.id} instance={instance} editing={editing} />;
-  const inGroup = (w: WidgetInstance) => w.type === "start" || w.type === "apps";
+  const inGroup = (w: WidgetInstance) => inDockGroup(w.id);
   const firstGroup = widgets.findIndex(inGroup);
   const group = widgets.filter(inGroup);
   const before = widgets.filter((w, i) => !inGroup(w) && (firstGroup < 0 || i < firstGroup));

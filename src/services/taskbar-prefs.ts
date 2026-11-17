@@ -12,7 +12,14 @@ export const taskbarPrefs = store({
   accent: "#0a84ff",
   /** Height of Explorer's taskbar in logical px (48 on Windows 11), which the dock takes by default. */
   height: 48,
+  /** Taskbar items > Search: 0 hidden, 1 icon, 2 box, 3 icon and label (SearchboxTaskbarMode). */
+  search: 1 as 0 | 1 | 2 | 3,
 });
+
+function readSearchMode(): 0 | 1 | 2 | 3 {
+  const v = readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Search", "SearchboxTaskbarMode", "dword");
+  return v === 0 || v === 1 || v === 2 || v === 3 ? v : 1;
+}
 
 /**
  * The height Windows gives its taskbar, measured on Explorer's own taskbar window (it keeps its

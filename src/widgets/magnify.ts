@@ -1,5 +1,6 @@
 import { store, type Style } from "@tarve/core";
-import { config } from "../config";
+import { config, type WidgetInstance } from "../config";
+import { taskbarPrefs } from "../services/taskbar-prefs";
 import { ui } from "../theme";
 import { cursorPos, topWindowAt } from "../native/win32";
 
@@ -197,15 +198,48 @@ export function setAppCount(instanceId: string, count: number) {
   appCounts.set(instanceId, count);
 }
 
-const inGroup = (type: string) => type === "start" || type === "apps";
+const groupCore = (type: string) => type === "start" || type === "apps";
+
+/** Search box sizes, in app slots, so the group's slots stay equal for the magnification. */
+export const SEARCH_TYPE = "launcher-search";
+export type SearchLook = "system" | "hidden" | "icon" | "label" | "normal" | "wide";
+
+/** The look a search widget draws: "system" follows Windows' taskbar Search setting. */
+export function searchLook(look: string): Exclude<SearchLook, "system"> {
+  if (look !== "system") return (["hidden", "icon", "label", "normal", "wide"].includes(look) ? look : "normal") as Exclude<SearchLook, "system">;
+  return (["hidden", "icon", "normal", "label"] as const)[taskbarPrefs.search];
+}
+
+export function searchSlots(look: string) {
+  return { hidden: 0, icon: 1, label: 2, normal: 4, wide: 5 }[searchLook(look)];
+}
+
+/**
+ * Whether a widget sits in the Start + Apps group. Search joins it when placed right next to
+ * Start or Apps, as the taskbar's Search sits between Start and the app buttons.
+ */
+export function inDockGroup(id: string, list: readonly WidgetInstance[] = config.widgets) {
+  const i = list.findIndex((w) => w.id === id);
+  const w = list[i];
+  if (!w) return false;
+  if (groupCore(w.type)) return true;
+  if (w.type !== SEARCH_TYPE) return false;
+  return groupCore(list[i - 1]?.type ?? "") || groupCore(list[i + 1]?.type ?? "");
+}
+
+function slotsOf(w: WidgetInstance) {
+  if (w.type === "start") return 1;
+  if (w.type === "apps") return appCounts.get(w.id) ?? 0;
+  if (w.type === SEARCH_TYPE && inDockGroup(w.id)) return searchSlots(String((w.config as { width?: string }).width ?? "system"));
+  return 0;
+}
 
 /** Index of `local` (an icon of widget `instanceId`) across the whole group. */
 export function dockIndex(instanceId: string, local: number) {
   let index = 0;
   for (const w of config.widgets) {
     if (w.id === instanceId) return index + local;
-    if (w.type === "start") index += 1;
-    else if (w.type === "apps") index += appCounts.get(w.id) ?? 0;
+    index += slotsOf(w);
   }
   return index + local;
 }
@@ -217,10 +251,7 @@ export function dockMetrics(): MagnifyMetrics {
 }
 
 export function dockCount() {
-  let n = 0;
-  for (const w of config.widgets) {
-    if (!inGroup(w.type)) continue;
-    n += w.type === "start" ? 1 : (appCounts.get(w.id) ?? 0);
-  }
-  return n;
+    let n = 0;
+    for (const w of config.widgets) n += slotsOf(w);
+    return n;
 }
