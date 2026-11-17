@@ -48,9 +48,26 @@ export interface OverlayBadge {
   image: string;
 }
 
+/** ITaskbarList3 progress on a taskbar button. */
+export interface ButtonProgress {
+  key: string;
+  /** TBPF_*: 1 indeterminate, 2 normal, 4 error, 8 paused. */
+  state: number;
+  /** 0..1 */
+  value: number;
+}
+
 export const tray = store({ icons: [] as TrayIcon[] });
 /** Overlay badges by window handle. */
 export const overlays = store<Record<string, OverlayBadge>>({});
+/** Progress (downloads, copies, installs) by window handle. */
+export const progress = store<Record<string, ButtonProgress>>({});
+
+/** The progress an app shows on its button (the first of its windows that has one), or undefined. */
+export function progressFor(exe: string): ButtonProgress | undefined {
+  const key = exe.toLowerCase();
+  return Object.values(progress).find((p) => p.key === key);
+}
 
 const cacheDir = join(configDir, "tray");
 mkdirSync(cacheDir, { recursive: true });
@@ -167,10 +184,31 @@ function onNotifyIcon(m: NotifyIconMessage) {
 // ITaskbarList3::SetOverlayIcon reaches the task band as WM_USER + 0x4f (seen on Windows 11):
 // wParam the window, lParam the HICON, 0 to clear. The icon is the badge as the app drew it.
 const TBL_SET_OVERLAY_ICON = 0x44f;
+// SetProgressValue: WM_USER + 0x40, lParam the value scaled to 0..65535.
+// SetProgressState: WM_USER + 0x41, lParam the TBPF_* flags (0 clears).
+const TBL_SET_PROGRESS_VALUE = 0x440;
+const TBL_SET_PROGRESS_STATE = 0x441;
+
+function onProgress(hwnd: number, msg: number, lParam: number) {
+  const id = String(hwnd);
+  const prev = progress[id];
+  if (msg === TBL_SET_PROGRESS_STATE) {
+    if (!lParam) return void delete progress[id];
+    if (prev?.state === lParam) return;
+    progress[id] = { key: prev?.key ?? exePathOf(windowPidOf(hwnd)).toLowerCase(), state: lParam, value: prev?.value ?? 0 };
+    return;
+  }
+  const value = Math.min(1, Math.max(0, lParam / 0xffff));
+  if (prev && Math.abs(prev.value - value) < 0.005) return;
+  // A value with no progress shown switches the button to normal progress, as Explorer does.
+  const state = !prev || prev.state === 1 ? 2 : prev.state;
+  progress[id] = { key: prev?.key ?? exePathOf(windowPidOf(hwnd)).toLowerCase(), state, value };
+}
 
 function onTaskband(m: TaskbandMessage) {
-  if (m.msg !== TBL_SET_OVERLAY_ICON) return;
   const hwnd = Number(m.wParam);
+  if (m.msg === TBL_SET_PROGRESS_VALUE || m.msg === TBL_SET_PROGRESS_STATE) return onProgress(hwnd, m.msg, m.lParam);
+  if (m.msg !== TBL_SET_OVERLAY_ICON) return;
   const id = String(hwnd);
   if (!m.lParam) {
     delete overlays[id];
@@ -197,6 +235,7 @@ function start() {
     const icons = alive.map((i) => (i.promoted === isPromoted(i.exe) ? i : { ...i, promoted: !i.promoted }));
     if (icons.length !== tray.icons.length || icons.some((i, n) => i !== tray.icons[n])) tray.icons = icons;
     for (const id of Object.keys(overlays)) if (!windowAlive(Number(id))) delete overlays[id];
+    for (const id of Object.keys(progress)) if (!windowAlive(Number(id))) delete progress[id];
   }, 5000);
 }
 
@@ -212,6 +251,7 @@ export function acquireTaskbarHost(): () => void {
       stopTrayHost();
       tray.icons = [];
       for (const id of Object.keys(overlays)) delete overlays[id];
+      for (const id of Object.keys(progress)) delete progress[id];
     }
   };
 }

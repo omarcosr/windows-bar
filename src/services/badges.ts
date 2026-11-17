@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createPoller } from "./poller";
 import { acquireTaskbarHost, overlays } from "./taskbar-host";
+import { acquireExplorerButtons, explorerStateFor } from "./explorer-buttons";
 import { openReadonly } from "../runtime/sqlite";
 import type { ReadonlyDatabase } from "../runtime/sqlite";
 
@@ -10,6 +11,8 @@ import type { ReadonlyDatabase } from "../runtime/sqlite";
  * Unread counts and other badges apps put on their taskbar button. Two sources:
  * - Win32 apps (Discord, Telegram, Electron apps) draw an overlay icon with ITaskbarList3,
  *   which reaches the dock while it hosts the task band (services/taskbar-host.ts).
+ *   Apps that were running before the dock keep talking to Explorer only; their count is read
+ *   from Explorer's own button (services/explorer-buttons.ts).
  * - Packaged apps (WhatsApp, Teams, Mail) post a badge notification; Windows keeps it in the
  *   notification database, read here every few seconds.
  */
@@ -66,9 +69,11 @@ const dbPoller = createPoller(3000, async () => {
 export function acquireBadges(): () => void {
   const host = acquireTaskbarHost();
   const poll = dbPoller.acquire();
+  const explorer = acquireExplorerButtons();
   return () => {
     host();
     poll();
+    explorer();
   };
 }
 
@@ -89,5 +94,8 @@ export function badgeFor(exe: string): Badge | undefined {
   }
   const key = exe.toLowerCase();
   const overlay = Object.values(overlays).find((o) => o.key === key);
-  return overlay ? { text: "", image: overlay.image } : undefined;
+  if (overlay) return { text: "", image: overlay.image };
+  // Apps started before the dock badge Explorer's button only: take the count from there.
+  const badge = explorerStateFor(exe)?.badge;
+  return badge !== undefined ? { text: badge, image: "" } : undefined;
 }

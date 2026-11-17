@@ -8,6 +8,8 @@ import { activateApp, closeApp, desktop, focusWindow, launch, openFileLocation, 
 import { config } from "../../config";
 import { ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
+import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
+import { explorerStateFor } from "../../services/explorer-buttons";
 import { iconHover } from "../ui";
 import { defineWidget } from "../types";
 
@@ -35,6 +37,44 @@ interface Item {
 
 /** The icon being dragged and the icon under it, while an icon is dragged to a new place. */
 const drag = store({ source: "", over: "" });
+
+/** Progress the app reports on its button (ITaskbarList3), from the dock's host or Explorer's. */
+function appProgress(exe: string): ButtonProgress | undefined {
+  const own = progressFor(exe);
+  if (own) return own;
+  // Apps started before the dock report progress to Explorer only.
+  const value = explorerStateFor(exe)?.progress;
+  return value !== undefined ? { key: exe.toLowerCase(), state: 2, value } : undefined;
+}
+
+/**
+ * Drawn like Windows 11: a bar along the bottom of the slot in place of the running pill.
+ * Accent while running, yellow paused, red on error; indeterminate pulses the whole track.
+ */
+function AppProgress(props: { exe: string }) {
+  const p = appProgress(props.exe);
+  if (!p) return null;
+  const color = p.state & 4 ? ui.red : p.state & 8 ? "#fce100" : taskbarPrefs.accent;
+  const indeterminate = !!(p.state & 1);
+  const track = ui.app.slot - 12;
+  return (
+    <View style={{ position: "absolute", bottom: 2, left: 6, width: track, height: 3, radius: 2, background: "rgba(255,255,255,0.18)" }}>
+      <View
+        style={{
+          width: indeterminate ? track : Math.max(3, Math.round(track * p.value)),
+          height: 3,
+          radius: 2,
+          background: color,
+          transition: { width: { duration: 250, easing: "easeOut" } },
+          ...(indeterminate
+            ? { animation: { from: { opacity: 0.25 }, duration: 800, iterations: Infinity, direction: "alternate", easing: "easeInOut" } }
+            : {}),
+        }}
+      />
+    </View>
+  );
+}
+
 const DRAG_PREFIX = "app:";
 
 /** Unread count (or the app's own overlay picture) on the icon's top-right corner. */
@@ -193,9 +233,10 @@ function AppIcon(props: {
         </View>
       )}
       <AppBadge exe={item.exe} />
+      <AppProgress exe={item.exe} />
       {/* Out of the flow, so the icon stays centred like the Start button. */}
       {/* Running: a short grey pill; in front: a longer one in the accent colour. */}
-      <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center", opacity: config.runningIndicator ? 1 : 0 }}>
+      <View style={{ position: "absolute", bottom: 2, left: 0, right: 0, align: "center", opacity: config.runningIndicator && !appProgress(item.exe) ? 1 : 0 }}>
         <View
           style={{
             width: item.active || item.attention ? 16 : 6,

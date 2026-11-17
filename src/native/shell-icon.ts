@@ -12,14 +12,19 @@ import { encodeWide } from "./wide";
 const shell32 = dlopen("shell32.dll", {
   SHGetFileInfoW: { args: ["ptr", "u32", "ptr", "u32", "u32"], returns: "u64" },
   SHGetImageList: { args: ["i32", "ptr", "ptr"], returns: "i32" },
+  SHParseDisplayName: { args: ["ptr", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
 });
 const user32 = dlopen("user32.dll", {
   DestroyIcon: { args: ["ptr"], returns: "i32" },
   GetDpiForSystem: { args: [], returns: "u32" },
 });
-const ole32 = dlopen("ole32.dll", { CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" } });
+const ole32 = dlopen("ole32.dll", {
+  CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
+  CoTaskMemFree: { args: ["ptr"], returns: "void" },
+});
 
 const SHGFI_SYSICONINDEX = 0x4000;
+const SHGFI_PIDL = 0x8;
 const SHIL_LARGE = 0;
 const SHIL_SMALL = 1;
 const SHIL_EXTRALARGE = 2;
@@ -63,6 +68,22 @@ function imageList(kind: number) {
 function systemIndex(path: string): number {
   const sfi = new Uint8Array(696);
   const wide = encodeWide(path);
+  // shell:AppsFolder\<AUMID> (Store apps such as Settings) is no file path: go through its PIDL.
+  if (/^shell:/i.test(path)) {
+    if (!comReady) {
+      ole32.symbols.CoInitializeEx(null, 2);
+      comReady = true;
+    }
+    const out = new BigUint64Array(1);
+    if (shell32.symbols.SHParseDisplayName(ptr(wide), null, new Uint8Array(out.buffer), 0, null) !== 0 || !out[0]) return -1;
+    const pidl = Number(out[0]) as unknown as Pointer;
+    try {
+      if (!shell32.symbols.SHGetFileInfoW(pidl, 0, sfi, sfi.length, SHGFI_SYSICONINDEX | SHGFI_PIDL)) return -1;
+    } finally {
+      ole32.symbols.CoTaskMemFree(pidl);
+    }
+    return new DataView(sfi.buffer).getInt32(8, true);
+  }
   if (!shell32.symbols.SHGetFileInfoW(ptr(wide), 0, sfi, sfi.length, SHGFI_SYSICONINDEX)) return -1;
   return new DataView(sfi.buffer).getInt32(8, true);
 }

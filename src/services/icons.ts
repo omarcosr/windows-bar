@@ -20,6 +20,8 @@ export function iconFor(exe: string, size = 32): ImageRgbaSource | string | unde
     } catch {
       pixels = null;
     }
+    // <Image> cannot load a shell: path (Store apps): no icon then, the caller draws its placeholder.
+    if (!pixels && /^shell:/i.test(exe)) return undefined;
     icon = pixels ? { ...pixels, cacheKey: `icon:${key}` } : exe;
     cache.set(key, icon);
   }
