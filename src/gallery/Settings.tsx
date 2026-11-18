@@ -116,7 +116,7 @@ function Range(props: {
   return (
     <Row style={{ align: "center", gap: 10, width: 260 }}>
       <View style={{ flex: 1 }}>
-        <Slider label={props.label} value={props.value} min={props.min} max={props.max} step={props.step} onValueChange={props.onChange} />
+        <Slider label={props.label} value={props.value} min={props.min} max={props.max} step={props.step} onValueChange={props.onChange} style={{ width: "100%" }} />
       </View>
       <Text size={12} color={ui.muted} style={{ ...numeric, width: 52, textAlign: "right" }}>
         {`${props.value}${props.unit}`}

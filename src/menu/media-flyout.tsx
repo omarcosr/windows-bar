@@ -149,7 +149,8 @@ function Volume() {
         <Fluent code={volumeGlyph()} size={15} />
       </IconButton>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Slider value={status.muted ? 0 : status.volume} min={0} max={100} step={1} onValueChange={changeVolume} />
+        {/* The whole row between the speaker and the number: Tarve's Slider is 160 px wide unless told. */}
+        <Slider value={status.muted ? 0 : status.volume} min={0} max={100} step={1} onValueChange={changeVolume} style={{ width: "100%" }} />
       </View>
       <Text size={12} color={ui.muted} style={{ width: 26, textAlign: "right" }}>
         {String(status.muted ? 0 : status.volume)}
