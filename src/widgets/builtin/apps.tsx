@@ -148,9 +148,10 @@ function AppIcon(props: {
   onContextMenu: () => void;
 }) {
   const { item } = props;
-  // Sharp when magnified: the bitmap is read at the largest size the icon reaches.
+  // Sharp when magnified: the bitmap is read once at the largest size the icon reaches.
   // A pin shows its shortcut's icon, as the taskbar does (it can differ from the program's).
-  const icon = iconFor(item.pin?.path ?? item.exe, magnifying() ? peakSize(dockMetrics()) : ui.app.icon);
+  const magnified = magnifying();
+  const icon = iconFor(item.pin?.path ?? item.exe, magnified ? peakSize(dockMetrics()) : ui.app.icon, magnified);
   const magnify = magnifyStyles("dock", props.dockIndex, dockMetrics());
   // Several windows: the list of them opens, as on the Windows taskbar.
   const onClick = () => {

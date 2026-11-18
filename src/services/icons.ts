@@ -2,15 +2,20 @@ import type { ImageRgbaSource } from "@tarve/core";
 import { shellIconPixels, systemScale } from "../native/shell-icon";
 
 /**
- * App icons. Tarve's <Image src> can show a .exe/.dll/.lnk path as its shell icon, but it loads the
- * 256 px frame and shrinks it on the GPU without mipmaps, so the edges come out jagged. The icon is
- * read here at the exact pixel size it is drawn at instead; the path stays as the fallback.
+ * App icons. A program, library or shortcut on disk is handed to <Image src> as its path: Tarve
+ * draws the shell's icon frame for the displayed physical size, loaded off the UI thread and cached
+ * per size. The rest (shell:AppsFolder items, other files) and icons whose size animates (macOS
+ * magnification: one load per size the animation passes through) are read here once at the pixel
+ * size asked for.
  */
 /** null: the shell had no icon for it (remembered, so a render does not ask again for 7–16 ms). */
 const cache = new Map<string, ImageRgbaSource | string | null>();
 
-export function iconFor(exe: string, size = 32): ImageRgbaSource | string | undefined {
+const ON_DISK = /^[a-z]:\\.*\.(exe|dll|lnk)$/i;
+
+export function iconFor(exe: string, size = 32, animated = false): ImageRgbaSource | string | undefined {
   if (!exe) return undefined;
+  if (!animated && ON_DISK.test(exe)) return exe;
   const px = Math.round(size * systemScale());
   const key = `${exe.toLowerCase()}|${px}`;
   let icon = cache.get(key);

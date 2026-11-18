@@ -62,6 +62,12 @@ let hoveredKey = "";
 let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 let peekTimer: ReturnType<typeof setTimeout> | undefined;
 let peeking = false;
+/** The monitors, kept current by the app's screen events: opening a preview asks nothing of the renderer. */
+let screens: ScreenInfo[] = [];
+/** Last bounds given to the window, so a relayout that changes nothing sends nothing. */
+let placed = "";
+/** The hovered icon's centre, asked of the dock's renderer as the pointer arrives (during the hover delay). */
+let center: { key: string; at: Promise<number | null> } | null = null;
 
 // The thumbnails and the peek are DWM features Tarve does not wrap, so they stay on FFI; so does
 // keeping the preview itself out of the peek (DWMWA_EXCLUDED_FROM_PEEK).
@@ -69,6 +75,14 @@ const dwm = dlopen("dwmapi.dll", { DwmSetWindowAttribute: { args: ["ptr", "u32",
 
 function excludeFromPeek(window: HWND) {
     dwm.symbols.DwmSetWindowAttribute(window, 12 /* DWMWA_EXCLUDED_FROM_PEEK */, new Uint32Array([1]), 4);
+}
+
+/**
+ * Shows and hides at once, as the taskbar's thumbnail window does: without this DWM plays its
+ * window open/close animation on every show(), which held the preview back after the hover delay.
+ */
+function disableTransitions(window: HWND) {
+  dwm.symbols.DwmSetWindowAttribute(window, 3 /* DWMWA_TRANSITIONS_FORCEDISABLED */, new Uint32Array([1]), 4);
 }
 
 function startPeek(target: HWND) {
@@ -257,8 +271,8 @@ function sourceOf(source: HWND, thumb: Thumbnail) {
   return { crop: null, ...thumbnailSourceSize(thumb) };
 }
 
-/** Sizes and places the window above the pointer, then lays the live thumbnails into their cards. */
-function layout(reanchor = true) {
+/** Sizes and places the window above its icon, then lays the live thumbnails into their cards. */
+function layout() {
   if (!hwnd || !preview.key) return;
   const windows = windowsOf(preview.key);
   if (!windows.length) return hidePreview(true);
@@ -289,16 +303,14 @@ function layout(reanchor = true) {
     (list ? (BORDER + PAD) * 2 + windows.length * ROW_H + 2 * (windows.length - 1) : CARD_H + (BORDER + PAD) * 2) * scale,
   );
   const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
-  // Centred on the app's icon, as the taskbar does, wherever on the icon the pointer was; it
-  // follows the icon when the dock re-centres (an app opened or closed).
-  // nodeCenterX is a synchronous round trip to the renderer that can block up to 1 s when it is
-  // busy (measured 1000 ms): only on open and on resize, not on the periodic refresh.
-  if (reanchor) {
-    const iconX = DockWindow.nodeCenterX("app:" + preview.key);
-    if (iconX !== null) anchorX = iconX;
-  }
+  // Centred on the app's icon (anchorX, see centerOf), as the taskbar does, wherever on the icon the pointer was.
   const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
-  handle?.setBounds({ x, y: Math.max(area.y + gap, top - gap - height), width, height, physical: true });
+  const y = Math.max(area.y + gap, top - gap - height);
+  const bounds = `${x},${y},${width},${height}`;
+  if (bounds !== placed) {
+    placed = bounds;
+    handle?.setBounds({ x, y, width, height, physical: true });
+  }
 
   let left = (BORDER + PAD + CARD_PAD) * scale;
   sources.forEach((source, i) => {
@@ -334,6 +346,26 @@ function checkPointer() {
   }, 300);
 }
 
+/**
+ * The centre of `key`'s dock icon in physical px. Asked of the dock's renderer without blocking
+ * (a synchronous layout read waited up to 1 s while it was busy); hoverApp asks as the pointer
+ * arrives, so the answer is usually in by the time the preview opens. A slow answer does not hold
+ * the preview: it opens at the pointer and moves over the icon when the answer comes.
+ */
+function centerOf(key: string, fresh = false): Promise<number | null> {
+  if (fresh || center?.key !== key) center = { key, at: DockWindow.nodeCenterXAsync("app:" + key).catch(() => null) };
+  const at = center.at;
+  return Promise.race([at, new Promise<null>((resolve) => setTimeout(() => resolve(null), 80))]).then((x) => {
+    if (x === null)
+      void at.then((late) => {
+        if (late === null || preview.key !== key) return;
+        anchorX = late;
+        layout();
+      });
+    return x;
+  });
+}
+
 function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
   const hit = p && screens.find((s) => p.x >= s.x && p.x < s.x + s.width && p.y >= s.y && p.y < s.y + s.height);
   return hit || screens.find((s) => s.primary) || screens[0];
@@ -342,34 +374,44 @@ function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
 export async function initWindowPreview(app: AppHandle) {
   handle = app.openWindow(PreviewView, { id: "preview", closeBehavior: "hide", keyboardEvents: true });
   await handle.ready;
+  // Screens once here, then from the change events: opening a preview needs no round trip for them.
+  handle.onScreensChange((list) => (screens = list));
+  screens = (await handle.screens()).screens;
   const native = handle.nativeHandle();
   hwnd = native ? (Number(native) as unknown as HWND) : null;
-  if (hwnd) excludeFromPeek(hwnd);
+  if (hwnd) {
+    excludeFromPeek(hwnd);
+    disableTransitions(hwnd);
+  }
   handle.onEvent((event) => {
     if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") hidePreview(true);
   });
-  handle.onFocusChange((focused) => {
-    // A list opened by a click closes when something else is clicked (it lost focus). Clicking
-    // its own icon again is handled by clickApp, which runs after this; let it see the state.
-    if (!focused && pinned) setTimeout(() => {
-      if (pinned && !(peeking && pointerInsidePreview())) hidePreview(true);
-    }, 120);
+  handle.onFocusChange((focused, change) => {
+    // A list opened by a click closes when something else is clicked (it lost focus). A press on
+    // its own icon leaves it to clickApp, which closes it when that click arrives.
+    if (focused || !pinned || (peeking && pointerInsidePreview())) return;
+    if (change.to === "main" && DockWindow.pressedOn("app:" + preview.key, change.pointerTarget)) return;
+    hidePreview(true);
   });
 }
 
 /** Places the preview for `key` above the pointer and shows it, unless `still()` turned false meanwhile. */
 async function showFor(key: string, still: () => boolean) {
   if (!handle) return;
-  const { screens, cursor } = await handle.screens();
-  if (!still()) return;
+  const cursor = cursorPos();
+  const iconX = await centerOf(key);
+  if (!still() || !handle) return;
   const screen = screenAt(screens, cursor);
   if (screen) {
     scale = screen.scale || 1;
     area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
   }
-  anchorX = cursor?.x ?? area.x + area.width / 2;
+  anchorX = iconX ?? cursor.x;
   if (preview.key !== key) clearThumbs();
   preview.key = key;
+  // This app's cards render now, before the window moves and shows: no frame of the previous
+  // app's cards (or of none) at the new place.
+  handle.flush();
   layout();
   handle.show();
 }
@@ -408,6 +450,7 @@ export function hoverApp(key: string, hovered: boolean) {
   hoveredKey = key;
   checkPointer();
   if (key === preview.key) return;
+  if (config.hoverPreview) void centerOf(key, true);
   const open = async () => {
     // The pointer may have only crossed this icon on its way up to the open preview.
     if (hoveredKey !== key || !handle || pinned) return;
@@ -416,7 +459,9 @@ export function hoverApp(key: string, hovered: boolean) {
   };
   // With a preview up, another icon takes over only if the pointer rests on it a moment, so
   // reaching for the first or last window across neighbouring icons keeps the preview.
-  showTimer = setTimeout(() => void open(), preview.key ? 220 : Math.max(0, Number(config.previewDelay ?? 450)));
+  // The user's delay caps the switch too, so a short delay is short everywhere.
+  const delay = Math.max(0, Number(config.previewDelay ?? 450));
+  showTimer = setTimeout(() => void open(), preview.key ? Math.min(220, delay) : delay);
 }
 
 export function previewOpen() {
@@ -441,5 +486,15 @@ let relayout: ReturnType<typeof setTimeout> | undefined;
 onShellEvent((event) => {
   if (!preview.key || event.type === "setting" || event.type === "changed" || event.type === "power") return;
   clearTimeout(relayout);
-  relayout = setTimeout(() => preview.key && layout(false), 60);
+  // The icon may have moved too (the dock re-centres when an app opens or closes).
+  relayout = setTimeout(() => {
+    const key = preview.key;
+    if (!key) return;
+    layout();
+    void centerOf(key, true).then((x) => {
+      if (x === null || preview.key !== key || x === anchorX) return;
+      anchorX = x;
+      layout();
+    });
+  }, 60);
 });

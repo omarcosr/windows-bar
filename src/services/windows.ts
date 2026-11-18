@@ -10,6 +10,7 @@ import {
   minimizeWindow,
   closeWindow,
   activateDesktop,
+  ownerOf,
   appProcessOf,
   exePathOf,
   terminateProcess,
@@ -140,6 +141,7 @@ export function refreshWindows() {
   // The app in front is the one owning the last non-dock foreground window; the desktop or a
   // window that is not on the taskbar leaves no app active, as on the Windows taskbar.
   let activeKey = "";
+  const front = buttonOf(lastForeground, (h) => windows.some((w) => w.hwnd === h));
   for (const w of windows) {
     if (!w.exe) continue;
     const program = w.exe.toLowerCase();
@@ -154,7 +156,7 @@ export function refreshWindows() {
     if (!firstSeen.has(w.hwnd)) firstSeen.set(w.hwnd, seenCounter++);
     group.windows.push({ hwnd: w.hwnd, title: w.title, minimized: w.minimized });
     group.recent.push(w.hwnd);
-    if (lastForeground && w.hwnd === lastForeground && !w.minimized) activeKey = key;
+    if (front && w.hwnd === front && !w.minimized) activeKey = key;
   }
   const alive = new Set(windows.map((w) => w.hwnd));
   for (const hwnd of firstSeen.keys()) if (!alive.has(hwnd)) firstSeen.delete(hwnd);
@@ -213,6 +215,12 @@ export function clearFlashing(hwnd: number) {
 }
 
 
+/** The window whose taskbar button stands for `hwnd`: itself, or the first owner up its chain that has one. */
+function buttonOf(hwnd: HWND | null, listed: (h: HWND) => boolean): HWND | null {
+  for (let h = hwnd, i = 0; h && i < 8; h = ownerOf(h), i++) if (listed(h)) return h;
+  return null;
+}
+
 /** Other apps' windows, and this app's own taskbar windows (settings); not the dock or its popups. */
 function countsAsApp(hwnd: HWND) {
   return windowPid(hwnd) !== process.pid || desktop.apps.some((a) => a.windows.some((w) => w.hwnd === hwnd));
@@ -229,13 +237,20 @@ export function launch(path: string) {
 
 /** Taskbar click: open, bring forward, cycle windows or minimize, as Windows does. */
 export function activateApp(key: string, launchPath?: string) {
+  // Decide on the live state, not on the last refresh or a foreground event still on its way:
+  // a window minimized, restored or activated a moment ago would flip the click's meaning.
+  const fg = foregroundWindow();
+  if (fg && countsAsApp(fg)) lastForeground = fg;
+  refreshWindows();
   const app = desktop.apps.find((a) => a.key === key);
   if (!app || app.windows.length === 0) {
     if (launchPath) launch(launchPath);
     return;
   }
   // Like the Windows taskbar: the app in front hides on click, any other app comes forward.
-  const inFront = app.windows.some((w) => w.hwnd === lastForeground && !w.minimized);
+  // A dialog in front counts for the window that owns it, as its taskbar button shows active.
+  const front = buttonOf(lastForeground, (h) => app.windows.some((w) => w.hwnd === h));
+  const inFront = app.windows.some((w) => w.hwnd === front && !w.minimized);
   if (inFront) {
     for (const w of app.windows) if (!w.minimized) minimizeWindow(w.hwnd);
     lastForeground = null;
