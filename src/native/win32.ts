@@ -443,6 +443,18 @@ export function listTaskbarWindows(): TopWindow[] {
   return collected;
 }
 
+
+/** Hidden by DWM (another virtual desktop, a Store app suspended): not on the taskbar then. */
+export function isCloaked(hwnd: HWND): boolean {
+  cloakBuf[0] = 0;
+  dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, cloakBytes, 4);
+  return !!cloakBuf[0];
+}
+
+export function isMinimized(hwnd: HWND): boolean {
+  return !!U.IsIconic(hwnd);
+}
+
 export function foregroundWindow(): HWND | null {
   return U.GetForegroundWindow() as HWND | null;
 }

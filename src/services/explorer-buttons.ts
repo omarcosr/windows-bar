@@ -162,3 +162,24 @@ export function explorerStateFor(exe: string): ButtonState | undefined {
   const button = explorerButtons.list.find((b) => matches(exe, b));
   return button ? parse(button.help) : undefined;
 }
+
+
+/**
+ * The order of Explorer's own taskbar buttons (pinned and running, as the user arranged them), as
+ * a rank for an app at `exe`: the dock places the apps open at start the same way. Infinity for
+ * an app without a button; null when Explorer's buttons cannot be read. One UIA read.
+ */
+export function explorerButtonRank(): ((exe: string) => number) | null {
+  let buttons: ExplorerButton[] | null = null;
+  try {
+    buttons = readExplorerButtons();
+  } catch (error) {
+    console.error("[explorer-buttons]", error);
+  }
+  if (!buttons?.length) return null;
+  const found = buttons;
+  return (exe) => {
+    const index = found.findIndex((b) => matches(exe, b));
+    return index < 0 ? Infinity : index;
+  };
+}

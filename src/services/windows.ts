@@ -1,5 +1,5 @@
 import { store } from "@tarve/core";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   storeAppId,
   packagedAppId,
@@ -10,15 +10,22 @@ import {
   minimizeWindow,
   closeWindow,
   activateDesktop,
+  isWindowVisible,
+  isCloaked,
+  isMinimized,
   ownerOf,
   appProcessOf,
   exePathOf,
   terminateProcess,
   type HWND,
+  type TopWindow,
 } from "../native/win32";
+import { readFileSync, writeFileSync } from "node:fs";
+import { configDir } from "../config";
 import { windowAppId } from "../native/app-id";
 import { openUri, showInFolder } from "../native/desktop";
 import { fileDescription } from "../native/version-info";
+import { explorerButtonRank } from "./explorer-buttons";
 
 export interface AppWindow {
   hwnd: HWND;
@@ -60,7 +67,38 @@ let appOrder: string[] = [];
 let signature = "";
 /** When each window was first seen, to keep a stable order inside an app. */
 const firstSeen = new Map<HWND, number>();
-let seenCounter = 0;
+/** The app each window was last grouped under, so an app keeps its place while its window is briefly unlisted. */
+const keyOf = new Map<HWND, string>();
+/** The windows of the last refresh, as listed (title, process). */
+let lastListed = new Map<HWND, TopWindow>();
+
+/**
+ * The order of the windows inside each app, kept across dock restarts (an update, a crash): the
+ * windows already open at start then keep the places they had instead of taking the z-order.
+ * Keyed by window and process, so a reused handle does not inherit a place.
+ */
+const ORDER_FILE = join(configDir, "window-order.json");
+const savedOrder = new Map<string, number>();
+try {
+  const list = JSON.parse(readFileSync(ORDER_FILE, "utf8")) as [string, number][];
+  for (const [id, seq] of list) savedOrder.set(id, seq);
+} catch {
+  // No order saved yet.
+}
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function saveOrder(windows: readonly TopWindow[]) {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const list = windows.filter((w) => firstSeen.has(w.hwnd)).map((w) => [`${Number(w.hwnd)}:${w.pid}`, firstSeen.get(w.hwnd)!]);
+    try {
+      writeFileSync(ORDER_FILE, JSON.stringify(list));
+    } catch (error) {
+      console.error("[windows] window order", error);
+    }
+  }, 2000);
+}
+/** After every saved place, so a new window always comes after them. */
+let seenCounter = Math.max(-1, ...savedOrder.values()) + 1;
 
 /** Store apps run inside ApplicationFrameHost.exe; each is told apart by its AppUserModelID. */
 const appIdCache = new Map<HWND, string>();
@@ -134,6 +172,13 @@ export function windowShown(hwnd: number) {
 
 export function refreshWindows() {
   const all = listTaskbarWindows();
+  // A window already on the dock keeps its button while its title is empty for a moment (apps
+  // clear it while they change it), as Explorer's taskbar does: measured, VS Code keeps its button
+  // there with an empty title. Hidden, cloaked (another desktop) or destroyed windows still go.
+  const seen = new Set(all.map((w) => w.hwnd));
+  for (const [hwnd, info] of lastListed)
+    if (!seen.has(hwnd) && isWindowVisible(hwnd) && !isCloaked(hwnd)) all.push({ ...info, minimized: isMinimized(hwnd) });
+  lastListed = new Map(all.map((w) => [w.hwnd, w]));
   const listed = new Set(all.map((w) => w.hwnd as unknown as number));
   for (const hwnd of closing) if (!listed.has(hwnd)) closing.delete(hwnd);
   const windows = all.filter((w) => !closing.has(w.hwnd as unknown as number));
@@ -153,13 +198,25 @@ export function refreshWindows() {
       group = { key, exe, program, explicitId: identity.explicitId, name: exe.startsWith("shell:") ? w.title : prettyName(exe), windows: [], recent: [] };
       groups.set(key, group);
     }
-    if (!firstSeen.has(w.hwnd)) firstSeen.set(w.hwnd, seenCounter++);
+    if (!firstSeen.has(w.hwnd)) {
+      const saved = savedOrder.get(`${Number(w.hwnd)}:${w.pid}`);
+      firstSeen.set(w.hwnd, saved ?? seenCounter++);
+    }
+    keyOf.set(w.hwnd, key);
     group.windows.push({ hwnd: w.hwnd, title: w.title, minimized: w.minimized });
     group.recent.push(w.hwnd);
     if (front && w.hwnd === front && !w.minimized) activeKey = key;
   }
   const alive = new Set(windows.map((w) => w.hwnd));
-  for (const hwnd of firstSeen.keys()) if (!alive.has(hwnd)) firstSeen.delete(hwnd);
+  // A window still on screen but briefly off the list (cloaked while it starts or on another
+  // desktop, a title that is empty for a moment, its app ID still resolving) keeps its place and
+  // its app's: Explorer keeps a button until the window is hidden or destroyed. Without this it
+  // came back at the end, and windows and icons swapped places.
+  for (const hwnd of firstSeen.keys()) {
+    if (alive.has(hwnd) || isWindowVisible(hwnd)) continue;
+    firstSeen.delete(hwnd);
+    keyOf.delete(hwnd);
+  }
   for (const hwnd of appIdCache.keys()) if (!alive.has(hwnd)) appIdCache.delete(hwnd);
   for (const hwnd of windowIdCache.keys()) if (!alive.has(hwnd)) windowIdCache.delete(hwnd);
   const pids = new Set(windows.map((w) => w.pid));
@@ -167,9 +224,18 @@ export function refreshWindows() {
   if (desktop.flashing.some((h) => !alive.has(h as unknown as HWND)))
     desktop.flashing = desktop.flashing.filter((h) => alive.has(h as unknown as HWND));
   for (const group of groups.values()) group.windows.sort((a, b) => firstSeen.get(a.hwnd)! - firstSeen.get(b.hwnd)!);
-  appOrder = appOrder.filter((key) => groups.has(key));
+  const lingering = new Set(keyOf.values());
+  appOrder = appOrder.filter((key) => groups.has(key) || lingering.has(key));
+  if (!appOrder.length && groups.size) {
+    // At start the apps already open take the places Explorer's own buttons have, not the z-order.
+    const rank = explorerButtonRank();
+    if (rank) {
+      const ranks = new Map([...groups.values()].map((g) => [g.key, rank(g.exe)]));
+      appOrder = [...groups.keys()].sort((a, b) => ranks.get(a)! - ranks.get(b)!);
+    }
+  }
   for (const key of groups.keys()) if (!appOrder.includes(key)) appOrder.push(key);
-  const apps = appOrder.map((key) => groups.get(key)!);
+  const apps = appOrder.filter((key) => groups.has(key)).map((key) => groups.get(key)!);
   // Only touch the store when something visible changed, so idle polling paints nothing.
   const next =
     apps
@@ -179,6 +245,7 @@ export function refreshWindows() {
     activeKey;
   if (next !== signature) {
     signature = next;
+    saveOrder(windows);
     desktop.apps = apps;
     desktop.activeKey = activeKey;
   }
@@ -258,22 +325,26 @@ export function activateApp(key: string, launchPath?: string) {
   } else {
     // The most recently used window comes forward (restored if it was minimized).
     const minimized = new Set(app.windows.filter((w) => w.minimized).map((w) => w.hwnd));
-    activateWindow(app.recent.find((h) => !minimized.has(h)) ?? app.recent[0]!);
+    const target = app.recent.find((h) => !minimized.has(h)) ?? app.recent[0]!;
+    activateWindow(target);
+    // Known at once, not when the foreground event arrives: a quick second click minimizes it.
+    lastForeground = target;
   }
   setTimeout(refreshWindows, 120);
 }
 
 /**
  * After the app in front is minimized, the window under it takes the keyboard, as when the taskbar
- * minimizes it; the desktop when no window is left. The click made the dock the foreground window,
- * so without this the dock kept the focus and Enter or Space pressed its icon again.
+ * minimizes it; the desktop when no window is left.
  */
 function activateNext(app: RunningApp) {
   const mine = new Set(app.windows.map((w) => w.hwnd));
   // Top to bottom (EnumWindows order): the first app window still on screen is the one under it.
   const next = listTaskbarWindows().find((w) => !mine.has(w.hwnd) && !w.minimized && w.pid !== process.pid);
-  if (next) activateWindow(next.hwnd);
-  else activateDesktop();
+  if (next) {
+    activateWindow(next.hwnd);
+    lastForeground = next.hwnd;
+  } else activateDesktop();
 }
 
 /** A foreground change reported by the shell; the dock's own windows do not count. */
@@ -289,6 +360,7 @@ export function foregroundApp(): HWND | null {
 
 export function focusWindow(hwnd: HWND) {
   activateWindow(hwnd);
+  lastForeground = hwnd;
   setTimeout(refreshWindows, 120);
 }
 
