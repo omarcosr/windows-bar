@@ -5,7 +5,7 @@
     "": {
       "name": "windows-bar",
       "dependencies": {
-        "@tarve/core": "0.13.2",
+        "@tarve/core": "0.13.3",
       },
       "devDependencies": {
         "@types/bun": "^1.4.4",
@@ -64,7 +64,7 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.0", "", { "os": "win32", "cpu": "x64" }, "sha512-ZENoHJBxA20C2zFzh6AI4fT6RraMzjYw4xKWemRTRmRVtN9c5DcH9r/f2ihEkMjOW5eGgrwCslG/+Y/3bL+DHQ=="],
 
-    "@tarve/core": ["@tarve/core@0.13.2", "", { "dependencies": { "esbuild": "0.25.0", "resedit": "3.1.0" }, "os": [ "linux", "win32", ], "cpu": "x64", "bin": { "tarve": "dist/npm/cli.js" } }, "sha512-Ho2Q2QyUXDWQAbXLnExL54nB1jUGOQPUtAOlAdj5tZ7JiCfmEwygxYL4CFqyOHXihPt9ETFOWhqrS4cE4xE9fA=="],
+    "@tarve/core": ["@tarve/core@0.13.3", "", { "dependencies": { "esbuild": "0.25.0", "resedit": "3.1.0" }, "os": [ "linux", "win32", ], "cpu": "x64", "bin": { "tarve": "dist/npm/cli.js" } }, "sha512-SoalN2z/hy/0C8eT8h4VY71DVVjB5VasxQCncGKTOxSXqb2+obVYO4tKllBVIj7LHFUH8rJMOy+dXswTirZfBA=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

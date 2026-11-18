@@ -21,7 +21,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@tarve/core": "0.13.2"
+    "@tarve/core": "0.13.3"
   },
   "version": "0.1.0",
   "tarve": {
