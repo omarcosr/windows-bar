@@ -23,8 +23,10 @@ export function setSetting(ctx: WidgetContext<Record<string, unknown>>, key: str
 }
 
 /**
- * Menu sections for a widget's options: toggles together, then one section per choice. Text
- * options are left to the gallery; `more` reports whether there are any.
+ * Menu sections for a widget's options: toggles together, then a section per short choice. Long
+ * choices (currencies, cities, intervals), choices past the first few and text options are left to
+ * the settings dialog, as Windows keeps context menus short: a currency list of twenty "De: …" and
+ * twenty "Para: …" rows ran the menu off the screen. `more` reports whether anything was left out.
  */
 export function settingsMenu(widget: MountedWidget): { sections: DockMenuItem[][]; more: boolean } {
   const { ctx } = widget;
@@ -36,7 +38,7 @@ export function settingsMenu(widget: MountedWidget): { sections: DockMenuItem[][
     if (s.kind === "toggle") {
       const on = ctx.config[s.key] === true;
       toggles.push({ label: s.label, icon: on ? "check" : undefined, onSelect: () => setSetting(ctx, s.key, !on) });
-    } else if (s.kind === "choice") {
+    } else if (s.kind === "choice" && s.options.length <= MENU_CHOICE_OPTIONS && sections.length < MENU_CHOICES) {
       sections.push(
         s.options.map((o) => ({
           label: `${s.label}: ${o.label}`,
@@ -49,3 +51,7 @@ export function settingsMenu(widget: MountedWidget): { sections: DockMenuItem[][
   if (toggles.length) sections.unshift(toggles);
   return { sections, more };
 }
+/** A choice goes in the menu only with this many options or fewer… */
+const MENU_CHOICE_OPTIONS = 4;
+/** …and only this many choices: the rest are in the settings dialog. */
+const MENU_CHOICES = 2;

@@ -147,6 +147,19 @@ function CloseButton(props: { hwnd: HWND }) {
   );
 }
 
+/** The card or row under the pointer: a middle click closes its window, as on the taskbar's thumbnails. */
+let hoveredWindow: HWND | null = null;
+
+function hoverWindow(target: HWND, hovered: boolean) {
+  if (hovered) {
+    hoveredWindow = target;
+    startPeek(target);
+  } else {
+    if (hoveredWindow === target) hoveredWindow = null;
+    stopPeek();
+  }
+}
+
 function pick(target: HWND) {
   stopPeek();
   hidePreview(true);
@@ -157,7 +170,7 @@ function Card(props: { hwnd: HWND; title: string; exe: string; width: number }) 
   const icon = iconFor(props.exe, 16);
   return (
     <Pressable
-      onHover={(hovered) => (hovered ? startPeek(props.hwnd) : stopPeek())}
+      onHover={(hovered) => hoverWindow(props.hwnd, hovered)}
       onClick={() => pick(props.hwnd)}
       style={{
         width: props.width + CARD_PAD * 2,
@@ -187,7 +200,7 @@ function ListRow(props: { hwnd: HWND; title: string; exe: string }) {
   const icon = iconFor(props.exe, 16);
   return (
     <Pressable
-      onHover={(hovered) => (hovered ? startPeek(props.hwnd) : stopPeek())}
+      onHover={(hovered) => hoverWindow(props.hwnd, hovered)}
       onClick={() => pick(props.hwnd)}
       style={{
         width: LIST_W,
@@ -379,7 +392,7 @@ function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
 }
 
 export async function initWindowPreview(app: AppHandle) {
-  handle = app.openWindow(PreviewView, { id: "preview", closeBehavior: "hide", keyboardEvents: true });
+  handle = app.openWindow(PreviewView, { id: "preview", closeBehavior: "hide", keyboardEvents: true, pointerEvents: true });
   await handle.ready;
   // Screens once here, then from the change events: opening a preview needs no round trip for them.
   handle.onScreensChange((list) => (screens = list));
@@ -393,6 +406,9 @@ export async function initWindowPreview(app: AppHandle) {
   quiet = await quietWindow(handle);
   handle.onEvent((event) => {
     if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") hidePreview(true);
+    // Middle button released over a card or row: close that window, as the taskbar's thumbnails do.
+    const pointer = event as { type: string; phase?: string; button?: number };
+    if (pointer.type === "pointer" && pointer.phase === "up" && pointer.button === 1 && hoveredWindow) closeFromPreview(hoveredWindow);
   });
   handle.onFocusChange((focused, change) => {
     // A list opened by a click closes when something else is clicked (it lost focus). A press on
