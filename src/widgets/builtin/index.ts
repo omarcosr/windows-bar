@@ -18,6 +18,7 @@ import launcher from "./launcher";
 import online from "./online";
 import productivity from "./productivity";
 import weatherMedia from "./weather-media";
+import providers2 from "./providers2";
 
 /** Built-in widgets. A new widget is one file with defineWidget() plus a line here. */
 for (const widget of [
@@ -40,5 +41,6 @@ for (const widget of [
   ...finance,
   ...online,
   ...ai,
+  ...providers2,
 ])
   registerWidget(widget);

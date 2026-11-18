@@ -105,7 +105,22 @@ const NAMED: Record<string, number> = {
   "skip-forward": 0xe893,
   "skip-back": 0xe892,
   download: 0xe896,
+  check: 0xe73e,
 };
+
+/**
+ * One Segoe Fluent Icons character, drawn as the shell draws its own buttons' glyphs (the preview's
+ * close button, the tray arrow): use this instead of outline drawings anywhere Windows has a glyph.
+ */
+export function FluentGlyph(props: { code: number; size: number; color?: string }) {
+  return (
+    <View style={{ width: props.size, height: props.size, align: "center", justify: "center", shrink: 0 }}>
+      <Text size={props.size} color={props.color ?? ui.text} style={{ fontFamily: FLUENT_FONT, lineHeight: 1 }}>
+        {String.fromCharCode(props.code)}
+      </Text>
+    </View>
+  );
+}
 
 function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string; size?: number }) {
   const { icon } = props;

@@ -150,6 +150,7 @@ export default defineWidget({
     const color = ctx.config.logoColor === "blue" ? "#4cc2ff" : ctx.config.logoColor === "accent" ? taskbarPrefs.accent : "#e9e9ee";
     return (
       <Pressable
+        focusable={false}
         onClick={toggleStart}
         onContextMenu={showStartMenu}
         style={{

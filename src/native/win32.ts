@@ -5,6 +5,7 @@ import { encodeWide, decodeWide } from "./wide";
 
 const user32 = dlopen("user32.dll", {
   FindWindowExW: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "ptr" },
+  GetShellWindow: { args: [], returns: "ptr" },
   SetWindowPos: { args: ["ptr", "i64", "i32", "i32", "i32", "i32", "u32"], returns: "i32" },
   EnumWindows: { args: ["function", "ptr"], returns: "i32" },
   IsWindowVisible: { args: ["ptr"], returns: "i32" },
@@ -505,6 +506,12 @@ export function activateWindow(hwnd: HWND) {
   // Windows of elevated apps (run as administrator) refuse ShowWindow from this process;
   // SwitchToThisWindow goes through the shell, restores them and brings them forward.
   if (U.IsIconic(hwnd) || !U.SetForegroundWindow(hwnd)) U.SwitchToThisWindow(hwnd, 1);
+}
+
+/** The desktop takes the foreground (nothing left to activate), as after the last window minimizes. */
+export function activateDesktop() {
+  const desktop = U.GetShellWindow() as HWND | null;
+  if (desktop) U.SetForegroundWindow(desktop);
 }
 
 export function windowPid(hwnd: HWND): number {

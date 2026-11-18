@@ -165,6 +165,8 @@ function AppIcon(props: {
     <Pressable
       // The window preview anchors above the icon by this id.
       id={"app:" + item.key}
+      // A taskbar button never keeps the keyboard: Enter or Space after a click must not press it again.
+      focusable={false}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onHover={onHover}
@@ -297,6 +299,7 @@ function OverflowButton(props: { items: Item[]; dockIndex: number; onContextMenu
   const attention = props.items.some((i) => i.attention);
   return (
     <Pressable
+      focusable={false}
       onClick={open}
       style={{
         position: "relative",

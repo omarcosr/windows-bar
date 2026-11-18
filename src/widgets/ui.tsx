@@ -36,6 +36,8 @@ export function Tile(props: {
   if (!props.onClick && !props.onContextMenu) return <View style={style}>{props.children}</View>;
   return (
     <Pressable
+      // Dock tiles never keep the keyboard, like taskbar buttons (Enter after a click must not re-press).
+      focusable={false}
       onClick={
         props.onClick
           ? () => {
@@ -236,6 +238,7 @@ export function HitReach(props: { height: number; onClick?: () => void; onContex
   return (
     <Pressable
       aria-hidden
+      focusable={false}
       onClick={props.onClick}
       onContextMenu={props.onContextMenu}
       onHover={props.onHover}

@@ -1,4 +1,4 @@
-import { Circle, Column, Line, Path, Row, Svg, Text, View, store } from "@tarve/core";
+import { Circle, Column, Line, Path, Pressable, Row, Svg, Text, View, store } from "@tarve/core";
 import { batteryWatch, system } from "../../../services/system";
 import { onShellEvent } from "../../../native/shell-events";
 import { numeric, ui } from "../../../theme";
@@ -144,6 +144,64 @@ export const batteryRing = defineWidget({
         </Ring>
         <Metric label={b.plugged ? "Na tomada" : "Bateria"} value={`${b.percent}%`} />
       </Tile>
+    );
+  },
+});
+
+// ---------- Líquido: a square tank whose water level is the charge ----------
+
+/** Water colours: blue normally, amber when low, red when critical (charging keeps it blue). */
+function waterColors(b: BatteryReading) {
+  if (!b.plugged && b.percent <= 10) return { water: "#ff453a", deep: "#d92d22", air: "#ff8a80" };
+  if (!b.plugged && b.percent <= 20) return { water: "#ff9f0a", deep: "#e07f00", air: "#ffc46b" };
+  return { water: "#3d8cff", deep: "#2a6fe0", air: "#6aaeff" };
+}
+
+/** Top edge of the water: two gentle wave crests across the tank, as one closed shape down to the floor. */
+function waterPath(size: number, level: number) {
+  const y = size * (1 - level);
+  const amp = Math.min(2.6, size * 0.05);
+  const q = size / 4;
+  return `M 0 ${y.toFixed(2)} C ${(q * 0.5).toFixed(2)} ${(y - amp).toFixed(2)} ${(q * 1.5).toFixed(2)} ${(y - amp).toFixed(2)} ${(q * 2).toFixed(2)} ${y.toFixed(2)} S ${(q * 3.5).toFixed(2)} ${(y + amp).toFixed(2)} ${size} ${y.toFixed(2)} L ${size} ${size} L 0 ${size} Z`;
+}
+
+export const batteryLiquid = defineWidget({
+  ...base,
+  type: "hardware-battery-liquid",
+  name: "Bateria líquida",
+  description: "Um quadrado que se enche de água até a carga, com o número e um raio quando está na tomada.",
+  setup: batterySetup,
+  View({ preview }) {
+    const b = battery(preview);
+    const size = ui.tile.height;
+    const c = waterColors(b);
+    // Kept a little below the top at 100 % so the wave still shows, and visible at 0 %.
+    const level = 0.06 + 0.82 * (Math.max(0, Math.min(100, b.percent)) / 100);
+    const text = Math.round(size * 0.36);
+    return (
+      <Pressable
+        onClick={openBatteryFlyout}
+        style={{
+          width: size,
+          height: size,
+          radius: Math.round(size * 0.24),
+          overflow: "hidden",
+          background: c.air,
+          shrink: 0,
+          cursor: "pointer",
+          active: { transform: "scale(0.96)" },
+        }}
+      >
+        <Svg width={size} height={size} viewBox={[0, 0, size, size]}>
+          <Path d={waterPath(size, level)} fill={c.water} stroke="none" />
+        </Svg>
+        <View style={{ position: "absolute", left: 0, top: 0, width: size, height: size, direction: "row", align: "center", justify: "center", gap: 2 }}>
+          {b.plugged ? <Bolt size={Math.round(text * 0.85)} color="#ffffff" /> : null}
+          <Text size={text} weight={800} color="#ffffff" style={{ ...numeric, lineHeight: 1 }}>
+            {String(b.percent)}
+          </Text>
+        </View>
+      </Pressable>
     );
   },
 });

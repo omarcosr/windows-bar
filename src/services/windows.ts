@@ -9,6 +9,7 @@ import {
   listTaskbarWindows,
   minimizeWindow,
   closeWindow,
+  activateDesktop,
   appProcessOf,
   exePathOf,
   terminateProcess,
@@ -238,12 +239,26 @@ export function activateApp(key: string, launchPath?: string) {
   if (inFront) {
     for (const w of app.windows) if (!w.minimized) minimizeWindow(w.hwnd);
     lastForeground = null;
+    activateNext(app);
   } else {
     // The most recently used window comes forward (restored if it was minimized).
     const minimized = new Set(app.windows.filter((w) => w.minimized).map((w) => w.hwnd));
     activateWindow(app.recent.find((h) => !minimized.has(h)) ?? app.recent[0]!);
   }
   setTimeout(refreshWindows, 120);
+}
+
+/**
+ * After the app in front is minimized, the window under it takes the keyboard, as when the taskbar
+ * minimizes it; the desktop when no window is left. The click made the dock the foreground window,
+ * so without this the dock kept the focus and Enter or Space pressed its icon again.
+ */
+function activateNext(app: RunningApp) {
+  const mine = new Set(app.windows.map((w) => w.hwnd));
+  // Top to bottom (EnumWindows order): the first app window still on screen is the one under it.
+  const next = listTaskbarWindows().find((w) => !mine.has(w.hwnd) && !w.minimized && w.pid !== process.pid);
+  if (next) activateWindow(next.hwnd);
+  else activateDesktop();
 }
 
 /** A foreground change reported by the shell; the dock's own windows do not count. */

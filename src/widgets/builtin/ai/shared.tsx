@@ -9,6 +9,7 @@ export const brand = {
   claude: { color: "#d97757", letter: "C", name: "Claude" },
   codex: { color: "#10a37f", letter: "◎", name: "Codex" },
   opencode: { color: "#3b3b40", letter: "▣", name: "OpenCode" },
+  gemini: { color: "#4285f4", letter: "G", name: "Gemini" },
 } as const;
 
 export type Brand = keyof typeof brand;

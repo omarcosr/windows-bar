@@ -1,4 +1,4 @@
-import { Icon, Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/core";
+import { Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/core";
 import { config, type WidgetInstance } from "../config";
 import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
@@ -6,7 +6,7 @@ import { dockAlign } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
 import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./state";
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
-import { glyph } from "../menu/dock-menu";
+import { FluentGlyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
 import { currentExtra, dockCount, dockMetrics, dockRoom, fixedGroupSlots, inDockGroup, magnifying, magnifyRowProps, maxExtra, noteSlotWidth } from "../widgets/magnify";
 
@@ -92,7 +92,8 @@ function SettingsBadge(props: { onClick: () => void }) {
         hover: { transform: "scale(1.1)", background: ui.blue },
       }}
     >
-      <Icon iconNode={glyph.sliders} size={12} color="#fff" strokeWidth={2.4} />
+      {/* Settings gear, the glyph Windows uses for settings. */}
+      <FluentGlyph code={0xe713} size={11} color="#ffffff" />
     </Pressable>
   );
 }

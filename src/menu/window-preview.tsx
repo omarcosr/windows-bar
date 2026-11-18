@@ -1,6 +1,7 @@
 import { dlopen } from "../native/ffi";
-import { Icon, Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle, type ScreenInfo } from "@tarve/core";
+import { Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle, type ScreenInfo } from "@tarve/core";
 import { config } from "../config";
+import { FluentGlyph } from "./dock-menu";
 import { DockWindow } from "../native/dock-window";
 import { onShellEvent } from "../native/shell-events";
 import {
@@ -110,9 +111,10 @@ function CloseButton(props: { hwnd: HWND }) {
     <Pressable
       onClick={() => closeFromPreview(props.hwnd)}
       style={{
-        width: 22,
-        height: 22,
-        radius: 6,
+        // Windows 11's thumbnail close button: a small square with the ChromeClose glyph, red on hover.
+        width: 24,
+        height: 24,
+        radius: 4,
         align: "center",
         justify: "center",
         opacity: 0,
@@ -120,7 +122,7 @@ function CloseButton(props: { hwnd: HWND }) {
         hover: { background: "#c42b1c" },
       }}
     >
-      <Icon name="x" size={13} color="#fff" strokeWidth={2.2} />
+      <FluentGlyph code={0xe8bb} size={10} color="#ffffff" />
     </Pressable>
   );
 }

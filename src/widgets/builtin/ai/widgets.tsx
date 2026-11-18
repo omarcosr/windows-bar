@@ -17,6 +17,7 @@ import {
   tokensLabel,
   type LimitUsage,
 } from "../../../services/ai-usage";
+import { gemini, geminiLimits, geminiPoller } from "../../../services/providers2-gemini";
 import { LimitRow, Logo, StatusLine, brand, demo, showsData, ticker, type Brand } from "./shared";
 
 const CLAUDE_USAGE_URL = "https://claude.ai/settings/usage";
@@ -232,23 +233,26 @@ const opencode = defineWidget({
 
 // ---------------------------------------------------------------- AI limits (two providers)
 
-type Provider = "claude" | "codex";
+type Provider = "claude" | "codex" | "gemini";
 const providerOptions = [
   { value: "claude", label: "Claude" },
   { value: "codex", label: "ChatGPT (Codex)" },
+  { value: "gemini", label: "Gemini CLI (cota diária)" },
 ] as const;
+const asProvider = (value: string, fallback: Provider): Provider => (value === "claude" || value === "codex" || value === "gemini" ? value : fallback);
 const windowOptions = [
   { value: "session", label: "Sessão de 5 h" },
   { value: "weekly", label: "Semanal" },
 ] as const;
 
 function ProviderLine(props: { provider: Provider; window: string; preview: boolean }) {
-  const u = limitsOf(props.provider, props.preview);
-  const w = props.window === "weekly" ? u.weekly : u.session;
+  const u = props.provider === "gemini" ? geminiLimits(props.preview) : limitsOf(props.provider, props.preview);
+  const daily = props.provider === "gemini";
+  const w = props.window === "weekly" && !daily ? u.weekly : u.session;
   return (
     <Row style={{ align: "center", gap: 6 }}>
       <Logo brand={props.provider} size={12} />
-      {showsData(u) ? <LimitRow label={props.window === "weekly" ? "sem" : "5h"} window={w} meter={40} /> : <StatusLine usage={u} />}
+      {showsData(u) ? <LimitRow label={daily ? "dia" : props.window === "weekly" ? "sem" : "5h"} window={w} meter={40} /> : <StatusLine usage={u} />}
     </Row>
   );
 }
@@ -268,9 +272,13 @@ const limits = defineWidget({
   setup(ctx) {
     ctx.onDispose(claudePoller.acquire());
     ctx.onDispose(codexPoller.acquire());
+    if (ctx.config.first === "gemini" || ctx.config.second === "gemini") ctx.onDispose(geminiPoller.acquire());
     return ticker(ctx);
   },
-  hidden: () => aiUsage.claude.status === "missing" && aiUsage.codex.status === "missing",
+  hidden: ({ ctx }) =>
+    aiUsage.claude.status === "missing" &&
+    aiUsage.codex.status === "missing" &&
+    !((ctx.config.first === "gemini" || ctx.config.second === "gemini") && gemini.usage.status !== "missing"),
   menu: () => [
     [
       {
@@ -287,8 +295,8 @@ const limits = defineWidget({
   ],
   View({ state, ctx, preview }) {
     void state.tick;
-    const first = (ctx.config.first === "codex" ? "codex" : "claude") as Provider;
-    const second = (ctx.config.second === "claude" ? "claude" : "codex") as Provider;
+    const first = asProvider(ctx.config.first, "claude");
+    const second = asProvider(ctx.config.second, "codex");
     return (
       <Tile width={206} padding={{ left: 10, right: 10 }}>
         <Column style={{ flex: 1, gap: 4 }}>

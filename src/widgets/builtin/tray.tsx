@@ -1,5 +1,5 @@
-import { Icon, Image, Pressable, Row, View } from "@tarve/core";
-import { holdDockMenu, toggleDockMenu, updateDockMenu, type DockMenuItem, type DockMenuSpec } from "../../menu/dock-menu";
+import { Image, Pressable, Row, View } from "@tarve/core";
+import { FluentGlyph, holdDockMenu, toggleDockMenu, updateDockMenu, type DockMenuItem, type DockMenuSpec } from "../../menu/dock-menu";
 import { windowPidOf } from "../../native/tray-host";
 import { acquireTaskbarHost, clickTrayIcon, tray, type TrayIcon } from "../../services/taskbar-host";
 import { launch, prettyName } from "../../services/windows";
@@ -28,6 +28,7 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
   return (
     <HoverTip id={`tip:tray:${icon.key}`} tip={() => icon.tip.split("\n").map((l) => l.trim())} disabled={props.preview}>
     <Pressable
+      focusable={false}
       onClick={onClick}
       onContextMenu={onContextMenu}
       style={{
@@ -140,7 +141,8 @@ export default defineWidget({
             hover: { background: "rgba(255,255,255,0.07)" },
           }}
         >
-          <Icon name="chevron-up" size={16} color={ui.text} strokeWidth={2} />
+          {/* The taskbar's "Mostrar ícones ocultos" arrow (ChevronUp glyph). */}
+          <FluentGlyph code={0xe70e} size={12} color={ui.text} />
         </Pressable>
         {inline.length ? (
           <Row style={{ align: "center", gap: 0 }}>
