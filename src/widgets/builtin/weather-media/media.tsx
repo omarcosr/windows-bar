@@ -35,7 +35,7 @@ const idleSetting = {
 
 function setup<C extends object>(ctx: WidgetContext<C>): { progress: number } {
   ctx.onDispose(useMedia());
-  // Read at render: the session poll (every second while playing) re-renders with a new position.
+  // Read at render: mediaClock (each whole second while playing) re-renders with a new position.
   return {
     get progress() {
       return media.duration ? mediaPosition() / media.duration : 0;

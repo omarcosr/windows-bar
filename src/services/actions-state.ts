@@ -6,19 +6,18 @@ import {
   nextWallpaper,
   picturesFolder,
   readBrightness,
-  readMicrophone,
   readTheme,
   readWallpaper,
   recycleBinInfo,
   setBrightness,
   setLightTheme,
-  setMicrophoneMuted,
   setWallpaper,
   toggleTouchKeyboard,
   type BrightnessSource,
 } from "../native/actions-native";
 import { openUri } from "../native/desktop";
-import { HSHELL, onShellEvent, SPI_SETDESKWALLPAPER } from "../native/shell-events";
+import { setEndpointMuted, watchEndpoint, type EndpointState } from "../native/status";
+import { onShellEvent, SPI_SETDESKWALLPAPER } from "../native/shell-events";
 import { createPoller } from "./poller";
 
 /** Shared state of the "actions" widgets, polled only while one of them is placed. */
@@ -45,42 +44,17 @@ function assign(next: Partial<typeof actions>) {
 
 // ---------- Microphone ----------
 
-function readMic() {
-  const mic = readMicrophone();
+function applyMic(mic: EndpointState | null) {
   assign({ hasMic: !!mic, micMuted: mic?.muted ?? false, micLevel: mic?.level ?? 0, micDevice: mic?.device ?? "" });
 }
 
-/**
- * The input level is a meter (IAudioMeterInformation peak): sampled every second while the widget is
- * placed, resting while the dock is covered or the session is away. Mute and device changes have only
- * COM callbacks (IAudioEndpointVolumeCallback, IMMNotificationClient) on a system thread, which the JS
- * runtime cannot take yet; a microphone key (WM_APPCOMMAND reaching the shell hook as HSHELL_APPCOMMAND)
- * is read at once.
- */
-const micSampler = createPoller(1000, readMic);
-
+/** The default microphone's mute, volume and device, from Core Audio's notifications (native/status.ts watchEndpoint). */
 export const micPoller = {
-  acquire(): () => void {
-    const release = micSampler.acquire();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const off = onShellEvent((event) => {
-      if (event.type !== "shell" || event.code !== HSHELL.APPCOMMAND) return;
-      const command = (event.hwnd >>> 16) & 0x0fff;
-      // APPCOMMAND_MICROPHONE_VOLUME_MUTE / DOWN / UP, MIC_ON_OFF_TOGGLE
-      if (command < 24 || (command > 26 && command !== 44)) return;
-      clearTimeout(timer);
-      timer = setTimeout(readMic, 100);
-    });
-    return () => {
-      clearTimeout(timer);
-      off();
-      release();
-    };
-  },
+  acquire: (): (() => void) => watchEndpoint(1, applyMic),
 };
 
 export function toggleMicMute() {
-  if (setMicrophoneMuted(!actions.micMuted)) assign({ micMuted: !actions.micMuted });
+  if (setEndpointMuted(1, !actions.micMuted)) assign({ micMuted: !actions.micMuted });
 }
 
 // ---------- Brightness ----------

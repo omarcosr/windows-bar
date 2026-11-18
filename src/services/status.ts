@@ -1,7 +1,6 @@
 import { store } from "@tarve/core";
-import { keyboardLayout, readNetwork, readVolume, setMuted, setVolume, type NetworkKind } from "../native/status";
+import { keyboardLayout, readNetwork, setMuted, setVolume, watchEndpoint, watchNetwork, type EndpointState, type NetworkKind } from "../native/status";
 import { powerStatus } from "../native/win32";
-import { createPoller } from "./poller";
 import { HSHELL, onShellEvent } from "../native/shell-events";
 import { foregroundApp } from "./windows";
 
@@ -26,7 +25,7 @@ export const status = store({
 });
 
 function assign(next: Partial<typeof status>) {
-  // Only write what changed, so an idle poll repaints nothing.
+  // Only write what changed, so a notification that changes nothing repaints nothing.
   for (const [key, value] of Object.entries(next)) {
     if ((status as Record<string, unknown>)[key] !== value) (status as Record<string, unknown>)[key] = value;
   }
@@ -37,19 +36,13 @@ function refreshBattery() {
   assign({ hasBattery: power.hasBattery, battery: power.percent, charging: power.charging });
 }
 
-export function refreshStatus() {
+function refreshNetwork() {
   const net = readNetwork();
-  const volume = readVolume();
-  assign({
-    network: net.kind,
-    internet: net.internet,
-    signal: net.signal,
-    ssid: net.name,
-    hasAudio: !!volume,
-    audioDevice: volume?.device ?? "",
-    volume: volume?.level ?? 0,
-    muted: volume?.muted ?? false,
-  });
+  assign({ network: net.kind, internet: net.internet, signal: net.signal, ssid: net.name });
+}
+
+function applyVolume(volume: EndpointState | null) {
+  assign({ hasAudio: !!volume, audioDevice: volume?.device ?? "", volume: volume?.level ?? 0, muted: volume?.muted ?? false });
 }
 
 export function refreshLanguage() {
@@ -58,39 +51,28 @@ export function refreshLanguage() {
 }
 
 /**
- * Volume and network are read every second: their change events (IAudioEndpointVolumeCallback,
- * NotifyNetworkConnectivityHintChange) call back on a system thread pool, which the JS runtime's FFI
- * cannot take. The battery follows WM_POWERBROADCAST instead (shell-events.ts).
- * TODO: the next @tarve/core (native ABI 8) adds threadsafeCallback/threadsafeComObject: register an
- * IAudioEndpointVolumeCallback sink and NotifyNetworkConnectivityHintChange with them, and drop this poll.
+ * Everything follows the system's own notifications, as the taskbar's icons do: the default speaker's
+ * volume and mute (IAudioEndpointVolumeCallback, IMMNotificationClient), the network
+ * (NotifyNetworkConnectivityHintChange, route and WLAN notifications) and the battery (WM_POWERBROADCAST).
  */
-const volumePoller = createPoller(1000, refreshStatus);
-
 export const statusPoller = {
   acquire(): () => void {
     refreshBattery();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const off = onShellEvent((event) => {
+    refreshNetwork();
+    const offPower = onShellEvent((event) => {
       if (event.type === "power") refreshBattery();
-      // A volume key no app handled reaches the shell hook (HSHELL_APPCOMMAND) as it reaches Explorer,
-      // which changes the volume: read it right after instead of at the next second.
-      else if (event.type === "shell" && event.code === HSHELL.APPCOMMAND) {
-        const command = (event.hwnd >>> 16) & 0x0fff;
-        if (command < 8 || command > 10) return; // APPCOMMAND_VOLUME_MUTE / DOWN / UP
-        clearTimeout(timer);
-        timer = setTimeout(refreshStatus, 100);
-      }
     });
-    const release = volumePoller.acquire();
+    const offVolume = watchEndpoint(0, applyVolume);
+    const offNetwork = watchNetwork(refreshNetwork);
     return () => {
-      clearTimeout(timer);
-      off();
-      release();
+      offPower();
+      offVolume();
+      offNetwork();
     };
   },
 };
 
-/** Master volume (0..100) of the default device; shown at once, then confirmed by a read. */
+/** Master volume (0..100) of the default device; shown at once, then confirmed by its change notification. */
 export function changeVolume(level: number) {
   const next = Math.round(Math.max(0, Math.min(100, level)));
   if (!setVolume(next)) return;

@@ -1,3 +1,4 @@
+import { threadsafeCallback, threadsafeComObject, type ThreadsafeCallback, type ThreadsafeComObject } from "@tarve/core";
 import { CFunction, dlopen, read, toArrayBuffer, type Pointer, FfiUnsupported } from "./ffi";
 import { decodeWide, encodeWide } from "./wide";
 
@@ -6,11 +7,15 @@ import { decodeWide, encodeWide } from "./wide";
 const ole32 = dlopen("ole32.dll", {
   CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
   CoCreateInstance: { args: ["ptr", "ptr", "u32", "ptr", "ptr"], returns: "i32" },
+  PropVariantClear: { args: ["ptr"], returns: "i32" },
 });
 const iphlpapi = dlopen("iphlpapi.dll", {
   GetNetworkConnectivityHint: { args: ["ptr"], returns: "u32" },
   GetBestInterface: { args: ["u32", "ptr"], returns: "u32" },
   GetIfEntry2: { args: ["ptr"], returns: "u32" },
+  NotifyNetworkConnectivityHintChange: { args: ["ptr", "ptr", "u8", "ptr"], returns: "u32" },
+  NotifyRouteChange2: { args: ["u16", "ptr", "ptr", "u8", "ptr"], returns: "u32" },
+  CancelMibChangeNotify2: { args: ["ptr"], returns: "u32" },
 });
 const user32 = dlopen("user32.dll", {
   GetKeyboardLayout: { args: ["u32"], returns: "u64" },
@@ -28,6 +33,7 @@ const wlanapi = dlopen("wlanapi.dll", {
   WlanOpenHandle: { args: ["u32", "ptr", "ptr", "ptr"], returns: "u32" },
   WlanEnumInterfaces: { args: ["ptr", "ptr", "ptr"], returns: "u32" },
   WlanQueryInterface: { args: ["ptr", "ptr", "u32", "ptr", "ptr", "ptr", "ptr"], returns: "u32" },
+  WlanRegisterNotification: { args: ["ptr", "u32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "u32" },
   WlanFreeMemory: { args: ["ptr"], returns: "void" },
 });
 
@@ -61,113 +67,286 @@ function com(obj: Pointer, index: number, args: string[], ...values: unknown[]):
 
 const release = (obj: Pointer) => com(obj, 2, []);
 
+// ---------- Audio endpoints ----------
+
+/** eRender (the taskbar's speaker) or eCapture (quick settings' microphone). */
+export type AudioFlow = 0 | 1;
+/** The default each flow follows: the speaker the eMultimedia one, the microphone the eConsole one. */
+const ROLE = [1, 0] as const;
+
+export interface EndpointState {
+  /** Master volume, 0..100. */
+  level: number;
+  muted: boolean;
+  /** The device's name as the volume tip shows it ("Alto-falantes (Realtek(R) Audio)"). */
+  device: string;
+}
+
 const CLSID_MMDeviceEnumerator = guid("BCDE0395-E52F-467C-8E3D-C4579291692E");
 const IID_IMMDeviceEnumerator = guid("A95664D2-9614-4F35-A746-DE8DB63617E6");
 const IID_IAudioEndpointVolume = guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+const IID_IAudioEndpointVolumeCallback = "{657804FA-D6AD-4496-8A60-352752AF4F89}";
+const IID_IMMNotificationClient = "{7991EEC9-7E89-4D85-8390-6C703CEC60C0}";
+// PKEY_Device_FriendlyName {A45C254E-DF1C-4EFD-8020-67D146A850E0}, 14.
+const PKEY_Device_FriendlyName = new Uint8Array([...guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), 14, 0, 0, 0]);
 let comReady = false;
 let enumerator: Pointer | null = null;
-const out = new BigUint64Array(1);
 
-// PKEY_Device_FriendlyName {A45C254E-DF1C-4EFD-8020-67D146A850E0}, 14: "Alto-falantes (Realtek(R) Audio)".
-const PKEY_Device_FriendlyName = new Uint8Array([...guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), 14, 0, 0, 0]);
-const ole32Props = dlopen("ole32.dll", { PropVariantClear: { args: ["ptr"], returns: "i32" } });
-let deviceCache = { name: "", at: 0 };
+function deviceEnumerator(): Pointer | null {
+  if (!comReady) {
+    ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
+    comReady = true;
+  }
+  if (!enumerator) {
+    const out = new BigUint64Array(1);
+    if (ole32.symbols.CoCreateInstance(CLSID_MMDeviceEnumerator, null, 0x17, IID_IMMDeviceEnumerator, new Uint8Array(out.buffer)) !== 0 || !out[0]) return null;
+    enumerator = Number(out[0]) as Pointer;
+  }
+  return enumerator;
+}
 
-/** The default device's name as the volume tip shows it; re-read every 10 s (it rarely changes). */
-function deviceName(device: Pointer): string {
-  if (Date.now() - deviceCache.at < 10_000) return deviceCache.name;
-  deviceCache.at = Date.now();
-  out[0] = 0n;
+function friendlyName(device: Pointer): string {
+  const out = new BigUint64Array(1);
   if (com(device, 4, ["u32", "ptr"], 0 /* STGM_READ */, out) !== 0 || !out[0]) return "";
-  const store = Number(out[0]) as unknown as Pointer;
+  const store = Number(out[0]) as Pointer;
   try {
     const value = new Uint8Array(24);
-    if (com(store, 5, ["ptr", "ptr"], PKEY_Device_FriendlyName, value) !== 0) return deviceCache.name;
+    if (com(store, 5, ["ptr", "ptr"], PKEY_Device_FriendlyName, value) !== 0) return "";
     try {
       const view = new DataView(value.buffer);
       if (view.getUint16(0, true) !== 31 /* VT_LPWSTR */) return "";
       const text = Number(view.getBigUint64(8, true));
       let length = 0;
       while (length < 256 && read.u16(text, length * 2) !== 0) length++;
-      deviceCache.name = decodeWide(toArrayBuffer(text, 0, length * 2), 0, length * 2);
-      return deviceCache.name;
+      return decodeWide(toArrayBuffer(text, 0, length * 2), 0, length * 2);
     } finally {
-      ole32Props.symbols.PropVariantClear(value);
+      ole32.symbols.PropVariantClear(value);
     }
   } finally {
     release(store);
   }
 }
 
-/** Runs `fn` on the default playback device's IAudioEndpointVolume (the one the taskbar's speaker drives); null without one. */
-function withEndpoint<T>(fn: (volume: Pointer, device: Pointer) => T, fresh = false): T | null {
+/** A flow's default device and its IAudioEndpointVolume, with the sink its changes arrive through while watched. */
+interface Binding {
+  device: Pointer;
+  volume: Pointer;
+  name: string;
+  notify?: ThreadsafeCallback;
+  sink?: ThreadsafeComObject;
+}
+
+function bind(flow: AudioFlow): Binding | null {
+  const devices = deviceEnumerator();
+  if (!devices) return null;
+  const out = new BigUint64Array(1);
+  if (com(devices, 4, ["i32", "i32", "ptr"], flow, ROLE[flow], out) !== 0 || !out[0]) return null; // GetDefaultAudioEndpoint
+  const device = Number(out[0]) as Pointer;
+  out[0] = 0n;
+  if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) {
+    release(device);
+    return null;
+  }
+  return { device, volume: Number(out[0]) as Pointer, name: "" };
+}
+
+function unbind(binding: Binding) {
+  if (binding.sink) {
+    com(binding.volume, 4, ["ptr"], Number(binding.sink.pointer)); // UnregisterControlChangeNotify
+    binding.notify!.close();
+    binding.sink.release();
+  }
+  release(binding.volume);
+  release(binding.device);
+}
+
+function readState(binding: Binding): EndpointState {
+  const level = new Float32Array(1);
+  const muted = new Int32Array(1);
+  com(binding.volume, 9, ["ptr"], level); // GetMasterVolumeLevelScalar
+  com(binding.volume, 15, ["ptr"], muted); // GetMute
+  return { level: Math.round(level[0]! * 100), muted: !!muted[0], device: binding.name || friendlyName(binding.device) };
+}
+
+interface Watch {
+  binding: Binding | null;
+  state: EndpointState | null;
+  listeners: Set<{ fn: (state: EndpointState | null) => void }>;
+  timer?: ReturnType<typeof setTimeout>;
+}
+const watches: [Watch | null, Watch | null] = [null, null];
+
+/** Runs `fn` on the flow's default endpoint: the watched one, else one resolved for this call; null without a device. */
+function withEndpoint<T>(flow: AudioFlow, fn: (binding: Binding) => T): T | null {
   try {
-    if (!comReady) {
-      ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
-      comReady = true;
+    const watched = watches[flow]?.binding;
+    if (watched) return fn(watched);
+    const binding = bind(flow);
+    if (!binding) return null;
+    try {
+      return fn(binding);
+    } finally {
+      unbind(binding);
     }
-    if (!enumerator) {
-      out[0] = 0n;
-      if (ole32.symbols.CoCreateInstance(CLSID_MMDeviceEnumerator, null, 0x17, IID_IMMDeviceEnumerator, new Uint8Array(out.buffer)) !== 0) return null;
-      enumerator = Number(out[0]) as unknown as Pointer;
-    }
-    // Finding the default device and activating its volume asks the audio service (~2 ms): the
-    // pair is kept for 5 s, so a new default device shows within 5 s; changes always re-resolve.
-    if (fresh || !endpoint || Date.now() - endpoint.at > 5_000) {
-      dropEndpoint();
-      out[0] = 0n;
-      if (com(enumerator, 4, ["i32", "i32", "ptr"], 0 /* eRender */, 1 /* eMultimedia */, out) !== 0 || !out[0]) return null;
-      const device = Number(out[0]) as unknown as Pointer;
-      out[0] = 0n;
-      if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) {
-        release(device);
-        return null;
-      }
-      endpoint = { device, volume: Number(out[0]) as unknown as Pointer, at: Date.now() };
-    }
-    return fn(endpoint.volume, endpoint.device);
   } catch (error) {
     if (error instanceof FfiUnsupported) return null;
     throw error;
   }
 }
 
-let endpoint: { device: Pointer; volume: Pointer; at: number } | null = null;
-
-function dropEndpoint() {
-  if (!endpoint) return;
-  release(endpoint.volume);
-  release(endpoint.device);
-  endpoint = null;
+function emit(watch: Watch, state: EndpointState | null) {
+  watch.state = state;
+  for (const listener of watch.listeners) listener.fn(state);
 }
 
-/** Master volume of the default playback device (0..100) and its name, or null without one. */
-export function readVolume(): { level: number; muted: boolean; device: string } | null {
-  return withEndpoint((volume, device) => {
-    const level = new Float32Array(1);
-    const muted = new Int32Array(1);
-    com(volume, 9, ["ptr"], level); // GetMasterVolumeLevelScalar
-    com(volume, 15, ["ptr"], muted); // GetMute
-    return { level: Math.round(level[0]! * 100), muted: !!muted[0], device: deviceName(device) };
-  });
+/**
+ * Binds the flow's current default device and subscribes to its volume and mute changes
+ * (IAudioEndpointVolume::RegisterControlChangeNotify), as the speaker icon follows them: OnNotify
+ * carries AUDIO_VOLUME_NOTIFICATION_DATA (bMuted at 16, fMasterVolume at 20), copied during the call.
+ * A new sink per binding: closing the old one drops the late notifications of the previous device.
+ */
+function rebind(flow: AudioFlow) {
+  const watch = watches[flow];
+  if (!watch) return;
+  if (watch.binding) unbind(watch.binding);
+  watch.binding = null;
+  let state: EndpointState | null = null;
+  try {
+    const binding = bind(flow);
+    if (binding) {
+      binding.name = friendlyName(binding.device);
+      binding.notify = threadsafeCallback(
+        (_self: bigint, data: Uint8Array | null) => {
+          if (!data || watch.binding !== binding) return;
+          const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+          emit(watch, { level: Math.round(view.getFloat32(20, true) * 100), muted: view.getInt32(16, true) !== 0, device: binding.name });
+        },
+        { args: ["ptr", "ptr"], copy: { arg: 1, bytes: 32 } },
+      );
+      binding.sink = threadsafeComObject({ iids: [IID_IAudioEndpointVolumeCallback], methods: [binding.notify] });
+      com(binding.volume, 3, ["ptr"], Number(binding.sink.pointer)); // RegisterControlChangeNotify
+      watch.binding = binding;
+      state = readState(binding);
+    }
+  } catch (error) {
+    if (!(error instanceof FfiUnsupported)) console.error("[audio]", error);
+  }
+  emit(watch, state);
 }
+
+/** Device events come in bursts (one per role, state and default): handled once per burst. */
+function later(flow: AudioFlow, work: () => void) {
+  const watch = watches[flow];
+  if (!watch) return;
+  clearTimeout(watch.timer);
+  watch.timer = setTimeout(work, 50);
+}
+
+function renamed(flow: AudioFlow) {
+  const watch = watches[flow];
+  if (!watch?.binding) return;
+  const name = friendlyName(watch.binding.device);
+  if (name === watch.binding.name) return;
+  watch.binding.name = name;
+  if (watch.state) emit(watch, { ...watch.state, device: name });
+}
+
+/**
+ * IMMNotificationClient, registered once while any flow is watched: a new default device
+ * (OnDefaultDeviceChanged) or a device enabled, disabled or unplugged (OnDeviceStateChanged) binds
+ * the default again; a property change (OnPropertyValueChanged) re-reads the bound device's name.
+ */
+let client: { sink: ThreadsafeComObject; callbacks: ThreadsafeCallback[] } | null = null;
+
+function startClient() {
+  const devices = deviceEnumerator();
+  if (!devices) return;
+  const each = (work: (flow: AudioFlow) => void) => () => {
+    for (const flow of [0, 1] as const) if (watches[flow]) later(flow, () => work(flow));
+  };
+  const stateChanged = threadsafeCallback(each(rebind), { args: [] });
+  const ignored = threadsafeCallback(() => {}, { args: [] });
+  const defaultChanged = threadsafeCallback(
+    (_self: bigint, flow: number, role: number) => {
+      if ((flow === 0 || flow === 1) && role === ROLE[flow] && watches[flow]) later(flow, () => rebind(flow));
+    },
+    { args: ["ptr", "i32", "i32"] },
+  );
+  const propertyChanged = threadsafeCallback(each(renamed), { args: [] });
+  // OnDeviceStateChanged, OnDeviceAdded, OnDeviceRemoved, OnDefaultDeviceChanged, OnPropertyValueChanged
+  const sink = threadsafeComObject({ iids: [IID_IMMNotificationClient], methods: [stateChanged, ignored, ignored, defaultChanged, propertyChanged] });
+  const callbacks = [stateChanged, ignored, defaultChanged, propertyChanged];
+  if (com(devices, 6, ["ptr"], Number(sink.pointer)) !== 0) {
+    for (const callback of callbacks) callback.close();
+    sink.release();
+    return;
+  }
+  client = { sink, callbacks };
+}
+
+function stopClient() {
+  if (!client) return;
+  if (enumerator) com(enumerator, 7, ["ptr"], Number(client.sink.pointer)); // UnregisterEndpointNotificationCallback
+  for (const callback of client.callbacks) callback.close();
+  client.sink.release();
+  client = null;
+}
+
+/**
+ * Follows the flow's default endpoint: `listener` gets its state now and after every change of
+ * volume, mute, name or default device (null without one), from Core Audio's own notifications.
+ * Returns the release function; the last release unregisters everything.
+ */
+export function watchEndpoint(flow: AudioFlow, listener: (state: EndpointState | null) => void): () => void {
+  const entry = { fn: listener };
+  let watch = watches[flow];
+  if (!watch) {
+    watch = watches[flow] = { binding: null, state: null, listeners: new Set() };
+    try {
+      if (!client) startClient();
+    } catch (error) {
+      if (!(error instanceof FfiUnsupported)) console.error("[audio]", error);
+    }
+    rebind(flow);
+  }
+  watch.listeners.add(entry);
+  listener(watch.state);
+  return () => {
+    if (!watch.listeners.delete(entry) || watch.listeners.size) return;
+    clearTimeout(watch.timer);
+    watches[flow] = null;
+    if (watch.binding) unbind(watch.binding);
+    watch.binding = null;
+    if (!watches[0] && !watches[1]) stopClient();
+  };
+}
+
+/** Master volume (0..100), mute and name of the flow's default device, or null without one. */
+export function readEndpoint(flow: AudioFlow): EndpointState | null {
+  return withEndpoint(flow, readState);
+}
+
+/** The default playback device's state, as the taskbar's speaker shows it. */
+export const readVolume = () => readEndpoint(0);
 
 /** Sets the master volume (0..100), as the quick settings slider does; unmutes like it when raised. */
 export function setVolume(level: number): boolean {
   const scalar = Math.max(0, Math.min(100, level)) / 100;
   return (
-    withEndpoint((volume) => {
+    withEndpoint(0, ({ volume }) => {
       const ok = com(volume, 7, ["f32", "ptr"], scalar, null) >= 0; // SetMasterVolumeLevelScalar
       if (scalar > 0) com(volume, 14, ["i32", "ptr"], 0, null); // SetMute(FALSE)
       return ok;
-    }, true) ?? false
+    }) ?? false
   );
 }
 
-/** Mutes or unmutes the default playback device, as the speaker button in quick settings. */
-export function setMuted(muted: boolean): boolean {
-  return withEndpoint((volume) => com(volume, 14, ["i32", "ptr"], muted ? 1 : 0, null) >= 0, true) ?? false; // SetMute (S_FALSE: already so)
+/** Mutes or unmutes the flow's default device, as the speaker and microphone buttons in quick settings. */
+export function setEndpointMuted(flow: AudioFlow, muted: boolean): boolean {
+  return withEndpoint(flow, ({ volume }) => com(volume, 14, ["i32", "ptr"], muted ? 1 : 0, null) >= 0) ?? false; // SetMute (S_FALSE: already so)
 }
+
+export const setMuted = (muted: boolean) => setEndpointMuted(0, muted);
 
 // ---------- Network ----------
 
@@ -176,27 +355,28 @@ export type NetworkKind = "wifi" | "ethernet" | "other" | "none";
 const hint = new Uint8Array(16);
 const ifIndex = new Uint32Array(1);
 const ifRow = new Uint8Array(1352);
-let wifi = { signal: 100, name: "", at: 0 };
 
 let wlan: number | null | undefined;
 
-/**
- * Signal quality and SSID of the connected Wi-Fi interface, from the WLAN service (the source the
- * taskbar's network icon uses): WlanQueryInterface(wlan_intf_opcode_current_connection). It answers
- * from the service's cached state (well under a millisecond), so it is read every 5 s.
- */
-function refreshWifi() {
-  if (Date.now() - wifi.at < 5_000) return;
-  wifi.at = Date.now();
-  const W = wlanapi.symbols;
+function wlanHandle(): number | null {
   if (wlan === undefined) {
     const version = new Uint32Array(1);
     const handle = new BigUint64Array(1);
-    wlan = W.WlanOpenHandle(2, null, new Uint8Array(version.buffer), new Uint8Array(handle.buffer)) === 0 ? Number(handle[0]) : null;
+    wlan = wlanapi.symbols.WlanOpenHandle(2, null, new Uint8Array(version.buffer), new Uint8Array(handle.buffer)) === 0 ? Number(handle[0]) : null;
   }
-  if (!wlan) return;
+  return wlan;
+}
+
+/**
+ * Signal quality and SSID of the connected Wi-Fi interface, from the WLAN service (the source the
+ * taskbar's network icon uses): WlanQueryInterface(wlan_intf_opcode_current_connection).
+ */
+function readWifi(): { signal: number; name: string } {
+  const W = wlanapi.symbols;
+  const handle = wlanHandle();
+  if (!handle) return { signal: 100, name: "" };
   const list = new BigUint64Array(1);
-  if (W.WlanEnumInterfaces(wlan, null, new Uint8Array(list.buffer)) !== 0 || !list[0]) return;
+  if (W.WlanEnumInterfaces(handle, null, new Uint8Array(list.buffer)) !== 0 || !list[0]) return { signal: 100, name: "" };
   const interfaces = Number(list[0]);
   try {
     const count = read.u32(interfaces, 0);
@@ -207,15 +387,14 @@ function refreshWifi() {
       const guid = new Uint8Array(toArrayBuffer(item, 0, 16));
       const size = new Uint32Array(1);
       const data = new BigUint64Array(1);
-      if (W.WlanQueryInterface(wlan, guid, 7, null, new Uint8Array(size.buffer), new Uint8Array(data.buffer), null) !== 0 || !data[0]) continue;
+      if (W.WlanQueryInterface(handle, guid, 7, null, new Uint8Array(size.buffer), new Uint8Array(data.buffer), null) !== 0 || !data[0]) continue;
       const attributes = Number(data[0]);
       try {
         // WLAN_CONNECTION_ATTRIBUTES: the association attributes start at 520 (SSID length, SSID
         // bytes), the signal quality (0-100) at 520 + 56.
         const length = Math.min(32, read.u32(attributes, 520));
         const name = new TextDecoder().decode(new Uint8Array(toArrayBuffer(attributes, 524, length)));
-        wifi = { signal: read.u32(attributes, 576), name, at: wifi.at };
-        return;
+        return { signal: read.u32(attributes, 576), name };
       } finally {
         W.WlanFreeMemory(attributes);
       }
@@ -223,6 +402,7 @@ function refreshWifi() {
   } finally {
     W.WlanFreeMemory(interfaces);
   }
+  return { signal: 100, name: "" };
 }
 
 export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: number; name: string } {
@@ -241,10 +421,86 @@ export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: n
   let type = 0;
   if (iphlpapi.symbols.GetIfEntry2(ifRow) === 0) type = v.getUint32(1128, true);
   if (type === 71) {
-    refreshWifi();
-    return { kind: "wifi", internet, signal: wifi.signal, name: wifi.name };
+    if (network && !network.wlan) watchWlan(network);
+    return { kind: "wifi", internet, ...readWifi() };
   }
   return { kind: type === 6 ? "ethernet" : "other", internet, signal: 100, name: "" };
+}
+
+/**
+ * Calls `onChange` (once per burst) when what readNetwork returns may have changed, from the
+ * system's notifications instead of a poll: the connectivity level (NotifyNetworkConnectivityHintChange),
+ * the routes that pick the interface to the internet (NotifyRouteChange2) and, while on Wi-Fi, its
+ * connection and signal quality (WlanRegisterNotification, ACM and MSM sources). Each calls back on a
+ * system thread, taken by a threadsafe callback. Returns the release function; the last one cancels them all.
+ */
+const networkListeners = new Set<{ fn: () => void }>();
+interface NetworkWatch {
+  callbacks: ThreadsafeCallback[];
+  handles: BigUint64Array;
+  wlan: boolean;
+  /** Creates one more callback that reports a change (once per burst); returns its address. */
+  callback: () => number;
+  timer?: ReturnType<typeof setTimeout>;
+}
+let network: NetworkWatch | null = null;
+
+function startNetwork() {
+  const state: NetworkWatch = {
+    callbacks: [],
+    handles: new BigUint64Array(2),
+    wlan: false,
+    callback: () => {
+      const made = threadsafeCallback(changed, { args: [] });
+      state.callbacks.push(made);
+      return Number(made.pointer);
+    },
+  };
+  const changed = () => {
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      for (const listener of networkListeners) listener.fn();
+    }, 100);
+  };
+  const I = iphlpapi.symbols;
+  I.NotifyNetworkConnectivityHintChange(state.callback(), null, 0, new Uint8Array(state.handles.buffer, 0, 8));
+  I.NotifyRouteChange2(0 /* AF_UNSPEC */, state.callback(), null, 0, new Uint8Array(state.handles.buffer, 8, 8));
+  network = state;
+}
+
+/**
+ * The first WlanRegisterNotification of a process waits ~400 ms on the WLAN service: it is made only
+ * once the route to the internet goes through Wi-Fi (readNetwork), never on a wired PC.
+ */
+function watchWlan(state: NetworkWatch) {
+  const handle = wlanHandle();
+  state.wlan = true;
+  if (!handle) return;
+  if (wlanapi.symbols.WlanRegisterNotification(handle, 0x8 | 0x10 /* ACM | MSM */, 1, state.callback(), null, null, null) !== 0) state.callbacks.pop()?.close();
+}
+
+function stopNetwork() {
+  if (!network) return;
+  clearTimeout(network.timer);
+  for (const handle of network.handles) if (handle) iphlpapi.symbols.CancelMibChangeNotify2(Number(handle));
+  if (network.wlan && wlan) wlanapi.symbols.WlanRegisterNotification(wlan, 0 /* WLAN_NOTIFICATION_SOURCE_NONE */, 0, null, null, null, null);
+  for (const callback of network.callbacks) callback.close();
+  network = null;
+}
+
+export function watchNetwork(onChange: () => void): () => void {
+  const entry = { fn: onChange };
+  if (!network) {
+    try {
+      startNetwork();
+    } catch (error) {
+      if (!(error instanceof FfiUnsupported)) console.error("[network]", error);
+    }
+  }
+  networkListeners.add(entry);
+  return () => {
+    if (networkListeners.delete(entry) && !networkListeners.size) stopNetwork();
+  };
 }
 
 // ---------- Keyboard layout ----------

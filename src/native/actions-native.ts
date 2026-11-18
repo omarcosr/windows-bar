@@ -3,9 +3,8 @@ import { decodeWide, encodeWide } from "./wide";
 
 /*
  * Native side of the "actions" widgets, each through the API the Windows shell itself uses:
- * Core Audio endpoints (quick settings' speaker and microphone), the display brightness IOCTL
- * (laptop panels) or DDC/CI (external monitors), the Personalize registry values plus the
- * "ImmersiveColorSet" broadcast (Settings > Colors), ITipInvocation (the taskbar's touch keyboard
+ * the display brightness IOCTL (laptop panels) or DDC/CI (external monitors), the Personalize
+ * registry values plus the "ImmersiveColorSet" broadcast (Settings > Colors), ITipInvocation (the taskbar's touch keyboard
  * button), SHQueryRecycleBin / SHEmptyRecycleBin (Explorer) and IDesktopWallpaper (Settings >
  * Background).
  */
@@ -14,7 +13,6 @@ const ole32 = dlopen("ole32.dll", {
   CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
   CoCreateInstance: { args: ["ptr", "ptr", "u32", "ptr", "ptr"], returns: "i32" },
   CoTaskMemFree: { args: ["ptr"], returns: "void" },
-  PropVariantClear: { args: ["ptr"], returns: "i32" },
 });
 const user32 = dlopen("user32.dll", {
   GetDesktopWindow: { args: [], returns: "ptr" },
@@ -103,77 +101,6 @@ function takeString(out: BigUint64Array): string {
   } finally {
     ole32.symbols.CoTaskMemFree(address);
   }
-}
-
-// ---------- Microphone (default capture endpoint) ----------
-
-const CLSID_MMDeviceEnumerator = guid("BCDE0395-E52F-467C-8E3D-C4579291692E");
-const IID_IMMDeviceEnumerator = guid("A95664D2-9614-4F35-A746-DE8DB63617E6");
-const IID_IAudioEndpointVolume = guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-const PKEY_Device_FriendlyName = new Uint8Array([...guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), 14, 0, 0, 0]);
-let enumerator: Pointer | null = null;
-let micName = { name: "", at: 0 };
-
-function friendlyName(device: Pointer): string {
-  const out = new BigUint64Array(1);
-  if (com(device, 4, ["u32", "ptr"], 0 /* STGM_READ */, out) !== 0 || !out[0]) return "";
-  const store = Number(out[0]) as Pointer;
-  try {
-    const value = new Uint8Array(24);
-    if (com(store, 5, ["ptr", "ptr"], PKEY_Device_FriendlyName, value) !== 0) return "";
-    try {
-      const view = new DataView(value.buffer);
-      if (view.getUint16(0, true) !== 31 /* VT_LPWSTR */) return "";
-      return wideAt(Number(view.getBigUint64(8, true)) as Pointer, 256);
-    } finally {
-      ole32.symbols.PropVariantClear(value);
-    }
-  } finally {
-    release(store);
-  }
-}
-
-/** Runs `fn` on the default capture device's IAudioEndpointVolume (eCapture, eConsole); null without one. */
-function withMicrophone<T>(fn: (volume: Pointer, device: Pointer) => T): T | null {
-  try {
-    enumerator ??= create(CLSID_MMDeviceEnumerator, IID_IMMDeviceEnumerator);
-    if (!enumerator) return null;
-    const out = new BigUint64Array(1);
-    if (com(enumerator, 4, ["i32", "i32", "ptr"], 1 /* eCapture */, 0 /* eConsole */, out) !== 0 || !out[0]) return null;
-    const device = Number(out[0]) as Pointer;
-    try {
-      out[0] = 0n;
-      if (com(device, 3, ["ptr", "u32", "ptr", "ptr"], IID_IAudioEndpointVolume, 0x17, null, out) !== 0 || !out[0]) return null;
-      const volume = Number(out[0]) as Pointer;
-      try {
-        return fn(volume, device);
-      } finally {
-        release(volume);
-      }
-    } finally {
-      release(device);
-    }
-  } catch (error) {
-    if (error instanceof FfiUnsupported) return null;
-    throw error;
-  }
-}
-
-/** Input level (0..100), mute and name of the default microphone, or null without one. */
-export function readMicrophone(): { level: number; muted: boolean; device: string } | null {
-  return withMicrophone((volume, device) => {
-    const level = new Float32Array(1);
-    const muted = new Int32Array(1);
-    com(volume, 9, ["ptr"], level); // GetMasterVolumeLevelScalar
-    com(volume, 15, ["ptr"], muted); // GetMute
-    if (Date.now() - micName.at > 10_000) micName = { name: friendlyName(device), at: Date.now() };
-    return { level: Math.round(level[0]! * 100), muted: !!muted[0], device: micName.name };
-  });
-}
-
-/** Mutes or unmutes the default microphone (IAudioEndpointVolume::SetMute), as quick settings does. */
-export function setMicrophoneMuted(muted: boolean): boolean {
-  return withMicrophone((volume) => com(volume, 14, ["i32", "ptr"], muted ? 1 : 0, null) >= 0) ?? false;
 }
 
 // ---------- Brightness ----------

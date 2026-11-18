@@ -147,7 +147,7 @@ export default defineWidget({
     ctx.onDispose(useMedia());
     ctx.onDispose(statusPoller.acquire());
     ctx.onDispose(hideMediaFlyout);
-    // Read at render: the session poll (every second while playing) re-renders with a new position.
+    // Read at render: mediaClock (each whole second while playing) re-renders with a new position.
     return {
         get progress() {
           return media.duration ? mediaPosition() / media.duration : 0;
