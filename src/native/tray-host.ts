@@ -225,15 +225,23 @@ function forward(cls, msg, wParam, lParam) {
   const target = explorerWindow(cls);
   if (!target) return 0n;
   result[0] = 0n;
-  const ok = u.SendMessageTimeoutW(target, msg, BigInt(wParam), BigInt(lParam), 0x2 /* SMTO_ABORTIFHUNG */, 2000, resultBytes);
+  // While it waits, SendMessageTimeout answers messages sent to this thread, so a burst (every app
+  // re-adding its icons at once) nested forward inside forward until the JS stack ran out
+  // ("Maximum call stack size exceeded", measured 20 deep under Bun, sooner on txiki). A forward
+  // made from inside another one waits without answering (SMTO_BLOCK): the senders queue up instead.
+  const flags = depth > 1 ? 0x3 /* SMTO_BLOCK | SMTO_ABORTIFHUNG */ : 0x2 /* SMTO_ABORTIFHUNG */;
+  const ok = u.SendMessageTimeoutW(target, msg, BigInt(wParam), BigInt(lParam), flags, 2000, resultBytes);
   return ok ? BigInt.asIntN(64, result[0]) : 0n;
 }
 const copyIcon = (h) => Number(u.CopyIcon(h) || 0) & 0xffffffff;
 const head = new Uint8Array(24);
 const hv = new DataView(head.buffer);
+/** How many window procedures of this thread are running, one inside another (see forward). */
+let depth = 0;
 const proc = new JSCallback((hwnd, msg, wParam, lParam) => {
   const cls = byHwnd.get(Number(hwnd));
   if (!cls) return u.DefWindowProcW(hwnd, msg, wParam, lParam);
+  depth++;
   try {
     if (cls === "Shell_TrayWnd" && msg === 0x4a /* WM_COPYDATA */ && lParam) {
       // COPYDATASTRUCT: dwData (0 appbar, 1 notify icon, 3 icon rect), cbData, lpData.
@@ -259,7 +267,9 @@ const proc = new JSCallback((hwnd, msg, wParam, lParam) => {
       }
       return forward(cls, msg, wParam, lParam);
     }
-    if (msg >= 0x400 && msg < 0x10000) {
+    // Private (WM_USER) messages only: ITaskbarList's calls to the task band. Registered messages
+    // (TaskbarCreated, SHELLHOOK) are broadcasts Explorer gets itself; forwarding them doubled them.
+    if (msg >= 0x400 && msg < 0xc000) {
       const answer = forward(cls, msg, wParam, lParam);
       if (cls === "MSTaskSwWClass" || cls === "MSTaskListWClass") {
         let l = Number(lParam), copied = 0;
@@ -271,6 +281,8 @@ const proc = new JSCallback((hwnd, msg, wParam, lParam) => {
     }
   } catch (error) {
     postMessage({ type: "log", text: String((error && error.stack) || error) });
+  } finally {
+    depth--;
   }
   return u.DefWindowProcW(hwnd, msg, wParam, lParam);
 }, { args: ["ptr", "u32", "u64", "i64"], returns: "i64" });
