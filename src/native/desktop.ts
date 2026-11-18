@@ -1,6 +1,6 @@
 import { CFunction, dlopen, read } from "./ffi";
-import { followForeground } from "./shell-events";
-import { exePathOf, explorerTray, foregroundWindow, tapKey, tapKeys, VK, windowPid, type HWND } from "./win32";
+import { followForeground, onShellEvent } from "./shell-events";
+import { exePathOf, explorerTray, windowClass as classOf, foregroundWindow, tapKey, tapKeys, VK, windowPid, type HWND } from "./win32";
 
 const user32 = dlopen("user32.dll", {
   SendMessageTimeoutW: { args: ["ptr", "u32", "u64", "i64", "u32", "u32", "ptr"], returns: "i64" },
@@ -148,9 +148,23 @@ function isFlyout(hwnd: HWND | null) {
 /** Whether a flyout is, or just was, the active window: clicking the dock closes it before the click lands. */
 const flyout = followForeground((hwnd) => isFlyout(hwnd as unknown as HWND), foregroundWindow() as number | null);
 
+const QUICK_SETTINGS = "ControlCenterWindow";
+
+/** The window class of the flyout last in front: Quick Settings is ControlCenterWindow, the notification center another. */
+let lastFlyoutClass = "";
+onShellEvent((event) => {
+  if (event.type === "foreground" && event.hwnd && isFlyout(event.hwnd as unknown as HWND)) lastFlyoutClass = classOf(event.hwnd as unknown as HWND);
+});
+
 function toggleFlyout(uri: string, windowClass: string | null, keys: number[]) {
-  // It was open a moment ago: the click on the dock closed it, as the taskbar button's second press.
-  if (isFlyout(foregroundWindow()) || flyout.recently(400)) {
+  // This flyout was open a moment ago: the click on the dock took the activation from it and closed
+  // it, as the taskbar button's second press. Another flyout closed by the click is no reason not
+  // to open this one (clock, then network: the taskbar swaps them).
+  const front = foregroundWindow();
+  const open = isFlyout(front) || flyout.recently(400);
+  const flyoutClass = isFlyout(front) ? classOf(front!) : lastFlyoutClass;
+  const same = windowClass ? flyoutClass === windowClass : flyoutClass !== QUICK_SETTINGS;
+  if (open && same) {
     flyout.reset();
     return;
   }
@@ -175,7 +189,7 @@ export function openNotificationCenter() {
 
 /** Quick settings (network, volume, battery), as clicking those taskbar icons opens and closes it. */
 export function openQuickSettings() {
-  toggleFlyout("ms-actioncenter:controlcenter/&showFooter=true", "ControlCenterWindow", [VK.LWIN, 0x41 /* A */]);
+  toggleFlyout("ms-actioncenter:controlcenter/&showFooter=true", QUICK_SETTINGS, [VK.LWIN, 0x41 /* A */]);
 }
 
 

@@ -139,7 +139,8 @@ const opencodePlan = defineWidget({
           <Text size={9} color={ui.muted} style={{ textAlign: "center" }}>
             {top ? `${top.model.length > 11 ? `${top.model.slice(0, 10)}…` : top.model}` : "OpenCode"}
           </Text>
-          {top ? (
+          {/* Badge, model and share are 42 px tall: the share goes on a tile under 44 px. */}
+          {top && ui.tile.height >= 44 ? (
             <Text size={9} color={ui.faint} style={numeric}>
               {`${top.share}%`}
             </Text>

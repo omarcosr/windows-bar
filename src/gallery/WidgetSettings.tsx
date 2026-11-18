@@ -1,4 +1,4 @@
-import { Column, Input, Modal, Text } from "@tarve/core";
+import { Column, Input, Modal, Text, Select } from "@tarve/core";
 import { config } from "../config";
 import { ui } from "../theme";
 import { mountWidget } from "../widgets/host";
@@ -16,6 +16,7 @@ function TextSetting(props: { setting: Extract<AnySetting, { kind: "text" }>; va
     <Column
       style={{
         gap: 8,
+        shrink: 0,
         padding: { left: 16, right: 16, top: 12, bottom: 14 },
         borderWidth: { top: 1 },
         borderColor: "rgba(255,255,255,0.05)",
@@ -56,15 +57,22 @@ export function WidgetSettingsModal() {
       title={definition?.name ?? ""}
       description={definition?.description}
       width={520}
-      closeOnOverlay
+      // As a Windows ContentDialog: only Esc or the close button dismiss it. Closing on an outside
+      // click also closed it when a drop-down option hanging past the dialog was picked.
+      closeOnOverlay={false}
       closeOnEscape
       showClose
+      style={{ background: "#1f1f22", borderColor: "rgba(255,255,255,0.08)" }}
     >
       {widget && instance ? (
-          <Column style={{ gap: 0, margin: { top: 4 }, radius: 12, overflow: "hidden", background: "rgba(255,255,255,0.04)" }}>
+        // shrink: 0 keeps the list at its full height so the dialog's body scrolls; shrunk to fit, the
+        // rows were squeezed over each other and nothing was left to scroll. The right margin is the
+        // scroll bar's lane, which otherwise lay over the controls' edge.
+        <Column style={{ gap: 0, shrink: 0, margin: { top: 4, right: 10 }, radius: 12, overflow: "hidden", background: "rgba(255,255,255,0.04)" }}>
           {siblings.length > 1 ? (
             <Setting label="Qual deles" description="Há mais de um deste widget no dock; cada um tem suas opções.">
-              <Choice
+              <ChoiceSetting
+                id={`${instance.id}-sibling`}
                 value={instance.id}
                 options={siblings.map((w, i) => ({ value: w.id, label: `${i + 1}º` }))}
                 onChange={(id) => editWidgetSettings(id)}
@@ -73,24 +81,54 @@ export function WidgetSettingsModal() {
           ) : null}
           {settings.map((s) =>
             s.kind === "text" ? (
-              <TextSetting
-                key={s.key}
-                setting={s}
-                value={String(widget.ctx.config[s.key] ?? "")}
-                onChange={(v) => setSetting(widget.ctx, s.key, v)}
-              />
+              <TextSetting key={s.key} setting={s} value={String(widget.ctx.config[s.key] ?? "")} onChange={(v) => setSetting(widget.ctx, s.key, v)} />
             ) : (
               <Setting key={s.key} label={s.label} description={s.description}>
                 {s.kind === "toggle" ? (
                   <Toggle label={s.label} checked={widget.ctx.config[s.key] === true} onChange={(v) => setSetting(widget.ctx, s.key, v)} />
                 ) : (
-                  <Choice value={String(widget.ctx.config[s.key] ?? "")} options={s.options} onChange={(v) => setSetting(widget.ctx, s.key, v)} />
+                  <ChoiceSetting
+                    id={`${instance.id}-${s.key}`}
+                    value={String(widget.ctx.config[s.key] ?? "")}
+                    options={s.options}
+                    onChange={(v) => setSetting(widget.ctx, s.key, v)}
+                  />
                 )}
               </Setting>
             ),
           )}
-          </Column>
-        ) : null}
+        </Column>
+      ) : null}
     </Modal>
   );
 }
+
+/**
+ * Segmented buttons while they fit beside the label, a drop-down otherwise, as Windows Settings
+ * switches to a ComboBox for long lists: a row of nine currencies squeezed the label to one letter
+ * per line, spilling over the rows around it.
+ */
+function ChoiceSetting(props: {
+  id: string;
+  value: string;
+  options: readonly { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  // Segment: 12 px semibold text (~6.6 px a character) + 20 px padding, 3 px apart, 3 px frame.
+  const width = props.options.reduce((sum, o) => sum + o.label.length * 6.6 + 20, 0) + 3 * (props.options.length + 1);
+  if (width <= CHOICE_MAX_WIDTH) return <Choice value={props.value} options={props.options} onChange={props.onChange} />;
+  return (
+    <Select
+      id={props.id}
+      value={props.value}
+      options={props.options}
+      onValueChange={props.onChange}
+      style={{ width: SELECT_WIDTH }}
+    />
+  );
+}
+
+/** The modal row (520 − 48 padding − 32 inset − 16 gap) less a 160 px label column. */
+const CHOICE_MAX_WIDTH = 264;
+/** Wide enough for "Relógio adicional 1 do Windows" on one line at the Select's 14 px. */
+const SELECT_WIDTH = 260;

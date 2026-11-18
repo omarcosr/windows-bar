@@ -347,7 +347,7 @@ const resend = defineWidget({
   View({ state }) {
     const rate = state.sent ? Math.round((state.delivered / state.sent) * 100) : 0;
     return (
-      <Tile width={176} padding={{ left: 10, right: 10, top: 5, bottom: 4 }} onClick={() => launch("https://resend.com/emails")}>
+      <Tile width={196} padding={{ left: 10, right: 10, top: 5, bottom: 4 }} onClick={() => launch("https://resend.com/emails")}>
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#000" letter="R" size={14} />

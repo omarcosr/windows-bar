@@ -30,6 +30,9 @@ export function Tile(props: {
     direction: "row",
     align: "center",
     overflow: "hidden",
+    // One line per text (inherited): a tile is a single row, and a label that wrapped to a second
+    // line pushed the rows under it out of the tile ("demo" tags, reset times, model names).
+    whiteSpace: "nowrap",
     shrink: 0,
     ...props.style,
   };

@@ -13,8 +13,7 @@ import {
   darkTheme,
   store,
   type IconName,
-  type SvgNode,
-} from "@tarve/core";
+  type SvgNode, Theme } from "@tarve/core";
 import { glyph } from "../menu/dock-menu";
 import { WindowsLogo } from "../widgets/ui";
 import { config, saveConfig, type WidgetInstance } from "../config";
@@ -216,8 +215,18 @@ export function GalleryView() {
   const widgets = allWidgets();
   const categories = Object.keys(categoryLabels) as WidgetCategory[];
   const shown = gallery.category === "all" ? categories : [gallery.category];
+  // Opaque, not Mica: the material's light/dark follows DWM's immersive dark mode, which winit resets to the
+  // system theme on a theme broadcast, so on a light Windows the dark panels turned grey over light Mica.
   return (
-    <Window title={GALLERY_TITLE} width={980} height={660} minWidth={720} minHeight={480} theme={darkTheme} backdrop="mica">
+    <Window
+      title={GALLERY_TITLE}
+      width={980}
+      height={660}
+      minWidth={720}
+      minHeight={480}
+      theme={GALLERY_THEME}
+      style={{ background: WINDOW_BACKGROUND }}
+    >
       {/* Tarve's own title bar: native drag, snap and resize, drawn in the app's style. */}
       <TitleBar
         title="WindowsBar"
@@ -229,10 +238,10 @@ export function GalleryView() {
             <WindowsLogo size={9} />
           </View>
         }
-        style={{ background: "rgba(20,20,22,0.72)" }}
+        style={{ background: WINDOW_BACKGROUND }}
         buttonStyle={{ hover: { background: "rgba(255,255,255,0.08)" } }}
       />
-      <Row style={{ flex: 1, minHeight: 0, align: "stretch", background: "rgba(20,20,22,0.72)" }}>
+      <Row style={{ flex: 1, minHeight: 0, align: "stretch" }}>
         <Column
           style={{
             width: 220,
@@ -307,3 +316,10 @@ export function GalleryView() {
     </Window>
   );
 }
+/** The window's solid fill: what dark Mica under the old 72 % tint looked like. */
+const WINDOW_BACKGROUND = "#171719";
+/**
+ * Dark theme with a lighter control stroke: the stock #27272a is also the off track of a Switch,
+ * which vanished on the #1f1f22 settings dialog; Windows 11 draws its control strokes visibly.
+ */
+const GALLERY_THEME = Theme.create(darkTheme, { colors: { border: "#46464d", card: "#2b2b2f" } });

@@ -166,11 +166,18 @@ const zai = defineWidget({
   menu: ({ state, ctx }) => [[refreshItem(state), { label: "Abrir assinatura", icon: "star", onSelect: () => launch(zaiUrl(ctx.config.region)) }]],
   View({ state, ctx }) {
     const q = state.data;
-    return (
-      <Tile width={196} padding={{ left: 10, right: 10 }} onClick={() => launch(zaiUrl(ctx.config.region))}>
-        <Column style={{ flex: 1, gap: 2 }}>
-          <Title color="#2d5bff" letter="Z" title={`GLM${q.plan ? ` ${q.plan}` : ""}`} demo={state.demo} error={state.error} right={resetLabel(q.tokens?.resetsAt ?? null)} />
-          <QuotaRow label="5h" used={q.tokens?.used ?? null} />
+    // Three rows (title, 5h, MCP) need a 44 px tile; below it the title gives way to the badge on
+      // the left and the reset time moves onto the 5h row.
+      const compact = !!q.mcp && ui.tile.height < 44;
+      const reset = resetLabel(q.tokens?.resetsAt ?? null);
+      return (
+        <Tile width={compact ? 228 : 196} padding={{ left: 10, right: 10 }} onClick={() => launch(zaiUrl(ctx.config.region))}>
+          {compact ? <Badge color="#2d5bff" letter="Z" /> : null}
+          <Column style={{ flex: 1, gap: 2 }}>
+          {compact ? null : (
+            <Title color="#2d5bff" letter="Z" title={`GLM${q.plan ? ` ${q.plan}` : ""}`} demo={state.demo} error={state.error} right={reset} />
+          )}
+          <QuotaRow label="5h" used={q.tokens?.used ?? null} right={compact ? reset : undefined} />
           {q.mcp ? <QuotaRow label="MCP" used={q.mcp.used} right={q.mcp.total ? `${q.mcp.current}/${q.mcp.total}` : ""} /> : null}
         </Column>
       </Tile>

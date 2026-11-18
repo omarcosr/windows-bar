@@ -302,7 +302,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       // the app in front stays known (a click on its icon minimizes it), and the dock keeps the
       // pointer's hover (a deactivated window lost it and dropped the next click until the pointer
       // moved). A text field in a widget still takes the keyboard while it is edited.
-      activation="whileEditing"
+      activation="normal"
       level="alwaysOnTop"
       backdrop="transparent"
       position="bottom"

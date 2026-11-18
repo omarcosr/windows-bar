@@ -149,12 +149,15 @@ export const yearProgress = defineWidget({
           {dots}
         </Svg>
         <Column style={{ gap: 0, align: "end", flex: 1 }}>
-          <Text size={11} weight={700} color={ui.text} style={numeric}>
-            {String(y)}
-          </Text>
-          <Text size={11} weight={700} color={color} style={numeric}>
-            {percent(today / days)}
-          </Text>
+          {/* Three lines need a 44 px tile; below it the year and the share share a line. */}
+            <Row style={{ gap: 4, align: "baseline", direction: ui.tile.height < 44 ? "row" : "column", alignSelf: "end" }}>
+              <Text size={11} weight={700} color={ui.text} style={numeric}>
+                {String(y)}
+            </Text>
+              <Text size={11} weight={700} color={color} style={numeric}>
+              {percent(today / days)}
+            </Text>
+          </Row>
           <Text size={9} color={ui.muted} style={numeric}>
             {`${days - today - 1} d`}
           </Text>

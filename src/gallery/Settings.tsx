@@ -53,6 +53,7 @@ export function Setting(props: { label: string; description?: string; when?: boo
         align: "center",
         gap: 16,
         minHeight: 56,
+        shrink: 0,
         padding: { left: 16, right: 16, top: 10, bottom: 10 },
         borderWidth: { top: 1 },
         borderColor: "rgba(255,255,255,0.05)",
