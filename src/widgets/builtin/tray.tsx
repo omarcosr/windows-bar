@@ -58,10 +58,10 @@ const OVERFLOW_MENU = "tray-overflow";
 let shownOverflow = "";
 const overflowKey = (icons: TrayIcon[]) => icons.map((i) => `${i.key}\u0001${i.tip}`).join("\u0002");
 
-function openOverflow(icons: TrayIcon[]) {
+function openOverflow(icons: TrayIcon[], anchor: string) {
   shownOverflow = overflowKey(icons);
   // A second press of the arrow puts the flyout away, as on the taskbar.
-  toggleDockMenu(overflowSpec(icons));
+  toggleDockMenu(overflowSpec(icons), anchor);
 }
 
 function overflowSpec(icons: TrayIcon[]): DockMenuSpec & { id: string } {
@@ -121,6 +121,7 @@ export default defineWidget({
     // Only when the hidden icons really changed: updating the menu re-renders, which renders this
     // again, so an unconditional update would loop forever.
     const key = overflowKey(overflow);
+    const arrow = `tray-overflow:${ctx.instanceId}`;
     if (!preview && key !== shownOverflow) {
       shownOverflow = key;
       queueMicrotask(() => updateDockMenu(OVERFLOW_MENU, overflow.length ? overflowSpec(overflow) : null));
@@ -128,7 +129,8 @@ export default defineWidget({
     return (
       <Tile padding={{ left: 4, right: 4 }} gap={0}>
         <Pressable
-          onClick={() => overflow.length && openOverflow(overflow)}
+          id={preview ? undefined : arrow}
+          onClick={() => overflow.length && openOverflow(overflow, arrow)}
           style={{
             width: 26,
             height: 36,

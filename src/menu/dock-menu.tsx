@@ -330,9 +330,12 @@ export async function initDockMenu(app: AppHandle) {
   });
   // Light dismiss: the menu is activated when it opens, so a click anywhere else (another app,
   // the desktop, the dock itself) takes the focus from it. An open still waiting for the
-  // screen query ignores the blur of the menu it replaces.
-  handle.onFocusChange((focused) => {
-    if (!focused && !pending && !hold) closeDockMenu();
+  // screen query ignores the blur of the menu it replaces. A press on the dock button that opened
+  // it leaves it open: that click's toggleDockMenu puts it away, as the taskbar's flyouts do.
+  handle.onFocusChange((focused, change) => {
+    if (focused || pending || hold) return;
+    if (change.to === "main" && menuAnchor && DockWindow.pressedOn(menuAnchor, change.pointerTarget)) return;
+    closeDockMenu();
   });
 }
 
@@ -407,6 +410,7 @@ export function showDockMenu(spec: DockMenuSpec) {
   const h = handle;
   if (!h) return;
   stopHold();
+  menuAnchor = null;
   const ticket = ++opening;
   pending = true;
   awaitingSize = true;
@@ -451,22 +455,17 @@ export function menuOpen() {
   return !!menu.spec;
 }
 
-/** The named menu that closed last, and when. */
-let lastClosed = { id: "", at: 0 };
+/** The dock node (id) whose press opened the menu that is open, for the light dismiss. */
+let menuAnchor: string | null = null;
 
 /**
- * Opens menu `spec.id`, or closes it when it is open: a second press of the button that opened it
- * puts it away, as the taskbar's flyouts do. Pressing the dock takes the focus from the menu, which
- * closes it (light dismiss) before the click arrives; a click right after that closing is that
- * second press, so it must not open the menu again.
+ * Opens menu `spec.id` from dock button `anchor` (its node id), or closes it when it is open: a
+ * second press of that button puts it away, as the taskbar's flyouts do.
  */
-export function toggleDockMenu(spec: DockMenuSpec & { id: string }) {
+export function toggleDockMenu(spec: DockMenuSpec & { id: string }, anchor: string) {
   if (menu.spec?.id === spec.id) return closeDockMenu();
-  if (lastClosed.id === spec.id && Date.now() - lastClosed.at < 500) {
-    lastClosed = { id: "", at: 0 };
-    return;
-  }
   showDockMenu(spec);
+  menuAnchor = anchor;
 }
 
 export function closeDockMenu() {
@@ -474,8 +473,8 @@ export function closeDockMenu() {
   opening++;
   pending = false;
   reveal = null;
+  menuAnchor = null;
   if (!menu.spec) return;
-  if (menu.spec.id) lastClosed = { id: menu.spec.id, at: Date.now() };
   menu.spec = null;
   handle?.hide();
 }

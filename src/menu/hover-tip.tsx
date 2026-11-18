@@ -37,6 +37,8 @@ function TipView() {
       frameless
       resizable={false}
       skipTaskbar
+      // A tip never takes the foreground from the app in use.
+      activation="never"
       level="alwaysOnTop"
       backdrop="transparent"
       visible={false}

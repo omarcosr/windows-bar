@@ -6,6 +6,8 @@ import { getWidget } from "../widgets/registry";
 /** UI-only state shared by the dock and the gallery window. */
 export const dockUi = store({
   editing: false,
+  /** The dock has settled after starting (main.tsx): its first appearance fades and rises in. */
+  shown: false,
 });
 
 /** A widget being dragged to a new place (dock or gallery list), and the widget under it. */

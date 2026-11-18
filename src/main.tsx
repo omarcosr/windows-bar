@@ -41,9 +41,8 @@ if (argv.includes("--autostart")) {
 }
 
 // One dock per user: a second launch (exe or bun start) is handed to the running one.
-// requestSingleInstance rejects when it can neither reach nor become the first instance (the
-// previous dock still shutting down). Left unhandled, that kept orphan processes alive: it counts
-// as "not primary" here, so the retries below run, and the process exits if it never settles.
+// requestSingleInstance waits up to ~10 s for a previous dock that is still quitting, then rejects
+// when it can neither reach nor become the first instance: this process then exits.
 const claimInstance = () =>
   requestSingleInstance({ id: "WindowsBar.Dock" }).catch((error: unknown) => {
     console.error("[instance]", error);
@@ -60,9 +59,9 @@ if (argv.includes("--quit")) {
   await sleep(500);
   exitApp(0);
 }
-// Right after a dock was killed its pipe can still answer for a few seconds, longer than the
-// ~2.5 s requestSingleInstance retries (seen with 0.13.0): with no dock on screen, ask again.
-for (let i = 0; !instance?.primary && !windowExists(DOCK_TITLE) && i < 6; i++) {
+// A dock that is quitting can still answer on its pipe (its window already gone): then it is not
+// a running dock to hand over to, so ask again until it has let the pipe go.
+for (let i = 0; instance && !instance.primary && !windowExists(DOCK_TITLE) && i < 6; i++) {
   await sleep(700);
   instance = await claimInstance();
 }
@@ -71,6 +70,17 @@ const primary = instance;
 
 let dockWindow: DockWindow | undefined;
 let pendingSize: [number, number] | undefined;
+let entranceTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * The dock shows itself once its size and place stop changing at start (the widgets, the app list
+ * and the AppBar settle within a few frames), with 1.5 s at most; until then it draws nothing.
+ */
+function settleEntrance() {
+  if (dockUi.shown || !dockWindow) return;
+  clearTimeout(entranceTimer);
+  entranceTimer = setTimeout(() => (dockUi.shown = true), 160);
+}
 let gallery: AppHandle | undefined;
 
 // The settings/widgets window is listed on the dock while it is open, like any app.
@@ -142,6 +152,7 @@ const app = createApp(
       onSize={(width, height) => {
         if (dockWindow) dockWindow.setContentSize(width, height);
         else pendingSize = [width, height];
+        settleEntrance();
       }}
     />
   ),
@@ -187,10 +198,17 @@ const nativeOptions = () => ({
   stripOverlap: stripOverlap(),
 });
 dockWindow = DockWindow.attach(app, nativeOptions());
-dockWindow.onScreen = (width) => {
-  if (Math.abs(dockRoom.screen - width) > 0.5) dockRoom.screen = width;
-};
+// The logical width of the dock's monitor: the room the dock may take.
+const followScreen = () =>
+  void app.screen().then((screen) => {
+    const width = screen ? screen.width / screen.scale : 0;
+    if (width && Math.abs(dockRoom.screen - width) > 0.5) dockRoom.screen = width;
+  });
+followScreen();
+app.onScreensChange(followScreen);
 if (pendingSize) dockWindow.setContentSize(...pendingSize);
+settleEntrance();
+setTimeout(() => (dockUi.shown = true), 1500);
 // The foreground window's moves, coalesced: at most one check per 50 ms, and always one after the
 // last move, so the final size of an F11 or a game switching to full screen is never missed.
 let moveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -280,4 +298,5 @@ startUpdater();
 
 await app.closed;
 dockWindow.dispose();
+await dockWindow.settleTaskbar();
 exitApp(0);

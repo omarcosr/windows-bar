@@ -1,14 +1,8 @@
-import type { AppHandle, ScreenInfo } from "@tarve/core";
+import type { AppHandle } from "@tarve/core";
 import { dlopen, type Pointer } from "./ffi";
 import {
   monitorOf,
-  placeWindow,
-  ABE_BOTTOM,
   ABS_AUTOHIDE,
-  appBarQuery,
-  appBarRegister,
-  appBarRemove,
-  appBarSetPos,
   explorerTray,
   fullscreenAppActive,
   isWindowVisible,
@@ -22,7 +16,6 @@ import {
   taskbarState,
   windowRect,
   type HWND,
-  type Rect,
 } from "./win32";
 import { join } from "node:path";
 import { writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -30,7 +23,7 @@ import { configDir } from "../config";
 import restoreScript from "../../scripts/restore-taskbar.ps1" with { type: "text" };
 import { output } from "../runtime/proc";
 import { exitApp, onExit } from "../services/exit";
-import { onShellEvent, SPI_SETWORKAREA, type ShellEvent } from "./shell-events";
+import { onShellEvent, type ShellEvent } from "./shell-events";
 import { setDockCovered } from "../services/poller";
 
 const dwmapi = dlopen("dwmapi.dll", {
@@ -42,8 +35,6 @@ function excludeFromPeek(hwnd: HWND) {
   const DWMWA_EXCLUDED_FROM_PEEK = 12;
   dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, new Uint8Array(new Uint32Array([1]).buffer), 4);
 }
-
-/** The dock's base height in logical px; edit-mode badges never grow the reserved strip. */
 
 export interface DockWindowOptions {
   mode: "floating" | "full";
@@ -60,8 +51,8 @@ export interface DockWindowOptions {
 }
 
 /**
- * Owns the native side of the dock window: reserves the strip as an AppBar (the window then
- * covers it), or sizes a free dock to its content at the bottom of its monitor, and optionally
+ * Owns the native side of the dock window: reserves the strip as an AppBar (app.appBar; the window
+ * then covers it), or sizes a free dock to its content at the bottom of its monitor, and optionally
  * hides the Windows taskbar.
  */
 export class DockWindow {
@@ -71,15 +62,16 @@ export class DockWindow {
   #size = { width: 0, height: 0 };
   /** Logical thickness of the current AppBar, or -1 while not docked. */
   #reserved = -1;
+  /** Logical overlap the current AppBar was docked with. */
+  #overlap = 0;
   #scale = 1;
   #layoutRun = 0;
   #taskbar: { hwnd: HWND; state: number } | null = null;
   #hiddenForFullscreen = false;
   #offShell: () => void;
+  #offScreens: () => void;
   #lostChecks = 0;
-  #recheck: ReturnType<typeof setTimeout> | undefined;
-  #win32Registered = false;
-  #granted: Rect | null = null;
+  #redock: ReturnType<typeof setTimeout> | undefined;
   #watchdog = false;
   #disposed = false;
 
@@ -89,6 +81,12 @@ export class DockWindow {
     this.#options = options;
     excludeFromPeek(hwnd);
     this.#offShell = onShellEvent((event) => this.#onShellEvent(event));
+    // Monitors added or removed, resolution, scale or work area changed: lay out again and check
+    // that the strip is still reserved.
+    this.#offScreens = app.onScreensChange(() => {
+      void this.layout();
+      void this.#verifyReservation();
+    });
     if (DockWindow.#hidesTaskbar(options)) this.#hideTaskbar();
     const cleanup = () => this.dispose();
     onExit(cleanup);
@@ -123,6 +121,30 @@ export class DockWindow {
     const box = dock.#app.layout([id])?.[id];
     if (!box) return null;
     return windowRect(dock.#hwnd).left + (box.x + box.borderWidth / 2) * dock.#scale;
+  }
+
+
+  /** nodeCenterX without blocking the JS thread: resolves once the renderer answers. */
+  static async nodeCenterXAsync(id: string): Promise<number | null> {
+    const dock = DockWindow.#current;
+    if (!dock) return null;
+    const box = (await dock.#app.layoutAsync([id]).catch(() => undefined))?.[id];
+    if (!box || dock.#disposed) return null;
+    return windowRect(dock.#hwnd).left + (box.x + box.borderWidth / 2) * dock.#scale;
+  }
+
+  /**
+   * Whether the press a blur's `pointerTarget` names landed on dock node `anchor`: the node itself
+   * or one inside its width (a button's HitReach reaches past its height, not its sides).
+   */
+  static pressedOn(anchor: string, target: string | undefined): boolean {
+    const dock = DockWindow.#current;
+    if (!dock || !target) return false;
+    if (target === anchor) return true;
+    const boxes = dock.#app.layout([anchor, target]);
+    const a = boxes?.[anchor];
+    const t = boxes?.[target];
+    return !!a && !!t && t.x >= a.x - 0.5 && t.x + t.borderWidth <= a.x + a.borderWidth + 0.5;
   }
 
   /** The full-width bar replaces the Windows taskbar, so it always hides it. */
@@ -164,24 +186,16 @@ export class DockWindow {
     if (this.#disposed) return;
     const run = ++this.#layoutRun;
     const full = this.#options.mode === "full";
-    const screen = await this.#screen();
+    const screen = await this.#app.screen().catch(() => undefined);
     if (run !== this.#layoutRun || this.#disposed) return;
-    if (screen) {
-      this.#scale = screen.scale;
-      this.onScreen?.(screen.width / screen.scale);
-    }
+    if (screen) this.#scale = screen.scale;
 
     if (this.#options.reserveSpace) {
       // Not before the first render: the strip's thickness depends on the dock's size.
       if (!this.#size.width) return;
       // The window spans the reserved strip and the view adds the margins.
       const thickness = this.#options.barHeight + (full ? 0 : this.#options.bottomMargin * 2);
-      // The AppBar goes through Win32, not app.appBar: app.appBar's SHAppBarMessage reaches the
-      // dock's own tray host (tray-host.ts) instead of Explorer and fails, and it pins the window
-      // to the strip, so the strip could not reach over the app above (stripOverlap). Win32 calls
-      // are routed past the host by setAppBarRoute. Tarve 0.13.2 now reports reservation
-      // failure, but does not bypass our tray host or allow stripOverlap; keep this route.
-      if (screen) this.#reserveWin32(screen, thickness);
+      this.#dock(thickness, this.#options.stripOverlap);
       return;
     }
     this.#unreserve();
@@ -197,52 +211,26 @@ export class DockWindow {
     this.#app.setBounds({ x, y: bottom - margin - height, width, height, physical: true });
   }
 
-  /** Reserves the strip as a Win32 AppBar and places the window on it (from the JS thread). */
-  #reserveWin32(screen: ScreenInfo, thickness: number) {
-    const px = Math.round(thickness * screen.scale);
-    const monitor = { left: screen.x, right: screen.x + screen.width, bottom: screen.y + screen.height };
-    if (!this.#win32Registered) {
-      appBarRegister(this.#hwnd);
-      this.#win32Registered = true;
-    }
-    let g = this.#granted;
-    if (thickness !== this.#reserved || !g) {
-      this.#reserved = thickness;
-      g = this.#granted = appBarSetPos(this.#hwnd, ABE_BOTTOM, { ...monitor, top: monitor.bottom - px });
-    }
-    const over = Math.round(this.#options.stripOverlap * screen.scale);
-    // SetWindowPos, not setBounds: placing an AppBar through the runtime drops the work-area
-    // reservation (tested with 0.13.0); the window must be moved on this thread.
-    // Behind a full-screen app it stays behind: a layout (an app opened, a widget resized) must
-    // not bring it back on top of the game or video.
-    placeWindow(this.#hwnd, g.left, g.bottom - px - over, g.right - g.left, px + over, !this.#hiddenForFullscreen);
+  /**
+   * Docks the window as an AppBar on the bottom edge, `thickness` logical px reserved and the window
+   * `overlap` px over the app above. Only a new thickness or overlap docks again: every ABM_SETPOS
+   * makes Explorer recompute the work area and move windows. app.appBar reaches Explorer's
+   * Shell_TrayWnd past the dock's own tray host, re-docks on ABN_POSCHANGED and moves the window
+   * without touching its z-order (behind a full-screen app it stays behind).
+   */
+  #dock(thickness: number, overlap: number) {
+    if (thickness === this.#reserved && overlap === this.#overlap) return;
+    this.#reserved = thickness;
+    this.#overlap = overlap;
+    this.#app.appBar("bottom", { size: thickness, overlap });
   }
 
   #unreserve() {
     if (this.#reserved <= 0) return;
     this.#reserved = -1;
     this.#lostChecks = 0;
-    if (this.#win32Registered) appBarRemove(this.#hwnd);
-    this.#win32Registered = false;
-    this.#granted = null;
-  }
-
-  /** The monitor the dock is on (its window's centre), else the primary one. */
-  async #screen(): Promise<ScreenInfo | null> {
-    try {
-      const { screens } = await this.#app.screens();
-      const r = windowRect(this.#hwnd);
-      const cx = (r.left + r.right) / 2;
-      const cy = (r.top + r.bottom) / 2;
-      return (
-        screens.find((s) => cx >= s.x && cx < s.x + s.width && cy >= s.y && cy < s.y + s.height) ??
-        screens.find((s) => s.primary) ??
-        screens[0] ??
-        null
-      );
-    } catch {
-      return null;
-    }
+    clearTimeout(this.#redock);
+    this.#app.appBar(null);
   }
 
   #hideTaskbar() {
@@ -293,11 +281,28 @@ export class DockWindow {
     if (!this.#taskbar) return;
     setTaskbarState(this.#taskbar.state);
     showWindow(this.#taskbar.hwnd, SW_SHOWNA);
+    this.#restored = this.#taskbar.hwnd;
     this.#taskbar = null;
     rmSync(join(configDir, "taskbar-state.json"), { force: true });
   }
 
   #shellFullscreen = false;
+  /** Explorer's taskbar, just shown again by #restoreTaskbar. */
+  #restored: HWND | null = null;
+
+  /**
+   * After quitting: Explorer hides its taskbar once more a moment after ABM_SETSTATE turns
+   * auto-hide off (measured: hidden again within 150 ms, then left hidden), so the restore is
+   * repeated until it holds. Call after dispose(), before the process exits.
+   */
+  async settleTaskbar(ms = 900) {
+    const tray = this.#restored;
+    if (!tray) return;
+    for (let waited = 0; waited < ms; waited += 50) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!isWindowVisible(tray)) showWindow(tray, SW_SHOWNA);
+    }
+  }
 
   /** Explorer's ABN_FULLSCREENAPP for this screen (see shell-events.ts). */
   setShellFullscreen(on: boolean) {
@@ -335,23 +340,23 @@ export class DockWindow {
   }
 
   /**
-   * What used to be polled, from Windows' own signals: Explorer showing its taskbar again (Start
-   * menu, notifications), Explorer restarting (it forgets every AppBar), and the work area or the
-   * displays changing (the reservation may be gone). Full screen comes from the shell events in main.tsx.
+   * Explorer showing its taskbar again (Start menu, notifications) and Explorer restarting (it
+   * forgets every AppBar). Screens and work areas come from app.onScreensChange, full screen from
+   * the shell events in main.tsx.
    */
   #onShellEvent(event: ShellEvent) {
     if (this.#disposed) return;
     if (event.type === "trayShown") return this.#rehideTaskbar();
     if (event.type === "explorerRestarted") {
       this.#rehideTaskbar();
-      if (this.#reserved > 0) {
-        this.#unreserve();
-        // A short pause before registering again, so the new Explorer is ready for AppBars.
-        setTimeout(() => this.layout(), 1500);
-      }
-      return;
+      if (this.#reserved > 0) this.#reregister();
     }
-    if (event.type === "display" || (event.type === "setting" && event.action === SPI_SETWORKAREA)) void this.#verifyReservation();
+  }
+
+  /** Releases the AppBar and docks it anew after a short pause, so Explorer is ready for AppBars. */
+  #reregister() {
+    this.#unreserve();
+    this.#redock = setTimeout(() => void this.layout(), 1500);
   }
 
   /** Explorer shows the taskbar again on its own (Start menu, notifications, Explorer restart). */
@@ -369,40 +374,29 @@ export class DockWindow {
     }
   }
 
-  /** Checks that the strip is really reserved: the work area must end where the strip starts. */
+  /**
+   * Checks, on every screens change, that the strip is really reserved: the work area must end
+   * where the strip starts. Explorer re-docks moved bars itself (ABN_POSCHANGED); one that dropped
+   * the AppBar gets it registered anew, twice at most until the reservation holds again.
+   */
   async #verifyReservation() {
     if (this.#reserved <= 0 || this.#disposed || this.#hiddenForFullscreen) return;
-    const screen = await this.#screen();
+    const screen = await this.#app.screen().catch(() => undefined);
     if (!screen || this.#reserved <= 0 || this.#disposed) return;
     const r = windowRect(this.#hwnd);
-    const px = Math.round(this.#reserved * screen.scale);
-    // From Win32: the work area app.screens() reports does not follow AppBar changes (0.13.0).
-    const workBottom = monitorOf(this.#hwnd).work.bottom;
-    const over = Math.round(this.#options.stripOverlap * screen.scale);
-    const ok = Math.abs(workBottom - (r.top + over)) <= 1 && Math.abs(r.bottom - r.top - px - over) <= 1;
+    const over = Math.round(this.#overlap * screen.scale);
+    const workBottom = screen.workArea.y + screen.workArea.height;
+    const ok = Math.abs(workBottom - (r.top + over)) <= 1;
     this.#lostChecks = ok ? 0 : this.#lostChecks + 1;
-    clearTimeout(this.#recheck);
-    if (ok) return;
-
-    // The work area reaches into our strip (Explorer dropped the AppBar). Work areas settle over
-    // a few hundred ms while AppBars rearrange: look again, and register anew if it stays so.
-    if (this.#lostChecks >= 3) {
-      this.#lostChecks = 0;
-      this.#unreserve();
-      // A short pause before registering again, so Explorer has dropped the old AppBar.
-      setTimeout(() => this.layout(), 1500);
-      return;
-    }
-    this.#recheck = setTimeout(() => void this.#verifyReservation(), 1000);
-    // A strip moved by the taskbar or another AppBar shows up as the same mismatch. (No
-    // ABM_QUERYPOS here: every AppBar call briefly steps our tray host aside, see tray-host.ts.)
+    if (!ok && this.#lostChecks <= 2) this.#reregister();
   }
 
   dispose() {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#offShell();
-    clearTimeout(this.#recheck);
+    this.#offScreens();
+    clearTimeout(this.#redock);
     try {
       this.#unreserve();
     } catch {
@@ -410,7 +404,4 @@ export class DockWindow {
     }
     this.#restoreTaskbar();
   }
-
-    /** Told the logical width of the dock's monitor on every layout (the room the dock may take). */
-    onScreen?: (logicalWidth: number) => void;
 }

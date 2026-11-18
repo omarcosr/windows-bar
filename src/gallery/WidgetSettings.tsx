@@ -1,4 +1,4 @@
-import { Column, Input, Modal, Scroll, Text } from "@tarve/core";
+import { Column, Input, Modal, Text } from "@tarve/core";
 import { config } from "../config";
 import { ui } from "../theme";
 import { mountWidget } from "../widgets/host";
@@ -56,14 +56,11 @@ export function WidgetSettingsModal() {
       title={definition?.name ?? ""}
       description={definition?.description}
       width={520}
-      // Taller than the window, the panel keeps its title and scrolls its options.
-      style={{ maxHeight: "100%", minHeight: 0 }}
       closeOnOverlay
       closeOnEscape
       showClose
     >
       {widget && instance ? (
-        <Scroll style={{ flex: "0 1 auto", minHeight: 0 }}>
           <Column style={{ gap: 0, margin: { top: 4 }, radius: 12, overflow: "hidden", background: "rgba(255,255,255,0.04)" }}>
           {siblings.length > 1 ? (
             <Setting label="Qual deles" description="Há mais de um deste widget no dock; cada um tem suas opções.">
@@ -93,7 +90,6 @@ export function WidgetSettingsModal() {
             ),
           )}
           </Column>
-          </Scroll>
         ) : null}
     </Modal>
   );

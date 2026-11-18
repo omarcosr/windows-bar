@@ -143,7 +143,7 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
     <Pressable
       {...(props.editing ? {} : drag)}
       onContextMenu={() => openWidgetMenu(widget)}
-      onSize={({ borderBox }: { borderBox: { width: number } }) => noteSlotWidth(instance.id, borderBox.width)}
+      onSize={({ borderBox }) => noteSlotWidth(instance.id, borderBox.width)}
       style={{
         position: "relative",
         shrink: 0,
@@ -307,8 +307,13 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
           dock and any empty space, not only the dock itself. */}
       <Pressable
         onContextMenu={props.onContextMenu}
-        style={
-          inStrip
+        style={{
+          // Invisible while the dock starts (sizes, place and icons still settling), then one
+          // native fade and rise, run by the renderer: no intermediate frame is seen.
+          opacity: dockUi.shown ? 1 : 0,
+          transform: dockUi.shown ? "translateY(0px)" : "translateY(12px)",
+          transition: { opacity: { duration: 180, easing: "easeOut" }, transform: { duration: 260, easing: "easeOut" } },
+          ...(inStrip
             ? {
                 // Only right-click does something here: no hand cursor.
                 cursor: "default",
@@ -326,8 +331,8 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
                 background: strip ? (sweep.base ?? "rgba(0,0,0,0)") : undefined,
                 overflow: "hidden",
               }
-            : { flex: 1, align: "start", justify: reserving && !left ? "center" : "start", direction: "row", cursor: "default" }
-        }
+            : { flex: 1, align: "start", justify: reserving && !left ? "center" : "start", direction: "row", cursor: "default" }),
+        }}
       >
         {strip ? <Sweep height={stripHeight} /> : null}
         {/* A free dock's window hugs this box; the edit-mode room for the remove badges is its padding. */}

@@ -104,15 +104,6 @@ export const HWND_TOPMOST = -1;
 const SWP_NOACTIVATE = 0x0010;
 const SWP_NOSIZE = 0x0001;
 
-/**
- * Moves and sizes a window without activating it (physical px). onTop keeps it topmost; false
- * leaves its z-order alone (behind a full-screen app it must stay there).
- */
-export function placeWindow(hwnd: HWND, x: number, y: number, width: number, height: number, onTop = true) {
-  const flags = SWP_NOACTIVATE | (onTop ? 0 : 0x4 /* SWP_NOZORDER */);
-  U.SetWindowPos(hwnd, HWND_TOPMOST, Math.round(x), Math.round(y), Math.round(width), Math.round(height), flags);
-}
-
 /** Drops a topmost window to just behind `front` (or back on top with null), without hiding it. */
 export function setBehind(hwnd: HWND, front: HWND | null) {
   const HWND_NOTOPMOST = -2;
@@ -238,13 +229,12 @@ export function isWindowVisible(hwnd: HWND) {
   return !!U.IsWindowVisible(hwnd);
 }
 
-// ---------- AppBar (reserves screen space like the taskbar does) ----------
+// ---------- Taskbar state (ABM_GETSTATE/ABM_SETSTATE; the dock's own AppBar is app.appBar) ----------
 
 /**
  * Who SHAppBarMessage reaches: it finds the tray with FindWindow("Shell_TrayWnd"), which is the
  * dock's own tray host while that runs (tray-host.ts). The host installs a route that hands the
- * call to Explorer directly; relayed through the host, Explorer accepts the AppBar but at times
- * never applies its work area.
+ * call to Explorer directly.
  */
 let appBarRoute: (<T>(call: () => T) => T) | null = null;
 
@@ -257,67 +247,26 @@ function appBarMessage(message: number, data: Uint8Array) {
   return appBarRoute ? appBarRoute(call) : call();
 }
 
-const ABM_NEW = 0;
-const ABM_REMOVE = 1;
-const ABM_QUERYPOS = 2;
-const ABM_SETPOS = 3;
 const ABM_GETSTATE = 4;
 const ABM_SETSTATE = 10;
-export const ABE_BOTTOM = 3;
 export const ABS_AUTOHIDE = 1;
 export const ABS_ALWAYSONTOP = 2;
 
-function appBarData(hwnd: HWND | null, edge = 0, rect?: Rect, lParam = 0) {
+/** APPBARDATA with no window: the taskbar's own state, `lParam` the state to set. */
+function appBarData(lParam = 0) {
   const buf = new Uint8Array(48);
   const view = new DataView(buf.buffer);
   view.setUint32(0, 48, true);
-  if (hwnd) view.setBigUint64(8, BigInt(hwnd), true);
-  view.setUint32(20, edge, true);
-  if (rect) {
-    view.setInt32(24, rect.left, true);
-    view.setInt32(28, rect.top, true);
-    view.setInt32(32, rect.right, true);
-    view.setInt32(36, rect.bottom, true);
-  }
   view.setBigInt64(40, BigInt(lParam), true);
-  return { buf, view };
-}
-
-export function appBarRegister(hwnd: HWND): boolean {
-  return Number(appBarMessage(ABM_NEW, appBarData(hwnd).buf)) !== 0;
-}
-
-/** The rect Windows would grant for `rect` on `edge`, without reserving anything. */
-export function appBarQuery(hwnd: HWND, edge: number, rect: Rect): Rect {
-  const data = appBarData(hwnd, edge, rect);
-  appBarMessage(ABM_QUERYPOS, data.buf);
-  const granted = readRect(data.view, 24);
-  if (edge === ABE_BOTTOM) granted.top = granted.bottom - (rect.bottom - rect.top);
-  return granted;
-}
-
-/** Reserves `rect` on `edge`; returns the rect Windows granted. */
-export function appBarSetPos(hwnd: HWND, edge: number, rect: Rect): Rect {
-  const data = appBarData(hwnd, edge, rect);
-  appBarMessage(ABM_QUERYPOS, data.buf);
-  const granted = readRect(data.view, 24);
-  // Keep the requested thickness against the edge Windows pushed us to.
-  if (edge === ABE_BOTTOM) granted.top = granted.bottom - (rect.bottom - rect.top);
-  const final = appBarData(hwnd, edge, granted);
-  appBarMessage(ABM_SETPOS, final.buf);
-  return readRect(final.view, 24);
-}
-
-export function appBarRemove(hwnd: HWND) {
-  appBarMessage(ABM_REMOVE, appBarData(hwnd).buf);
+  return buf;
 }
 
 export function taskbarState(): number {
-  return Number(appBarMessage(ABM_GETSTATE, appBarData(null).buf));
+  return Number(appBarMessage(ABM_GETSTATE, appBarData()));
 }
 
 export function setTaskbarState(state: number) {
-  appBarMessage(ABM_SETSTATE, appBarData(null, 0, undefined, state).buf);
+  appBarMessage(ABM_SETSTATE, appBarData(state));
 }
 
 const qunsBuf = new Int32Array(1);
@@ -517,6 +466,12 @@ export function activateDesktop() {
 export function windowPid(hwnd: HWND): number {
   U.GetWindowThreadProcessId(hwnd, pidBytes);
   return pidBuf[0]!;
+}
+
+
+/** The window that owns `hwnd` (a dialog's main window), or null. */
+export function ownerOf(hwnd: HWND): HWND | null {
+  return U.GetWindow(hwnd, GW_OWNER) as HWND | null;
 }
 
 let livePreview: ((on: number, target: HWND | null, keepOnTop: HWND | null, kind: number, extra: number) => number) | null | undefined;
