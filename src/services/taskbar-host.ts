@@ -236,7 +236,7 @@ function applyPromoted() {
   if (icons.some((i, n) => i !== tray.icons[n])) tray.icons = icons;
 }
 
-/** The windows behind icons, badges and progress: the worker reports their destruction (watchDestroyed). */
+/** The windows behind icons, badges and progress: shell-events reports their destruction (watchDestroyed). */
 function syncWatched() {
   watchDestroyed([...tray.icons.map((i) => i.hwnd), ...Object.keys(overlays).map(Number), ...Object.keys(progress).map(Number)]);
 }
@@ -264,8 +264,8 @@ function start() {
   // Apps (re)apply overlay badges when told their taskbar button exists.
   setTimeout(() => broadcastTaskbarButtonCreated(listTaskbarWindows().map((w) => w.hwnd)), 500);
   // Settings come from their registry key's change notification. Dead icons are dropped when their
-  // window is destroyed: an out-of-context EVENT_OBJECT_DESTROY hook in the shell-events worker,
-  // filtered there to the windows that own an icon, badge or progress, so hidden windows count too
+  // window is destroyed: an out-of-context EVENT_OBJECT_DESTROY hook (shell-events.ts) on the threads
+  // of the windows that own an icon, badge or progress, so hidden windows count too
   // (an app that quits after closing to the tray, or without NIM_DELETE) and nothing is polled.
   // After an Explorer restart every icon is checked once.
   offEvents = [

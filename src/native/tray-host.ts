@@ -2,7 +2,6 @@ import { dlopen, runtime, type Pointer } from "./ffi";
 import { deflateSync } from "node:zlib";
 import { setAppBarRoute } from "./win32";
 import { encodeWide, decodeWide } from "./wide";
-import { shellWorkerFfi } from "./shell-events";
 import { startWorker, type RuntimeWorker } from "../runtime/worker";
 
 /**
@@ -13,7 +12,11 @@ import { startWorker, type RuntimeWorker } from "../runtime/worker";
  * working as before. A "TaskbarCreated" broadcast makes running apps re-add their icons here.
  *
  * The windows live on a worker thread that sleeps in GetMessage, as Explorer's tray thread does:
- * senders get their answer at once and the JS thread is only told what arrived.
+ * senders get their answer at once and the JS thread is only told what arrived. Tarve's
+ * messageWindow() is not used here: its sent messages are answered either from a fixed table or by
+ * the JS thread, and this host has to answer with Explorer's own reply after copying the icon (apps
+ * destroy it once Shell_NotifyIcon returns), nest five windows of fixed classes and keep its tray
+ * on top with a native timer, all without waiting for the JS thread.
  */
 
 const user32 = dlopen("user32.dll", {
@@ -131,6 +134,33 @@ function parseTrayData(bytes: Uint8Array): NotifyIconMessage | null {
   };
 }
 
+/** Self-contained JS for the worker's FFI: a worker cannot import the application's TypeScript facade. */
+function workerFfi(target: typeof runtime): string {
+  if (target === "bun") return 'const { dlopen, JSCallback, ptr } = await import("bun:ffi");';
+  const backend = target === "node" ?
+    'const ffi = require("node:ffi");\n' +
+    'const types = { void:"void", ptr:"pointer", u16:"uint16", i32:"int32", u32:"uint32", i64:"int64", u64:"uint64" };\n' +
+    'const sig = s => ({ arguments: (s.args || []).map(t => types[t]), return: types[s.returns || "void"] });\n' +
+    'const nativePtr = v => v instanceof Uint8Array ? ffi.getRawPointer(v) : BigInt(v || 0);\n' +
+    'const address = v => Number(v || 0);\n' +
+    'const open = (path, specs) => { const lib = new ffi.DynamicLibrary(path); libraries.push(lib); return Object.fromEntries(Object.entries(specs).map(([name, s]) => [name, lib.getFunction(name, sig(s))])); };\n' +
+    'const callback = (fn, s) => { const lib = new ffi.DynamicLibrary("kernel32.dll"); libraries.push(lib); return lib.registerCallback(sig(s), fn); };\n'
+    : 'const ffi = await import("tjs:ffi");\n' +
+    'const integer64 = signed => new ffi.AdvancedType(ffi.types[signed ? "sint64" : "uint64"], { name: signed ? "bigint64" : "biguint64", toBuffer(value) { const b = new Uint8Array(8), v = new DataView(b.buffer); if (signed) v.setBigInt64(0, BigInt(value), true); else v.setBigUint64(0, BigInt(value), true); return b; }, fromBuffer(b) { const v = new DataView(b.buffer, b.byteOffset, b.byteLength); return signed ? v.getBigInt64(0, true) : v.getBigUint64(0, true); } });\n' +
+    'const types = { void:ffi.types.void, ptr:ffi.types.pointer, u16:ffi.types.uint16, i32:ffi.types.sint32, u32:ffi.types.uint32, i64:integer64(true), u64:integer64(false) };\n' +
+    'const sig = s => ({ args: (s.args || []).map(t => types[t]), returns: types[s.returns || "void"] });\n' +
+    'const nativePtr = v => { if (v instanceof Uint8Array) return ffi.bufferToPointer(v); const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(v || 0), true); return ffi.types.pointer.fromBuffer(b); };\n' +
+    'const address = p => { if (p == null) return 0; const b = ffi.types.pointer.toBuffer(p); return Number(new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true)); };\n' +
+    'const open = (path, specs) => { const lib = ffi.dlopen(path, Object.fromEntries(Object.entries(specs).map(([n,s]) => [n,sig(s)]))); libraries.push(lib); return lib.symbols; };\n' +
+    'const callback = (fn,s) => { const cb = new ffi.JSCallback(types[s.returns], (s.args || []).map(t => types[t]), fn); callbacks.push(cb); return cb.addr; };\n';
+  return 'const libraries = [], callbacks = [];\n' + backend +
+    'const input = (t,v) => t === "ptr" ? nativePtr(v) : t === "i64" || t === "u64" ? BigInt(v) : v;\n' +
+    'const output = (t,v) => t === "ptr" ? address(v) : t === "i64" || t === "u64" ? BigInt(v) : v;\n' +
+    'const ptr = b => address(nativePtr(b));\n' +
+    'const dlopen = (path,specs) => { const symbols = open(path,specs); return { symbols: Object.fromEntries(Object.entries(specs).map(([n,s]) => [n,(...args) => output(s.returns, symbols[n](...(s.args || []).map((t,i) => input(t,args[i]))))])) }; };\n' +
+    'class JSCallback { constructor(fn,s) { this.ptr = address(callback((...args) => input(s.returns, fn(...(s.args || []).map((t,i) => output(t,args[i])))), s)); } }\n';
+}
+
 type TrayWorkerMessage =
   | { type: "ready"; threadId: number; windows: Record<ClassName, number> }
   /** SHELLTRAYDATA bytes; `copied`: the icon handle in it is our copy, to destroy after use. */
@@ -146,7 +176,7 @@ type TrayWorkerMessage =
  */
 function trayWorkerSource(): string {
   return `
-${shellWorkerFfi(runtime)}
+${workerFfi(runtime)}
 const u = dlopen("user32.dll", {
   RegisterClassExW: { args: ["ptr"], returns: "u16" },
   CreateWindowExW: { args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "ptr" },

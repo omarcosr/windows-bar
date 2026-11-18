@@ -101,15 +101,6 @@ export function toArrayBuffer(pointer: Pointer | bigint, offset: number, length:
 const reader = <T>(type: string) => (pointer: Pointer | bigint, offset = 0): T => output(type as FfiType, backend.read(type, backend.pointer(pointer), offset));
 export const read = { i8: reader<number>("i8"), u8: reader<number>("u8"), i16: reader<number>("i16"), u16: reader<number>("u16"), i32: reader<number>("i32"), u32: reader<number>("u32"), i64: reader<bigint>("i64"), u64: reader<bigint>("u64"), f32: reader<number>("f32"), f64: reader<number>("f64"), ptr: reader<Pointer | null>("ptr") };
 
-// Tarve's txiki process shim has no pid; tray ownership and the recovery watchdog need the real one.
-if (runtime === "txiki" && !Number.isInteger(process.pid)) {
-  const kernel = dlopen("kernel32.dll", { GetCurrentProcessId: { args: [], returns: "u32" } });
-  try {
-    Object.defineProperty(process, "pid", { value: kernel.symbols.GetCurrentProcessId(), configurable: true });
-  } finally {
-    kernel.close();
-  }
-}
 export type PointerArgument = Pointer | bigint | ArrayBufferView | ArrayBuffer | null;
 export function normalizePointer(value: PointerArgument): number | bigint | Uint8Array | null {
   const normalized = ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : value instanceof ArrayBuffer ? new Uint8Array(value) : value;
