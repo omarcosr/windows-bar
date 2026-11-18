@@ -3,10 +3,13 @@ import { Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHa
 import { config } from "../config";
 import { FluentGlyph } from "./dock-menu";
 import { DockWindow } from "../native/dock-window";
+import { quietWindow, type QuietWindow } from "./quiet-window";
 import { onShellEvent } from "../native/shell-events";
 import {
+  activateWindow,
   closeWindow,
   cursorPos,
+  foregroundWindow,
   peekWindow,
   placeThumbnail,
   registerThumbnail,
@@ -48,6 +51,9 @@ const preview = store({
 });
 
 let handle: AppHandle | undefined;
+let quiet: QuietWindow | undefined;
+/** The window in front before a click opened the list: it gets the keyboard back when the list goes. */
+let beforeList: HWND | null = null;
 let hwnd: HWND | null = null;
 let thumbs: { source: HWND; thumb: Thumbnail }[] = [];
 let showTimer: ReturnType<typeof setTimeout> | undefined;
@@ -216,6 +222,7 @@ function PreviewView() {
       frameless
       resizable={false}
       skipTaskbar
+      activation="never"
       level="alwaysOnTop"
       backdrop="transparent"
       visible={false}
@@ -383,6 +390,7 @@ export async function initWindowPreview(app: AppHandle) {
     excludeFromPeek(hwnd);
     disableTransitions(hwnd);
   }
+  quiet = await quietWindow(handle);
   handle.onEvent((event) => {
     if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") hidePreview(true);
   });
@@ -413,7 +421,8 @@ async function showFor(key: string, still: () => boolean) {
   // app's cards (or of none) at the new place.
   handle.flush();
   layout();
-  handle.show();
+  // Shown without taking the foreground (quiet-window.ts), as the taskbar shows its thumbnails.
+  quiet?.show();
 }
 
 /**
@@ -433,8 +442,11 @@ export function clickApp(key: string): boolean {
   }
   pinned = true;
   void showFor(key, () => pinned).then(() => {
-    // Focus lets a click elsewhere (focus loss) or Esc close it, like the taskbar's list.
-    if (pinned && preview.key === key) handle?.activate();
+    // Focus lets a click elsewhere (focus loss) or Esc close it, like the taskbar's list. The dock
+    // never takes the foreground, so this does not take the pointer's hover from it.
+    if (!pinned || preview.key !== key) return;
+    beforeList = foregroundWindow();
+    handle?.activate();
   });
   return true;
 }
@@ -472,12 +484,15 @@ export function hidePreview(now = false) {
   clearTimeout(showTimer);
   if (!now) return;
   stopPeek();
+  // Closed with Esc or a second click on the icon, the list still has the keyboard: give it back.
+  if (pinned && hwnd && beforeList && beforeList !== hwnd && foregroundWindow() === hwnd) activateWindow(beforeList);
+  beforeList = null;
   pinned = false;
   if (!preview.key) return;
   preview.key = "";
   clearTimeout(leaveTimer);
   clearThumbs();
-  handle?.hide();
+  quiet?.hide();
 }
 
 // Windows open, close, resize or minimize while a preview is up: the shell events keep the cards'

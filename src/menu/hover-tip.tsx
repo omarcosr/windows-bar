@@ -3,6 +3,7 @@ import { dockUi, widgetDrag } from "../dock/state";
 import { DockWindow } from "../native/dock-window";
 import { menuOpen } from "./dock-menu";
 import { previewOpen } from "./window-preview";
+import { quietWindow, type QuietWindow } from "./quiet-window";
 
 /**
  * The small info popup the Windows taskbar shows over the clock, network, volume, battery,
@@ -17,6 +18,7 @@ const GAP = 8;
 const tip = store({ lines: [] as string[] });
 
 let handle: AppHandle | undefined;
+let quiet: QuietWindow | undefined;
 let anchor = "";
 let source: (() => string[]) | null = null;
 let shown = false;
@@ -121,7 +123,7 @@ async function open(id: string, get: () => string[]) {
     if (anchor !== id || source !== get || blocked()) return;
     shown = true;
     place();
-    handle?.show();
+    quiet?.show();
     startRefresh();
   }, 30);
 }
@@ -133,7 +135,7 @@ function close() {
   source = null;
   if (!shown) return;
   shown = false;
-  handle?.hide();
+  quiet?.hide();
 }
 
 /** Puts the tip away now (a click, a menu); it stays away until the pointer leaves that node. */
@@ -166,6 +168,7 @@ export function hoverTip(id: string, get: () => string[], hovered: boolean) {
 export async function initHoverTip(app: AppHandle) {
   handle = app.openWindow(TipView, { id: "tip", closeBehavior: "hide" });
   await handle.ready;
+  quiet = await quietWindow(handle);
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;

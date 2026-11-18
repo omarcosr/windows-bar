@@ -93,7 +93,8 @@ export class DockWindow {
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
       process.once(signal, () => {
         cleanup();
-        exitApp(0);
+        // Explorer hides its taskbar again a moment after the restore (see settleTaskbar).
+        void this.settleTaskbar().finally(() => exitApp(0));
       });
     }
     this.layout();
