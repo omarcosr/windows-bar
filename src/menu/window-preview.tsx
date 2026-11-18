@@ -3,7 +3,6 @@ import { Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHa
 import { config } from "../config";
 import { FluentGlyph } from "./dock-menu";
 import { DockWindow } from "../native/dock-window";
-import { quietWindow, type QuietWindow } from "./quiet-window";
 import { onShellEvent } from "../native/shell-events";
 import {
   activateWindow,
@@ -51,7 +50,6 @@ const preview = store({
 });
 
 let handle: AppHandle | undefined;
-let quiet: QuietWindow | undefined;
 /** The window in front before a click opened the list: it gets the keyboard back when the list goes. */
 let beforeList: HWND | null = null;
 let hwnd: HWND | null = null;
@@ -403,7 +401,6 @@ export async function initWindowPreview(app: AppHandle) {
     excludeFromPeek(hwnd);
     disableTransitions(hwnd);
   }
-  quiet = await quietWindow(handle);
   handle.onEvent((event) => {
     if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") hidePreview(true);
     // Middle button released over a card or row: close that window, as the taskbar's thumbnails do.
@@ -437,8 +434,8 @@ async function showFor(key: string, still: () => boolean) {
   // app's cards (or of none) at the new place.
   handle.flush();
   layout();
-  // Shown without taking the foreground (quiet-window.ts), as the taskbar shows its thumbnails.
-  quiet?.show();
+  // activation="never": shown without taking the foreground, as the taskbar shows its thumbnails.
+  handle?.show();
 }
 
 /**
@@ -508,7 +505,7 @@ export function hidePreview(now = false) {
   preview.key = "";
   clearTimeout(leaveTimer);
   clearThumbs();
-  quiet?.hide();
+  handle?.hide();
 }
 
 // Windows open, close, resize or minimize while a preview is up: the shell events keep the cards'

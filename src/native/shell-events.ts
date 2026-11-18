@@ -334,6 +334,14 @@ let destroyThreads = "";
  */
 function syncDestroyHook() {
   if (!core) return;
+  // A window can die without its EVENT_OBJECT_DESTROY reaching us (its process killed, Explorer
+  // restarting): drop it here and report it, since SetWinEventHook fails for a thread that no
+  // longer exists, and one dead thread made the whole hook fail.
+  for (const [hwnd, thread] of [...destroyWatched]) {
+    if (ownerOf(hwnd).thread === thread) continue;
+    destroyWatched.delete(hwnd);
+    queueMicrotask(() => emit({ type: "destroyed", hwnd }));
+  }
   const threads = [...new Set(destroyWatched.values())].sort((a, b) => a - b);
   const key = threads.join(",");
   if (key === destroyThreads) return;
@@ -345,6 +353,8 @@ function syncDestroyHook() {
     emit({ type: "destroyed", hwnd });
     queueMicrotask(syncDestroyHook);
   }) : null;
+  // A thread can still end between the check and the hook: try again on the next change.
+  if (!destroyHook && threads.length) destroyThreads = "";
 }
 
 /**

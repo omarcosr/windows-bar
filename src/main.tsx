@@ -1,32 +1,32 @@
-import { probeEvents } from "./runtime/perf-probe";
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
+import appIcon from "../assets/icon.png";
 import { config, onConfigSaved, saveConfig } from "./config";
-import { ui } from "./theme";
 import { DOCK_TITLE, DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
+import { setGalleryOpener } from "./dock/widget-menu";
 import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type GalleryPage } from "./gallery/Gallery";
-import { showOwnWindowOnTaskbar, windowExists } from "./native/win32";
+import { initChartPanel } from "./menu/chart-panel";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
-import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { initHoverTip } from "./menu/hover-tip";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
-import { initChartPanel } from "./menu/chart-panel";
-import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, windowGone, windowShown } from "./services/windows";
-import { HSHELL, startShellEvents } from "./native/shell-events";
+import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { DockWindow } from "./native/dock-window";
-import { setGalleryOpener } from "./dock/widget-menu";
+import { HSHELL, startShellEvents } from "./native/shell-events";
+import { showOwnWindowOnTaskbar, windowExists } from "./native/win32";
+import { probeEvents } from "./runtime/perf-probe";
+import { sleep } from "./runtime/proc";
+import { watchAppColor } from "./services/app-color";
+import { readAutostart, setAutostart } from "./services/autostart";
+import { exitApp } from "./services/exit";
 import { pauseExplorerButtonsWhile } from "./services/explorer-buttons";
 import { dockAlign, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
-import { readAutostart, setAutostart } from "./services/autostart";
 import { checkNow, restartToUpdate, startUpdater, updateNow, updater } from "./services/updater";
-import { watchAppColor, appColor } from "./services/app-color";
-import { disposeWidget, setWidgetApp } from "./widgets/host";
-import { allWidgets } from "./widgets/registry";
-import { dockRoom } from "./widgets/magnify";
-import { exitApp } from "./services/exit";
+import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, windowGone, windowShown } from "./services/windows";
+import { ui } from "./theme";
 import "./widgets/builtin";
-import appIcon from "../assets/icon.png";
-import { sleep } from "./runtime/proc";
+import { disposeWidget, setWidgetApp } from "./widgets/host";
+import { dockRoom } from "./widgets/magnify";
+import { allWidgets } from "./widgets/registry";
 // A stray network error (e.g. ECONNRESET from a widget's fetch) must not take the whole dock down.
 process.on("unhandledRejection", (error) => console.error("[unhandledRejection]", error));
 process.on("uncaughtException", (error) => console.error("[uncaughtException]", error));
@@ -158,8 +158,9 @@ const app = createApp(
     />
   ),
   {
+    renderer: "auto",
     appIdentity: { id: "WindowsBar.Dock", name: "WindowsBar", icon: appIcon },
-      icon: appIcon,
+    icon: appIcon,
     closeBehavior: "exit",
     onError: ({ error, source }) => console.error(`[${source}]`, error),
   },
@@ -248,7 +249,7 @@ startShellEvents((event) => {
       dockWindow?.checkFullscreen();
       return scheduleRefresh();
     case HSHELL.WINDOWCREATED:
-        return windowShown(event.hwnd);
+      return windowShown(event.hwnd);
     case HSHELL.WINDOWDESTROYED:
       return windowGone(event.hwnd);
     case HSHELL.REDRAW:

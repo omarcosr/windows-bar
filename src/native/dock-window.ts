@@ -322,9 +322,10 @@ export class DockWindow {
       this.#hiddenForFullscreen = fullscreen;
       // Nothing the dock draws can be seen now: pollers and timers rest until it returns.
       setDockCovered(fullscreen);
-      // Step behind the full-screen window instead of hiding: a hidden AppBar loses its reserved
-      // strip, windows then grow over it, look full-screen themselves and the dock never returns.
-      setBehind(this.#hwnd, fullscreen ? foregroundWindow() : null);
+      // Drop to the bottom of the z-order, as Explorer's taskbar does, instead of hiding: a hidden
+      // AppBar loses its reserved strip, windows then grow over it, look full-screen themselves and
+      // the dock never returns.
+      setBehind(this.#hwnd, fullscreen);
       // Explorer may have shown its taskbar meanwhile (not hidden again during full screen).
       if (!fullscreen) this.#rehideTaskbar();
     }
@@ -341,17 +342,14 @@ export class DockWindow {
   }
 
   /**
-   * Explorer showing its taskbar again (Start menu, notifications) and Explorer restarting (it
-   * forgets every AppBar). Screens and work areas come from app.onScreensChange, full screen from
-   * the shell events in main.tsx.
+   * Explorer showing its taskbar again (Start menu, notifications) and Explorer restarting. The
+   * AppBar itself is docked again by app.appBar on TaskbarCreated (Tarve 0.13.4); a reservation that
+   * still went missing is caught by #verifyReservation. Screens and work areas come from
+   * app.onScreensChange, full screen from the shell events in main.tsx.
    */
   #onShellEvent(event: ShellEvent) {
     if (this.#disposed) return;
-    if (event.type === "trayShown") return this.#rehideTaskbar();
-    if (event.type === "explorerRestarted") {
-      this.#rehideTaskbar();
-      if (this.#reserved > 0) this.#reregister();
-    }
+    if (event.type === "trayShown" || event.type === "explorerRestarted") this.#rehideTaskbar();
   }
 
   /** Releases the AppBar and docks it anew after a short pause, so Explorer is ready for AppBars. */
