@@ -1,22 +1,37 @@
-import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, View, type Child, type Style } from "@tarve/core";
-import { ui } from "../theme";
+import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type Style } from "@tarve/core";
+import { hoverShade, numeric, ui } from "../theme";
 import { config, type GlowColor, type HoverEffect } from "../config";
 import { taskbarPrefs } from "../services/taskbar-prefs";
-import { hideTip } from "../menu/hover-tip";
+import { hideTip, hoverTip } from "../menu/hover-tip";
 
-/** The graphite card every dock widget sits on. */
+/**
+ * The graphite card every dock widget sits on. Its content is one row, centred vertically, padded
+ * 10 px on both sides (8 px on the left when it starts with a round icon or ring: `lead="round"`).
+ *
+ * With `onClick` it answers the pointer like a Windows 11 taskbar button: a lighter fill on hover
+ * (a lighter or darker shade of a tile's own colour), a small press, the hand cursor. Without one it
+ * draws no hover at all (no affordance where a click does nothing). `tip` shows the dock's hover tip
+ * (the taskbar's info popup) after a moment: the lines that explain what the numbers are.
+ */
 export function Tile(props: {
   width?: number;
   padding?: Style["padding"];
+  /** "round": the tile starts with a round icon or ring, which sits 8 px from the edge. */
+  lead?: "round";
   background?: string;
   gap?: number;
   onClick?: () => void;
   onContextMenu?: () => void;
+  /** The hover tip: `id` unique in the dock (use the instance id), `lines` read while it shows. */
+  tip?: { id: string; lines: () => string[] };
+  /** The gallery preview: no tip. */
+  preview?: boolean;
   style?: Style;
   children?: Child;
 }) {
   // Joined widgets sit on one shared card (the dock draws it); a tile with its own colour keeps it.
   const joined = config.joinWidgets === true;
+  const tip = props.preview ? undefined : props.tip;
   const style: Style = {
     width: props.width,
     height: ui.tile.height,
@@ -24,8 +39,7 @@ export function Tile(props: {
     background: props.background ?? (joined ? "rgba(0,0,0,0)" : ui.tile.background),
     borderWidth: joined ? 0 : 1,
     borderColor: ui.tile.border,
-    // Content is centred vertically by the row; the tile only pads the sides.
-    padding: props.padding ?? { left: 8, right: 8 },
+    padding: props.padding ?? { left: props.lead === "round" ? ui.tile.inset.round : ui.tile.inset.side, right: ui.tile.inset.side },
     gap: props.gap ?? 8,
     direction: "row",
     align: "center",
@@ -34,11 +48,24 @@ export function Tile(props: {
     // line pushed the rows under it out of the tile ("demo" tags, reset times, model names).
     whiteSpace: "nowrap",
     shrink: 0,
-    ...props.style,
   };
-  if (!props.onClick && !props.onContextMenu) return <View style={style}>{props.children}</View>;
+  const tipProps = tip
+    ? {
+        id: tip.id,
+        onPointerMove: () => hoverTip(tip.id, tip.lines, true),
+        onPointerLeave: () => hoverTip(tip.id, tip.lines, false),
+      }
+    : {};
+  if (!props.onClick && !props.onContextMenu)
+    return (
+      <View {...tipProps} style={{ ...style, ...props.style }}>
+        {props.children}
+      </View>
+    );
+  const clickable = !!props.onClick;
   return (
     <Pressable
+      {...tipProps}
       // Dock tiles never keep the keyboard, like taskbar buttons (Enter after a click must not re-press).
       focusable={false}
       onClick={
@@ -53,14 +80,61 @@ export function Tile(props: {
       style={{
         ...style,
         // The hand and the press feedback only where a left click does something.
-        cursor: props.onClick ? "pointer" : "default",
-        hover: props.onClick ? { background: props.background ?? ui.tile.hover } : undefined,
-        active: props.onClick ? { transform: "scale(0.97)" } : undefined,
-        transition: { background: { duration: 140, easing: "easeOut" } },
+        cursor: clickable ? "pointer" : "default",
+        hover: clickable ? { background: props.background ? hoverShade(props.background) : joined ? ui.tile.hoverJoined : ui.tile.hover } : undefined,
+        active: clickable ? { transform: "scale(0.97)" } : undefined,
+        transition: { background: { duration: 140, easing: "easeOut" }, transform: { duration: 90, easing: "easeOut" } },
+        // A widget's own hover/active (style) wins over the defaults above.
+        ...props.style,
       }}
     >
       {props.children}
     </Pressable>
+  );
+}
+
+/**
+ * Two text lines of a metric (label above, value below, or the reverse with `valueFirst`), on the
+ * bar's line metrics (ui.tile.lines) so both always fit the tile from 40 to 80 px; numbers use
+ * tabular figures so they do not jitter as they tick.
+ */
+export function Lines(props: {
+  label: Child;
+  value: Child;
+  valueColor?: string;
+  labelColor?: string;
+  valueFirst?: boolean;
+  align?: "start" | "end" | "center";
+  width?: number;
+  flex?: number;
+}) {
+  const l = ui.tile.lines;
+  const label = (
+    <Text size={l.secondary} weight={500} color={props.labelColor ?? ui.muted} style={{ ...numeric, lineHeight: l.lineHeight }}>
+      {props.label}
+    </Text>
+  );
+  const value = (
+    <Text size={l.primary} weight={650} color={props.valueColor ?? ui.text} style={{ ...numeric, lineHeight: l.lineHeight }}>
+      {props.value}
+    </Text>
+  );
+  return (
+    <View
+      style={{
+        direction: "column",
+        gap: l.gap,
+        justify: "center",
+        align: props.align ?? "start",
+        width: props.width,
+        flex: props.flex,
+        minWidth: 0,
+        shrink: props.width ? 0 : 1,
+      }}
+    >
+      {props.valueFirst ? value : label}
+      {props.valueFirst ? label : value}
+    </View>
   );
 }
 

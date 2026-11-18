@@ -36,30 +36,40 @@ export function Badge(props: { color: string; letter: string; size?: number; fg?
   );
 }
 
-/** Title line with the "demo" / "erro" tag. */
+/** Title line with the "demo" / "erro" tag on its baseline; the title clips before the value beside it. */
 export function Title(props: { text: string; demo: boolean; error?: string }) {
   return (
-    <Text size={11} weight={600} color={ui.text} style={{ flex: 1 }}>
-      {props.text}
+    <Row style={{ flex: 1, align: "center", gap: 4, overflow: "hidden" }}>
+      <Text size={11} weight={600} color={ui.text} style={{ shrink: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+        {props.text}
+      </Text>
       {props.error ? (
-        <Text size={9} color={ui.danger}>
-          {" "}
+        <Text size={10} color={ui.danger} style={{ shrink: 0 }}>
           erro
         </Text>
       ) : props.demo ? (
-        <Text size={9} color={ui.faint}>
-          {" "}
+        <Text size={10} color={ui.faint} style={{ shrink: 0 }}>
           demo
         </Text>
       ) : null}
-    </Text>
+    </Row>
   );
 }
 
-/** Small label + value column. */
+/** The last lines of every online tip: where the numbers come from (or why they are samples) and the click. */
+export function sourceLines(state: { demo: boolean; error: string }, source: string, click: string, setup = "informe a chave nas configurações") {
+  return [state.demo ? `Dados de exemplo: ${setup}` : state.error ? `Falha ao ler: ${state.error}` : `Fonte: ${source}`, click];
+}
+
+/** "▲ 18%" for the tips. */
+export function changeLine(change: number) {
+  return `${change >= 0 ? "▲" : "▼"} ${Math.abs(Math.round(change))}%`;
+}
+
+/** Small value + label pair on one baseline. */
 export function Stat(props: { label: string; value: Child; color?: string }) {
   return (
-    <Row style={{ align: "center", gap: 3 }}>
+    <Row style={{ align: "end", gap: 3 }}>
       <Text size={12} weight={700} color={props.color ?? ui.text}>
         {props.value}
       </Text>

@@ -57,7 +57,7 @@ export function Bolt(props: { size: number; color?: string }) {
 export function Metric(props: { label: string; value: string; color?: string; width?: number }) {
   const l = ui.tile.lines;
   return (
-    <View style={{ direction: "column", gap: l.gap, width: props.width, flex: props.width ? undefined : 1 }}>
+    <View style={{ direction: "column", justify: "center", gap: l.gap, width: props.width, shrink: 0 }}>
       <Text size={l.secondary - 1} weight={600} color={ui.muted} style={{ lineHeight: l.lineHeight }}>
         {props.label}
       </Text>
@@ -87,6 +87,18 @@ export function battery(preview: boolean): BatteryReading {
 export const batteryTone = (b: BatteryReading) => (b.plugged ? ui.green : b.percent <= 10 ? ui.danger : b.percent <= 20 ? amber : ui.green);
 
 export const batteryLabel = (b: BatteryReading) => (b.plugged ? (b.percent >= 100 ? "Carregada" : "Carregando") : "Na bateria");
+
+/** The battery tip, worded as the taskbar battery icon's. */
+export const batteryTip = (id: string, preview: boolean) => ({
+  id,
+  lines: () => {
+    const b = battery(preview);
+    return [
+      b.plugged ? `Bateria: ${b.percent}% (${b.percent >= 100 ? "carregada" : "carregando"}, na tomada)` : `Bateria: ${b.percent}% restante`,
+      "Clique: Configurações rápidas",
+    ];
+  },
+});
 
 /** Click on a battery tile: Quick Settings, as clicking the taskbar battery icon. */
 export const openBatteryFlyout = () => openQuickSettings();

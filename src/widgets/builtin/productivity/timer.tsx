@@ -1,9 +1,10 @@
-import { Column, Text, store, toRaw } from "@tarve/core";
-import { numeric, ui } from "../../../theme";
+import { store, toRaw } from "@tarve/core";
+import { ui } from "../../../theme";
+import { HoverTip } from "../../../menu/hover-tip";
 import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget } from "../../types";
 import type { DockMenuItem } from "../../../menu/dock-menu";
-import { clock, flashBackground, minuteOptions, ring, Ring } from "./shared";
+import { Stack, buttonSize, clock, endsAt, flashBackground, minuteOptions, ring, Ring } from "./shared";
 import { onClock } from "../../../services/clock";
 
 const PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 45, 60];
@@ -115,23 +116,34 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
     const left = preview && idle ? 3 * 60_000 + 12_000 : idle ? (Number(ctx.config.preset) || 5) * 60_000 : state.running ? state.endsAt - state.now : state.left;
     const progress = preview && idle ? 0.36 : idle ? 0 : 1 - left / state.total;
     const flashing = state.now < state.flashUntil;
-    return (
-      <Tile width={124} onClick={a?.click} background={flashBackground(state)}>
-        <Ring value={flashing ? 1 : progress} size={Math.min(26, ui.tile.control)} color={flashing ? "#ff9f0a" : ui.blue} />
-        <Column style={{ flex: 1, gap: 0 }}>
-          <Text size={10} weight={600} color={ui.muted}>
-            {flashing ? "Tempo esgotado" : idle && !preview ? "Timer" : state.running || preview ? "Restam" : "Pausado"}
-          </Text>
-          <Text size={15} weight={700} color={idle && !preview ? ui.muted : ui.text} style={numeric}>
-            {flashing ? "0:00" : clock(left)}
-          </Text>
-        </Column>
-        {state.active ? (
-          <RoundButton size={22} onClick={() => a?.toggle()}>
-            {state.running ? glyphs.pause(10) : glyphs.play(10)}
-          </RoundButton>
-        ) : null}
-      </Tile>
+    const b = buttonSize();
+      const tip = () => {
+        const preset = Number(ctx.config.preset) || 5;
+        if (Date.now() < state.flashUntil) return ["Tempo esgotado", "Clique para silenciar"];
+        if (!state.active) return [`Timer de ${preset} min`, "Clique para iniciar · outros tempos no menu"];
+        const rest = state.running ? state.endsAt - Date.now() : state.left;
+        return [
+          `Faltam ${clock(rest)} de ${clock(state.total)} (${Math.floor(Math.max(0, Math.min(1, 1 - rest / state.total)) * 100)}% feito)`,
+          state.running ? `Termina às ${endsAt(rest)}` : "Pausado",
+          state.running ? "Clique para pausar" : "Clique para continuar",
+        ];
+      };
+      return (
+        <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
+          <Tile width={124} onClick={a?.click} background={flashBackground(state)}>
+            <Ring value={flashing ? 1 : progress} size={Math.min(26, ui.tile.control)} color={flashing ? "#ff9f0a" : ui.blue} />
+            <Stack
+              label={flashing ? "Tempo esgotado" : idle && !preview ? "Timer" : state.running || preview ? "Restam" : "Pausado"}
+            value={flashing ? "0:00" : clock(left)}
+            valueColor={idle && !preview ? ui.muted : ui.text}
+          />
+          {state.active ? (
+            <RoundButton size={b} onClick={() => a?.toggle()}>
+              {state.running ? glyphs.pause(Math.round(b * 0.45)) : glyphs.play(Math.round(b * 0.45))}
+            </RoundButton>
+          ) : null}
+        </Tile>
+      </HoverTip>
     );
   },
 });

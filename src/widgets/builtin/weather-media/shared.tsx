@@ -1,6 +1,7 @@
 import { Circle, Path, Svg } from "@tarve/core";
 import { forecast, type DayForecast, type HourForecast } from "../../../services/weather-media-forecast";
-import { formatDatePicture } from "../../../native/locale-format";
+import { formatDatePicture, formatTime } from "../../../native/locale-format";
+import { weatherLabel } from "../../../services/weather";
 
 export type Forecast = typeof forecast;
 
@@ -139,4 +140,42 @@ export function WeatherIcon(props: { code: number; isDay?: boolean; size: number
       {body}
     </Svg>
   );
+}
+
+export type TempUnit = "c" | "f";
+
+/** The unit choice every weather tile offers; Open-Meteo answers in °C and km/h, converted here. */
+export const unitSetting = {
+  kind: "choice" as const,
+  key: "unit" as const,
+  label: "Unidade",
+  options: [
+    { value: "c", label: "Celsius (°C, km/h)" },
+    { value: "f", label: "Fahrenheit (°F, mph)" },
+  ],
+};
+
+/** A temperature (°C from the service) in the tile's unit, rounded. */
+export const temp = (celsius: number, unit: unknown) => Math.round(unit === "f" ? (celsius * 9) / 5 + 32 : celsius);
+
+/** "12 km/h" or "7 mph". */
+export const windSpeed = (kmh: number, unit: unknown) => (unit === "f" ? `${Math.round(kmh / 1.609)} mph` : `${Math.round(kmh)} km/h`);
+
+const SLOT = 15 * 60_000;
+
+/**
+ * The weather tiles' tooltip: what the numbers are and where they come from. Open-Meteo's current
+ * values are 15-minute averages; the service refetches at the end of each slot, so the values shown
+ * are those of the slot that started at `slot`.
+ */
+export function weatherTip(f: Forecast, unit: unknown, extra: string[] = []) {
+  if (!f.ready) return ["Clima: carregando…", "Fonte: Open-Meteo"];
+  const slot = new Date(Math.floor(Date.now() / SLOT) * SLOT);
+  return [
+    `${f.city ? `${f.city}: ` : ""}${temp(f.temperature, unit)}° · ${weatherLabel(f.code)}`,
+    `Sensação ${temp(f.feelsLike, unit)}° · umidade ${f.humidity}% · vento ${windSpeed(f.wind, unit)}`,
+    ...extra,
+    `Open-Meteo, local pelo IP · dados das ${formatTime(slot)} (a cada 15 min)`,
+    "Clique para abrir o app Clima",
+  ];
 }

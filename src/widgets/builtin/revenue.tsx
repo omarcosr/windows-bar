@@ -1,7 +1,7 @@
-import { Column, Row, Text, View, store, toRaw } from "@tarve/core";
+import { Text, View, store, toRaw } from "@tarve/core";
 import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
-import { Sparkline, Tile } from "../ui";
+import { Lines, Sparkline, Tile } from "../ui";
 import { defineWidget } from "../types";
 import { refreshWidget } from "../../services/remote";
 
@@ -40,7 +40,7 @@ export default defineWidget({
   name: "Receita (Stripe)",
   description: "Receita líquida dos últimos 30 dias com tendência. Sem chave mostra dados de exemplo.",
   category: "finance",
-  defaultConfig: { stripeKey: "", label: "Receita" },
+  defaultConfig: { stripeKey: "", label: "Receita", period: "30", change: "percent" },
   settings: [
     { kind: "text", key: "label", label: "Título", placeholder: "Receita" },
     {
@@ -51,28 +51,51 @@ export default defineWidget({
       placeholder: "rk_live_…",
       secret: true,
     },
+    {
+      kind: "choice",
+      key: "period",
+      label: "Período",
+      description: "A receita soma esse período; a variação compara com o período igual logo antes.",
+      options: [
+        { value: "7", label: "Últimos 7 dias" },
+        { value: "30", label: "Últimos 30 dias" },
+        { value: "90", label: "Últimos 90 dias" },
+      ],
+    },
+    {
+      kind: "choice",
+      key: "change",
+      label: "Variação",
+      options: [
+        { value: "percent", label: "Em % (vs período anterior)" },
+        { value: "amount", label: "Em valor (vs período anterior)" },
+        { value: "none", label: "Não mostrar" },
+      ],
+    },
   ],
   setup(ctx) {
-    const state = store({ total: 2980, change: 31, series: DEMO, currency: "usd", demo: true, error: "" });
+    const state = store({ total: 2980, previous: 2275, change: 31, series: DEMO, currency: "usd", demo: true, error: "" });
     const load = async () => {
       const key = String(ctx.config.stripeKey || "");
       if (!key) return;
       try {
         const now = Math.floor(Date.now() / 1000);
-        const txs = await stripeTransactions(key, now - 60 * DAY);
-        const days = new Array(30).fill(0);
+        const span = Math.max(1, Number(ctx.config.period) || 30);
+        const txs = await stripeTransactions(key, now - 2 * span * DAY);
+        const days = new Array(span).fill(0);
         let current = 0;
         let previous = 0;
         for (const tx of txs) {
           const age = Math.floor((now - tx.created) / DAY);
-          if (age < 30) {
+          if (age < span) {
             current += tx.net;
-            days[29 - age] += tx.net;
+            days[span - 1 - age] += tx.net;
           } else previous += tx.net;
         }
         let running = 0;
         state.series = days.map((d) => (running += d) / 100);
         state.total = current / 100;
+        state.previous = previous / 100;
         state.change = previous ? Math.round(((current - previous) / Math.abs(previous)) * 100) : 0;
         state.currency = txs[0]?.currency ?? "usd";
         state.demo = false;
@@ -93,39 +116,40 @@ export default defineWidget({
       ],
     ];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const up = state.change >= 0;
+    const span = Number(ctx.config.period) || 30;
+    const mode = String(ctx.config.change || "percent");
+    const delta = mode === "amount" ? money(Math.abs(state.total - state.previous), state.currency) : `${Math.abs(state.change)}%`;
+    const spark = Math.max(14, Math.round(ui.tile.height - 16));
     return (
-      <Tile width={196} padding={{ left: 10, right: 10, top: 6, bottom: 4 }}>
-        <Column style={{ flex: 1, gap: 2 }}>
-          <Row style={{ align: "center", gap: 6 }}>
-            <View style={{ width: 14, height: 14, radius: 7, background: "#635bff", align: "center", justify: "center" }}>
-              <Text size={9} weight={800} color="#fff">
-                S
-              </Text>
-            </View>
-            <Text size={11} weight={600} color={ui.text} style={{ flex: 1 }}>
-              {String(ctx.config.label)}
-              {state.demo ? (
-                <Text size={9} color={ui.faint}>
-                  {" "}
-                  demo
-                </Text>
-              ) : null}
-            </Text>
-            <Column style={{ align: "end", gap: 0 }}>
-              <Text size={12} weight={700} color={ui.text} style={numeric}>
-                {money(state.total, state.currency)}
-              </Text>
-            </Column>
-          </Row>
-          <Row style={{ align: "end", gap: 6 }}>
-            <Sparkline values={state.series} width={128} height={20} color={ui.green} />
-            <Text size={10} weight={700} color={up ? ui.green : ui.danger} style={{ ...numeric, flex: 1, textAlign: "right" }}>
-              {`${up ? "▲" : "▼"} ${Math.abs(state.change)}%`}
-            </Text>
-          </Row>
-        </Column>
+      <Tile
+        lead="round"
+        preview={preview}
+        onClick={() => launch("https://dashboard.stripe.com")}
+        tip={{
+          id: `tip:${ctx.instanceId}`,
+          lines: () => [
+            `${String(ctx.config.label)}: receita líquida dos últimos ${span} dias${state.demo ? " (exemplo)" : ""}`,
+            `Agora: ${money(state.total, state.currency)} · ${span} dias antes: ${money(state.previous, state.currency)}`,
+            `Variação: ${up ? "+" : "−"}${Math.abs(state.change)}% (${up ? "+" : "−"}${money(Math.abs(state.total - state.previous), state.currency)})`,
+            state.error ? `Erro: ${state.error}` : "Clique: abrir o painel do Stripe",
+          ],
+        }}
+      >
+        <View style={{ width: 16, height: 16, radius: 8, background: "#635bff", align: "center", justify: "center", shrink: 0 }}>
+          <Text size={10} weight={800} color="#fff" style={{ lineHeight: 1 }}>
+            S
+          </Text>
+        </View>
+        <Lines
+          label={state.demo ? `${String(ctx.config.label)} · demo` : `${String(ctx.config.label)} · ${span} d`}
+          value={money(state.total, state.currency)}
+        />
+        <Sparkline values={state.series} width={52} height={spark} color={up ? ui.green : ui.danger} />
+        {mode === "none" ? null : (
+          <Lines align="end" valueFirst value={`${up ? "▲" : "▼"} ${delta}`} valueColor={up ? ui.green : ui.danger} label={`vs ${span} d ant.`} />
+        )}
       </Tile>
     );
   },

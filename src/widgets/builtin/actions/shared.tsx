@@ -1,5 +1,5 @@
 import { Row, Text, type Child } from "@tarve/core";
-import { numeric, ui } from "../../../theme";
+import { devicePx, numeric, ui } from "../../../theme";
 import { HoverTip } from "../../../menu/hover-tip";
 import { Tile } from "../../ui";
 
@@ -27,9 +27,15 @@ export const G = {
   settings: 0xe713,
 } as const;
 
+/**
+ * The default glyph size: 16 px as the taskbar draws its tray glyphs on the 48 px bar, growing with
+ * taller bars (19 px at 64) so the glyph keeps its share of the tile, on whole device pixels.
+ */
+export const glyphSize = () => devicePx(Math.max(16, Math.round(ui.tile.height * 0.36)));
+
 export function Glyph(props: { code: number; size?: number; color?: string }) {
   return (
-    <Text size={props.size ?? 16} color={props.color ?? ui.text} style={{ fontFamily: FONT, lineHeight: 1 }}>
+    <Text size={props.size ?? glyphSize()} color={props.color ?? ui.text} style={{ fontFamily: FONT, lineHeight: 1 }}>
       {String.fromCharCode(props.code)}
     </Text>
   );

@@ -16,10 +16,10 @@ const perfMenu = (): DockMenuItem[][] => [
   ],
 ];
 
-function RingTile(props: { label: string; percent: number; detail: string; width: number }) {
+function RingTile(props: { label: string; percent: number; detail: string; tipId: string; tip: () => string[]; preview: boolean }) {
   const tone = loadTone(props.percent);
   return (
-    <Tile width={props.width} padding={{ left: 6, right: 10 }} onClick={taskManager}>
+    <Tile lead="round" onClick={taskManager} preview={props.preview} tip={{ id: props.tipId, lines: props.tip }}>
       <Ring value={props.percent / 100} color={tone}>
         <Text size={9} weight={700} color={ui.text} style={numeric}>
           {String(props.percent)}
@@ -41,9 +41,10 @@ export const cpuRing = defineWidget({
     return {};
   },
   menu: perfMenu,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const cpu = preview && !system.cpuHistory.length ? 23 : system.cpu;
-    return <RingTile label="CPU" percent={cpu} detail={`${cpu}%`} width={92} />;
+    const tip = () => [`Processador: ${system.cpu}% em uso (todos os núcleos)`, "Clique: Gerenciador de Tarefas"];
+    return <RingTile label="CPU" percent={cpu} detail={`${cpu}%`} tipId={`tip:${ctx.instanceId}`} tip={tip} preview={preview} />;
   },
 });
 
@@ -58,12 +59,13 @@ export const ramRing = defineWidget({
     return {};
   },
   menu: perfMenu,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const demo = preview && !system.ramTotalGb;
     const load = demo ? 58 : system.ram;
     const used = demo ? 9.3 : system.ramUsedGb;
     const total = demo ? 16 : system.ramTotalGb;
     const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
-    return <RingTile label="RAM" percent={load} detail={`${fmt(used)}/${Math.round(total)} GB`} width={118} />;
+    const tip = () => [`Memória: ${fmt(system.ramUsedGb)} de ${fmt(system.ramTotalGb)} GB em uso (${system.ram}%)`, "Clique: Gerenciador de Tarefas"];
+    return <RingTile label="RAM" percent={load} detail={`${fmt(used)}/${Math.round(total)} GB`} tipId={`tip:${ctx.instanceId}`} tip={tip} preview={preview} />;
   },
 });

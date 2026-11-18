@@ -1,4 +1,5 @@
-import { Column, Text } from "@tarve/core";
+import { HoverTip } from "../../../menu/hover-tip";
+import { Stack } from "./shared";
 import { ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
@@ -49,16 +50,11 @@ export default defineWidget<Config, object>({
     const last = demo ? "Ligar para a Ana às 15h" : notes[notes.length - 1];
     const count = demo ? 3 : notes.length;
     return (
-      <Tile width={168} background="#2a2614" onClick={preview ? undefined : () => openWidgetSettings(ctx.instanceId)}>
-        <Column style={{ flex: 1, gap: 0, overflow: "hidden" }}>
-          <Text size={10} weight={600} color="#c9b458">
-            {count > 1 ? `Nota · ${count}` : "Nota"}
-          </Text>
-          <Text size={12} weight={600} color={last ? ui.text : ui.muted} style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
-            {last ?? "Clique para escrever"}
-          </Text>
-        </Column>
-      </Tile>
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => (notes.length ? [...notes.slice(-5).reverse(), "Clique para editar"] : ["Clique para escrever uma nota"])} disabled={preview}>
+        <Tile width={168} background="#2a2614" onClick={preview ? undefined : () => openWidgetSettings(ctx.instanceId)}>
+          <Stack label={count > 1 ? `Nota · ${count}` : "Nota"} labelColor="#c9b458" value={last ?? "Clique para escrever"} valueColor={last ? ui.text : ui.muted} valueWeight={600} valueSize={ui.tile.height < 32 ? 11 : ui.tile.height >= 46 ? 13 : 12} numericValue={false} />
+          </Tile>
+        </HoverTip>
     );
   },
 });

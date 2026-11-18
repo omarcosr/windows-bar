@@ -10,6 +10,7 @@ import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { initHoverTip } from "./menu/hover-tip";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
+import { initChartPanel } from "./menu/chart-panel";
 import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, windowGone, windowShown } from "./services/windows";
 import { HSHELL, startShellEvents } from "./native/shell-events";
 import { DockWindow } from "./native/dock-window";
@@ -266,6 +267,7 @@ await initDockMenu(app);
 await initWindowPreview(app);
 await initHoverTip(app);
 await initMediaFlyout(app);
+await initChartPanel(app);
 
 // Settings changed in the gallery (saved) or in Windows (taskbar alignment, height) apply to the
 // native window right away; nothing is polled.

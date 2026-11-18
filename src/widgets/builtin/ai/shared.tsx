@@ -4,11 +4,24 @@ import { Meter } from "../../ui";
 import type { WidgetContext } from "../../types";
 import { onClock, type ClockSubscription } from "../../../services/clock";
 import { aiUsage, resetLabel, type LimitUsage, type LocalUsage, type UsageWindow } from "../../../services/ai-usage";
+import { oneRow } from "../finance/shared";
+
+/**
+ * Below 34 px (the 40–44 px bar's 28 px tile) the AI tiles follow finance/shared's oneRow: a title
+ * and its value go on one row, and two meter rows tighten to 1.1 lines with no gap between them so
+ * both fit; whatever is left out is in the tile's tip.
+ */
+export const short = oneRow;
+/** The line height of a meter-row text: tight on a short tile, the font's own above. */
+export const tight = () => (short() ? { lineHeight: 1.1 } : {});
+/** The gap between two meter rows: none on a short tile. */
+export const rowGap = (gap: number) => (short() ? 0 : gap);
+
 
 export const brand = {
   claude: { color: "#d97757", letter: "C", name: "Claude" },
   codex: { color: "#10a37f", letter: "◎", name: "Codex" },
-  opencode: { color: "#3b3b40", letter: "▣", name: "OpenCode" },
+  opencode: { color: "#3b3b40", letter: "O", name: "OpenCode" },
   gemini: { color: "#4285f4", letter: "G", name: "Gemini" },
 } as const;
 
@@ -75,15 +88,15 @@ export function LimitRow(props: { label: string; window: UsageWindow | null; met
   const reset = props.reset === false ? "" : resetLabel(props.window?.resetsAt ?? null);
   return (
     <Row style={{ align: "center", gap: 6 }}>
-      <Text size={10} weight={600} color={ui.muted} style={{ width: 22 }}>
+      <Text size={10} weight={600} color={ui.muted} style={{ ...tight(), width: 22 }}>
         {props.label}
       </Text>
       <Meter value={used / 100} width={props.meter ?? 52} color={tone(used)} />
-      <Text size={11} weight={700} color={props.window ? ui.text : ui.faint} style={{ ...numeric, width: 30, textAlign: "right" }}>
+      <Text size={11} weight={700} color={props.window ? ui.text : ui.faint} style={{ ...numeric, ...tight(), width: 30, textAlign: "right" }}>
         {props.window ? `${used}%` : "—"}
       </Text>
       {reset ? (
-        <Text size={10} color={ui.muted} style={{ ...numeric }}>
+        <Text size={10} color={ui.muted} style={{ ...numeric, ...tight() }}>
           {reset}
         </Text>
       ) : null}
@@ -103,6 +116,46 @@ export function StatusLine(props: { usage: LimitUsage | LocalUsage }) {
 }
 
 export const showsData = (u: LimitUsage | LocalUsage) => u.status === "ok";
+
+const timeFormat = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const dayFormat = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+
+/** "hoje às 16:40", "amanhã às 09:00", "dom., 18/05 às 01:00". */
+export function whenLabel(ms: number) {
+  const day = new Date(ms);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((day.getTime() - today.getTime()) / 86_400_000);
+  const date = diff === 0 ? "hoje" : diff === 1 ? "amanhã" : diff === -1 ? "ontem" : dayFormat.format(new Date(ms));
+  return `${date} às ${timeFormat.format(new Date(ms))}`;
+}
+
+/** "Sessão de 5 h: 37% usado, renova em 2h 12min (hoje às 16:40)". */
+export function windowLine(label: string, w: UsageWindow | null) {
+  if (!w) return `${label}: sem dados`;
+  const reset = w.resetsAt ? `, renova em ${resetLabel(w.resetsAt)} (${whenLabel(w.resetsAt)})` : "";
+  return `${label}: ${w.used}% usado${reset}`;
+}
+
+/**
+ * The tip of a plan-limit tile: each window with its reset, where the numbers come from and when
+ * they were read, and what a click does.
+ */
+export function limitTip(options: { name: string; usage: LimitUsage; source: string; preview?: boolean; click?: string; windows?: ("session" | "weekly" | "model")[] }) {
+  const u = options.usage;
+  const lines = [`${options.name}${u.plan ? ` (plano ${u.plan})` : ""}`];
+  if (u.status !== "ok") lines.push(u.note || (u.status === "loading" ? "Carregando…" : "Indisponível"));
+  else {
+    const windows = options.windows ?? ["session", "weekly", "model"];
+    if (windows.includes("session")) lines.push(windowLine("Sessão de 5 h", u.session));
+    if (windows.includes("weekly") && u.weekly) lines.push(windowLine("Limite semanal", u.weekly));
+    if (windows.includes("model") && u.weeklyModel) lines.push(windowLine(`Semanal do ${u.weeklyModel.label}`, u.weeklyModel));
+  }
+  lines.push(options.preview ? "Dados de exemplo" : `Fonte: ${options.source}${u.updated ? `, lido ${whenLabel(u.updated)}` : ""}`);
+  if (options.click) lines.push(options.click);
+  return lines;
+}
 
 const inHours = (h: number) => Date.now() + h * 3_600_000;
 

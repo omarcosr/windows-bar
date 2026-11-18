@@ -1,5 +1,6 @@
 import { Row } from "@tarve/core";
 import { launch } from "../../../services/windows";
+import { openQuickSettings } from "../../../native/desktop";
 import { changeVolume, status, statusPoller, toggleMute } from "../../../services/status";
 import { ui } from "../../../theme";
 import { HoverTip } from "../../../menu/hover-tip";
@@ -11,10 +12,21 @@ import { fluent, G, Glyph, Percent, volumeGlyph } from "./shared";
 export default defineWidget({
   type: "actions-audio-output",
   name: "Saída de áudio",
-  description: "Volume do dispositivo de reprodução padrão. Clique silencia ou reativa o som.",
+  description: "Volume do dispositivo de reprodução padrão. Clique abre o volume do Windows (ou silencia, se preferir).",
   category: "media",
-  defaultConfig: { showMeter: true },
-  settings: [{ kind: "toggle", key: "showMeter", label: "Mostrar barra de volume" }],
+  defaultConfig: { showMeter: true, click: "flyout" },
+  settings: [
+    { kind: "toggle", key: "showMeter", label: "Mostrar barra de volume" },
+    {
+      kind: "choice",
+      key: "click",
+      label: "Ao clicar",
+      options: [
+        { value: "flyout", label: "Abrir o volume do Windows (configurações rápidas)" },
+        { value: "mute", label: "Silenciar ou ativar o som" },
+      ],
+    },
+  ],
   setup(ctx) {
     ctx.onDispose(statusPoller.acquire());
     return {};
@@ -43,10 +55,15 @@ export default defineWidget({
     const demo = preview && !status.hasAudio;
     const level = demo ? 60 : status.volume;
     const muted = demo ? false : status.muted;
-    const tip = () => [status.muted ? `${status.audioDevice || "Alto-falantes"}: sem áudio` : `${status.audioDevice || "Alto-falantes"}: ${status.volume}%`];
+    // The taskbar's speaker opens quick settings (volume slider, output picker); "mute" keeps the old one-click mute.
+    const mute = ctx.config.click === "mute";
+    const tip = () => [
+      status.muted ? `${status.audioDevice || "Alto-falantes"}: sem áudio` : `${status.audioDevice || "Alto-falantes"}: ${status.volume}%`,
+      mute ? (status.muted ? "Clique para ativar o som" : "Clique para silenciar") : "Clique para ajustar o volume",
+    ];
     return (
       <HoverTip id={`tip:${ctx.instanceId}:audio`} tip={tip} disabled={preview}>
-        <Tile padding={{ left: 12, right: 12 }} gap={8} onClick={preview ? undefined : toggleMute}>
+        <Tile padding={{ left: 12, right: 12 }} gap={8} onClick={preview ? undefined : mute ? toggleMute : openQuickSettings}>
           <Glyph code={volumeGlyph(level, muted)} color={muted ? ui.muted : ui.text} />
           {ctx.config.showMeter ? <Meter value={muted ? 0 : level / 100} width={48} color={ui.blue} /> : null}
           <Row style={{ width: 34, justify: "end" }}>

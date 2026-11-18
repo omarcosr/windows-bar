@@ -1,6 +1,8 @@
 import { Circle, Column, Row, Svg, Text, store } from "@tarve/core";
 import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
+import { HoverTip } from "../../../menu/hover-tip";
+import { Ring, Stack } from "./shared";
 import { defineWidget } from "../../types";
 import { launch } from "../../../services/windows";
 import { every, onClock, type ClockUnit } from "../../../services/clock";
@@ -22,25 +24,59 @@ function ticking(unit: ClockUnit) {
 
 const percent = (v: number) => `${Math.floor(Math.max(0, Math.min(1, v)) * 100)}%`;
 
-function Bar(props: { title: string; detail: string; value: number; color: string; width: number }) {
+const exact = (v: number) => `${(Math.max(0, Math.min(1, v)) * 100).toFixed(1).replace(".", ",")}%`;
+
+const styleSetting = {
+  kind: "choice" as const,
+  key: "style" as const,
+  label: "Estilo",
+  options: [
+    { value: "bar", label: "Barra" },
+    { value: "ring", label: "Anel" },
+  ],
+};
+
+/**
+ * Title and share over a meter, the detail line under it when the tile has room (a 36 px tile or
+ * taller; on the 40 px bar it moves to the tooltip). "ring" draws the share as a ring beside two
+ * lines. A click opens the calendar flyout, as the taskbar clock does.
+ */
+function Bar(props: { id: string; preview: boolean; title: string; detail: string; tip: string[]; value: number; color: string; width: number; style?: string }) {
   const inner = props.width - 20;
+  const tall = ui.tile.height >= 34;
+  const tip = () => [`${props.title}: ${exact(props.value)}`, ...props.tip, "Clique para abrir o calendário"];
+  const open = props.preview ? undefined : () => launch("ms-actioncenter:");
+  if (props.style === "ring") {
+    return (
+      <HoverTip id={props.id} tip={tip} disabled={props.preview}>
+        <Tile padding={{ left: 8, right: 12 }} onClick={open}>
+          <Ring value={props.value} size={Math.min(30, ui.tile.control)} color={props.color} label={String(Math.floor(Math.max(0, Math.min(1, props.value)) * 100))} />
+          <Stack label={props.title} value={props.detail} valueSize={ui.tile.height < 32 ? 11 : 12} valueWeight={600} />
+        </Tile>
+      </HoverTip>
+    );
+  }
   return (
-    <Tile width={props.width} padding={{ left: 10, right: 10 }} onClick={() => launch("ms-actioncenter:")}>
-      <Column style={{ flex: 1, gap: 5 }}>
-        <Row style={{ align: "center", gap: 6 }}>
-          <Text size={11} weight={600} color={ui.text} style={{ flex: 1 }}>
-            {props.title}
-          </Text>
-          <Text size={11} weight={700} color={ui.text} style={numeric}>
-            {percent(props.value)}
-          </Text>
-        </Row>
-        <Meter value={props.value} width={inner} color={props.color} />
-        <Text size={9} color={ui.muted} style={numeric}>
-          {props.detail}
-        </Text>
-      </Column>
-    </Tile>
+    <HoverTip id={props.id} tip={tip} disabled={props.preview}>
+      <Tile width={props.width} padding={{ left: 10, right: 10 }} onClick={open}>
+        <Column style={{ flex: 1, gap: tall ? 4 : 3, justify: "center" }}>
+          <Row style={{ align: "center", gap: 6 }}>
+            <Text size={11} weight={600} color={ui.text} style={{ flex: 1, lineHeight: 1.15 }}>
+              {props.title}
+            </Text>
+            <Text size={11} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.15 }}>
+              {percent(props.value)}
+            </Text>
+          </Row>
+          <Meter value={props.value} width={inner} color={props.color} />
+          {tall ? (
+            <Text size={9} color={ui.muted} style={{ ...numeric, lineHeight: 1.15 }}>
+              {props.detail}
+            </Text>
+          ) : null}
+        </Column>
+      </Tile>
+    </HoverTip>
   );
 }
 
@@ -51,8 +87,9 @@ export const dayProgress = defineWidget({
   name: "Progresso do dia",
   description: "Quanto do dia (ou do expediente) já passou.",
   category: "productivity",
-  defaultConfig: { range: "full" },
+  defaultConfig: { range: "full", style: "bar" },
   settings: [
+    styleSetting,
     {
       kind: "choice",
       key: "range",
@@ -66,14 +103,16 @@ export const dayProgress = defineWidget({
     },
   ],
   setup: ticking("minute"),
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const [from, to] = WINDOWS[String(ctx.config.range)] ?? WINDOWS.full!;
     const d = new Date(state.now);
     const hours = d.getHours() + d.getMinutes() / 60;
     const value = (hours - from) / (to - from);
     const leftMin = Math.max(0, Math.round((to - hours) * 60));
     const detail = value >= 1 ? (from === 0 ? "Dia encerrado" : "Expediente encerrado") : value < 0 ? `Começa às ${from}h` : `Faltam ${Math.floor(leftMin / 60)}h${String(leftMin % 60).padStart(2, "0")}`;
-    return <Bar title={from === 0 ? "Hoje" : "Expediente"} detail={detail} value={value} color={ui.blue} width={132} />;
+    const span = `${String(from).padStart(2, "0")}:00–${String(to % 24).padStart(2, "0")}:00`;
+    const tip = [`Período: ${from === 0 ? "dia inteiro (00:00–24:00)" : span}`, value >= 1 || value < 0 ? detail : `Faltam ${Math.floor(leftMin / 60)} h ${leftMin % 60} min (até ${String(to % 24).padStart(2, "0")}:00)`];
+    return <Bar id={`tip:${ctx.instanceId}`} preview={preview} style={String(ctx.config.style)} title={from === 0 ? "Hoje" : "Expediente"} detail={detail} tip={tip} value={value} color={ui.blue} width={132} />;
   },
 });
 
@@ -82,10 +121,11 @@ export const monthProgress = defineWidget({
   name: "Progresso do mês",
   description: "Quanto do mês já passou.",
   category: "productivity",
-  defaultConfig: {},
+  defaultConfig: { style: "bar" },
+  settings: [styleSetting],
   // The month's bar moves under 1 px an hour (112 px for ~720 h).
   setup: ticking("hour"),
-  View({ state }) {
+  View({ state, ctx, preview }) {
     const d = new Date(state.now);
     const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
@@ -94,6 +134,10 @@ export const monthProgress = defineWidget({
     const left = days - d.getDate();
     return (
       <Bar
+        id={`tip:${ctx.instanceId}`}
+        preview={preview}
+        style={String(ctx.config.style)}
+        tip={[`Dia ${d.getDate()} de ${days}`, left === 0 ? "Último dia do mês" : `Faltam ${left} dia${left > 1 ? "s" : ""}`]}
         title={`${MONTHS[d.getMonth()]![0]!.toUpperCase()}${MONTHS[d.getMonth()]!.slice(1)} ${d.getFullYear()}`}
         detail={`Dia ${d.getDate()} de ${days} · ${left === 0 ? "último dia" : `faltam ${left}`}`}
         value={value}
@@ -124,7 +168,7 @@ export const yearProgress = defineWidget({
     },
   ],
   setup: ticking("day"),
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const d = new Date(state.now);
     const y = d.getFullYear();
     const jan1 = new Date(y, 0, 1);
@@ -143,26 +187,35 @@ export const yearProgress = defineWidget({
       const fill = i < today ? color : i === today ? "#ffffff" : "#38383d";
       dots.push(<Circle cx={Math.floor(k / 7) * cell + cell / 2} cy={(k % 7) * cell + cell / 2} r={r} fill={fill} stroke="none" />);
     }
+    const left = days - today - 1;
+    // Three lines from a 44 px tile; from 34 px the year and the share share a line over the days
+    // left; below that (the 40 px bar) only the first line fits and the rest is in the tooltip.
+    const stacked = ui.tile.height >= 44;
+    const showLeft = ui.tile.height >= 34;
+    const tip = () => [`${y}: ${exact(today / days)} do ano`, `Dia ${today + 1} de ${days}`, left === 0 ? "Último dia do ano" : `Faltam ${left} dias`];
     return (
-      <Tile width={w + 62} padding={{ left: 10, right: 10 }} gap={8}>
-        <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
-          {dots}
-        </Svg>
-        <Column style={{ gap: 0, align: "end", flex: 1 }}>
-          {/* Three lines need a 44 px tile; below it the year and the share share a line. */}
-            <Row style={{ gap: 4, align: "baseline", direction: ui.tile.height < 44 ? "row" : "column", alignSelf: "end" }}>
-              <Text size={11} weight={700} color={ui.text} style={numeric}>
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
+        <Tile padding={{ left: 10, right: 10 }} gap={8} onClick={preview ? undefined : () => launch("ms-actioncenter:")}>
+          <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
+            {dots}
+          </Svg>
+          <Column style={{ gap: 0, align: "end", justify: "center" }}>
+            <Row style={{ gap: stacked ? 0 : 4, align: "baseline", direction: stacked ? "column" : "row", alignSelf: "end" }}>
+              <Text size={11} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.2, alignSelf: "end" }}>
                 {String(y)}
-            </Text>
-              <Text size={11} weight={700} color={color} style={numeric}>
-              {percent(today / days)}
-            </Text>
-          </Row>
-          <Text size={9} color={ui.muted} style={numeric}>
-            {`${days - today - 1} d`}
-          </Text>
-        </Column>
-      </Tile>
+              </Text>
+              <Text size={11} weight={700} color={color} style={{ ...numeric, lineHeight: 1.2, alignSelf: "end" }}>
+                {percent(today / days)}
+              </Text>
+            </Row>
+            {showLeft ? (
+              <Text size={9} color={ui.muted} style={{ ...numeric, lineHeight: 1.2 }}>
+                {`faltam ${left} d`}
+              </Text>
+            ) : null}
+          </Column>
+        </Tile>
+      </HoverTip>
     );
   },
 });

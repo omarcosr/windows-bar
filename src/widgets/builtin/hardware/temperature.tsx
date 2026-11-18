@@ -87,7 +87,7 @@ export const temperature = defineWidget({
   },
   menu,
   hidden: ({ ctx }) => !isPreview(ctx.instanceId) && !hottestSensor(),
-  View({ preview }) {
+  View({ ctx, preview }) {
     const live = hottestSensor();
     const hot = live ?? (preview ? demoHottest : null);
     const demo = preview && !live;
@@ -97,13 +97,22 @@ export const temperature = defineWidget({
     const tone = heatTone(hot.celsius);
     const size = ui.tile.height - 6;
     return (
-      <Tile width={size + 130} padding={{ left: 4, right: 10 }} gap={8} onClick={taskManager}>
+      <Tile
+        lead="round"
+        gap={8}
+        onClick={taskManager}
+        preview={preview}
+        tip={{
+          id: `tip:${ctx.instanceId}`,
+          lines: () => [`Sensor mais quente: ${degrees(hot.celsius)}C (máx. ${degrees(hot.maxC)}C)`, `Processador ${cpu}% · Memória ${ram}% em uso`, "Clique: Gerenciador de Tarefas"],
+        }}
+      >
         <ArcGauge value={hot.celsius / hot.maxC} color={tone} size={size}>
           <Text size={Math.round(size * 0.3)} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1 }}>
             {degrees(hot.celsius)}
           </Text>
         </ArcGauge>
-        <View style={{ direction: "column", justify: "center", gap: 4, flex: 1, minWidth: 0 }}>
+        <View style={{ direction: "column", justify: "center", gap: ui.tile.lines.gap + 2, width: 112 }}>
           <LoadBar label="CPU" value={cpu} />
           <LoadBar label="RAM" value={ram} />
         </View>
@@ -127,18 +136,27 @@ export const gpuTemperature = defineWidget({
   },
   menu,
   hidden: ({ ctx }) => !isPreview(ctx.instanceId) && !thermal.gpus.length,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const live = thermal.gpus[0];
     const gpu = live ?? (preview ? demoGpu : null);
     if (!gpu) return <Tile width={64} />;
     const history = live ? thermal.gpuHistory : demoHistory;
     const tone = heatTone(gpu.celsius, gpu.warningC);
+    // The fan is not a heat reading: it goes on the label line, the value keeps the temperature's colour.
     const fan = gpu.fanRpm !== null ? ` · ${gpu.fanRpm.toLocaleString("pt-BR")} rpm` : "";
+    const celsius = `${gpu.celsius.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} °C`;
     return (
-      <Tile width={gpu.fanRpm !== null ? 168 : 128} onClick={taskManager}>
-        <Metric label="GPU" value={`${gpu.celsius.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} °C${fan}`} color={tone} />
+      <Tile
+        onClick={taskManager}
+        preview={preview}
+        tip={{
+          id: `tip:${ctx.instanceId}`,
+          lines: () => [`${gpu.name}: ${celsius}${gpu.maxC ? ` (máx. ${gpu.maxC} °C)` : ""}`, gpu.fanRpm !== null ? `Ventoinha: ${gpu.fanRpm.toLocaleString("pt-BR")} rpm` : "", "Gráfico: últimos minutos", "Clique: Gerenciador de Tarefas"],
+        }}
+      >
+        <Metric label={`GPU${fan}`} value={celsius} color={tone} />
         <View style={{ shrink: 0 }}>
-          <Sparkline values={history} width={44} height={20} color={tone} />
+          <Sparkline values={history} width={44} height={Math.max(14, Math.min(24, Math.round(ui.tile.height - 16)))} color={tone} />
         </View>
       </Tile>
     );

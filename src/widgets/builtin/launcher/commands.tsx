@@ -5,6 +5,7 @@ import { acquireScreenTime, topApps } from "../../../services/launcher-screen-ti
 import { shortcutFor } from "../../../services/launcher-shortcuts";
 import { launch } from "../../../services/windows";
 import { ui } from "../../../theme";
+import { HoverTip } from "../../../menu/hover-tip";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Glyph, fluentGlyph, shellMenuIcon } from "./shared";
@@ -46,6 +47,7 @@ export default defineWidget({
   },
   View({ ctx, preview }) {
     return (
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => ["Executar (Win+R)", "Digite um programa, pasta ou endereço", "Apps mais usados no botão direito"]} disabled={preview}>
       <Tile padding={{ left: 10, right: ctx.config.showLabel ? 12 : 10 }} onClick={preview ? undefined : openRunDialog}>
         <Glyph code={fluentGlyph.command} size={18} />
         {ctx.config.showLabel ? (
@@ -54,6 +56,7 @@ export default defineWidget({
           </Text>
         ) : null}
       </Tile>
+      </HoverTip>
     );
   },
 });

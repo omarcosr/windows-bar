@@ -69,20 +69,23 @@ export const dayNumber = defineWidget({
     const now = state.now;
     const h = ui.tile.height;
     const band = Math.round(h * 0.3);
+    // The weekday needs a 36 px page (the 48 px bar): on a shorter one it would be cut off at the
+    // bottom edge, so it moves to the tooltip.
+    const weekday = ctx.config.showWeekday && h >= 34;
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
         <Tile width={Math.round(h * 0.95)} padding={0} gap={0} background="#f5f5f7" onClick={openNotificationCenter} style={{ direction: "column", align: "stretch" }}>
           <Row style={{ height: band, background: ui.red, align: "center", justify: "center" }}>
-            <Text size={Math.max(8, Math.round(band * 0.62))} weight={700} color="#fff" style={{ lineHeight: 1 }}>
+            <Text size={Math.max(7, Math.min(13, Math.round(band * 0.62)))} weight={700} color="#fff" style={{ lineHeight: 1 }}>
               {monthName(now).toUpperCase()}
             </Text>
           </Row>
           <Column style={{ flex: 1, align: "center", justify: "center", gap: 0 }}>
-            <Text size={Math.round(h * (ctx.config.showWeekday ? 0.4 : 0.5))} weight={700} color="#1c1c1f" style={{ ...numeric, lineHeight: 1 }}>
+            <Text size={Math.round(h * (weekday ? 0.4 : 0.48))} weight={700} color="#1c1c1f" style={{ ...numeric, lineHeight: 1 }}>
               {String(now.getDate())}
             </Text>
-            {ctx.config.showWeekday ? (
-              <Text size={8} weight={600} color="#6e6e73" style={{ lineHeight: 1 }}>
+            {weekday ? (
+              <Text size={Math.max(8, Math.round(h * 0.17))} weight={600} color="#6e6e73" style={{ lineHeight: 1 }}>
                 {weekdayName(now)}
               </Text>
             ) : null}
@@ -153,14 +156,15 @@ export const week = defineWidget({
     const first = firstDayOfWeek();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() - first + 7) % 7));
     const days = Array.from({ length: 7 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
-    const cell = Math.round(ui.tile.height * 0.62);
+    // Wide enough for "QUA"/"SÁB" on the highlighted day at every bar height.
+    const cell = Math.max(22, Math.round(ui.tile.height * 0.62));
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
         <Tile padding={{ left: 6, right: 8 }} gap={2} onClick={openNotificationCenter}>
           {days.map((d) => {
             const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth();
             return (
-              <View style={{ width: cell, height: ui.tile.height - 8, radius: 8, background: isToday ? ui.blue : "transparent", align: "center", justify: "center", gap: 1 }}>
+              <View style={{ width: cell, height: ui.tile.height - (ui.tile.height < 34 ? 4 : 8), radius: ui.tile.height < 34 ? 6 : 8, background: isToday ? ui.blue : "transparent", align: "center", justify: "center", gap: 1 }}>
                 <Text size={8} weight={700} color={isToday ? "#fff" : ui.muted} style={{ lineHeight: 1 }}>
                   {weekdayName(d).slice(0, 3).toUpperCase()}
                 </Text>

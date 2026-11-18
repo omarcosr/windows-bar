@@ -146,13 +146,21 @@ export default defineWidget({
       ],
     ];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const now = state.now;
+    const tip = () => {
+      const upcoming = state.events.filter((e) => e.end > now && (ctx.config.showAllDay || !e.allDay)).slice(0, 4);
+      return [
+        ...(upcoming.length ? upcoming.map((e) => `${e.allDay ? "Dia todo" : hhmm(e.start)} · ${e.title}${e.location ? ` (${e.location})` : ""}`) : ["Nenhum compromisso nos próximos 7 dias"]),
+        state.demo ? "Dados de exemplo: informe o endereço iCal nas configurações" : state.error ? `Falha ao ler: ${state.error}` : "Fonte: seus calendários iCal",
+        "Clique para abrir o Calendário",
+      ];
+    };
     const next = state.events.find((e) => e.end > now && (ctx.config.showAllDay || !e.allDay));
     const l = ui.tile.lines;
     const soon = next && !next.allDay && next.start - now < 15 * 60_000;
     return (
-      <Tile width={184} onClick={() => launch("outlookcal:")}>
+      <Tile width={184} onClick={() => launch("outlookcal:")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Dot color={state.error ? ui.danger : soon ? ui.orange : ui.blue} size={8} />
         <Column style={{ flex: 1, gap: l.gap }}>
           <Text size={l.primary} weight={600} color={ui.text} style={{ ...line, lineHeight: l.lineHeight }}>

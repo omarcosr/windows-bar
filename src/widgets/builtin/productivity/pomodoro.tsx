@@ -1,8 +1,9 @@
-import { Column, Row, Text, store, toRaw } from "@tarve/core";
-import { numeric, ui } from "../../../theme";
+import { store, toRaw } from "@tarve/core";
+import { ui } from "../../../theme";
+import { HoverTip } from "../../../menu/hover-tip";
 import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
-import { clock, flashBackground, minuteOptions, ring, Ring } from "./shared";
+import { Stack, buttonSize, clock, endsAt, flashBackground, minuteOptions, ring, Ring } from "./shared";
 import { onConfigSaved } from "../../../config";
 import { onClock } from "../../../services/clock";
 
@@ -132,28 +133,28 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
       ],
     ];
   },
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const a = actions.get(toRaw(state));
     const left = preview && !state.running ? 17 * 60_000 + 42_000 : state.running ? state.endsAt - state.now : state.left;
     const progress = state.total ? 1 - left / state.total : 0;
     const size = Math.min(30, ui.tile.control);
-    return (
-      <Tile width={150} onClick={a?.toggle} background={flashBackground(state)} padding={{ left: 8, right: 8 }}>
-        <Ring value={progress} size={size} color={PHASE_COLOR[state.phase]} label={String((state.round % 100) + (state.phase === "focus" ? 1 : 0))} />
-        <Column style={{ flex: 1, gap: 0 }}>
-          <Text size={10} weight={600} color={ui.muted}>
-            {state.running || state.left !== state.total ? PHASE_LABEL[state.phase] : `${PHASE_LABEL[state.phase]} · pronto`}
-          </Text>
-          <Text size={15} weight={700} color={ui.text} style={numeric}>
-            {clock(left)}
-          </Text>
-        </Column>
-        <Row style={{ gap: 4 }}>
-          <RoundButton size={22} onClick={() => a?.skip()}>
-            {glyphs.next(11)}
+    const round = (state.round % 100) + (state.phase === "focus" ? 1 : 0);
+      const tip = () => [
+        `${PHASE_LABEL[state.phase]} · rodada ${round} de ${ctx.config.rounds}`,
+        state.running ? `Faltam ${clock(state.endsAt - Date.now())} · termina às ${endsAt(state.endsAt - Date.now())}` : `${clock(state.left)} · ${state.left === state.total ? "pronto para iniciar" : "pausado"}`,
+        state.running ? "Clique para pausar" : "Clique para iniciar",
+      ];
+      const button = buttonSize();
+      return (
+        <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
+          <Tile width={ui.tile.height >= 46 ? 160 : 150} onClick={a?.toggle} background={flashBackground(state)} padding={{ left: 8, right: 8 }}>
+            <Ring value={progress} size={size} color={PHASE_COLOR[state.phase]} label={String(round)} />
+            <Stack label={state.running || state.left !== state.total ? PHASE_LABEL[state.phase] : `${PHASE_LABEL[state.phase]} · pronto`} value={clock(left)} />
+          <RoundButton size={button} onClick={() => a?.skip()}>
+            {glyphs.next(Math.round(button / 2))}
           </RoundButton>
-        </Row>
-      </Tile>
+        </Tile>
+      </HoverTip>
     );
   },
 });

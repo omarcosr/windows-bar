@@ -1,10 +1,11 @@
-import { Column, Svg, Path, Text, toRaw } from "@tarve/core";
+import { Text, toRaw } from "@tarve/core";
+import { HoverTip } from "../../../menu/hover-tip";
 import { ui } from "../../../theme";
 import { RoundButton, Tile } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
 import { showDockMenu, type DockMenuItem } from "../../../menu/dock-menu";
 import { openWidgetSettings } from "../../../dock/widget-menu";
-import { Ring } from "./shared";
+import { Ring, Stack, buttonSize } from "./shared";
 import { formatTasks, parseTasks, type Task } from "./tasks";
 
 interface Config {
@@ -20,10 +21,11 @@ const DEMO: Task[] = [
   { text: "Ligar para o cliente", done: false },
 ];
 
+/** Segoe Fluent Icons' CheckMark, as the Windows To Do and quick settings draw it. */
 const check = (size: number, color = "#fff") => (
-  <Svg width={size} height={size} viewBox="0 0 24 24">
-    <Path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke={color} stroke-width={2.6} stroke-linecap="round" stroke-linejoin="round" />
-  </Svg>
+  <Text size={size} color={color} style={{ fontFamily: "Segoe Fluent Icons, Segoe MDL2 Assets", lineHeight: 1 }}>
+    {String.fromCharCode(0xe73e)}
+  </Text>
 );
 
 function setDone(ctx: WidgetContext<Config>, index: number, done: boolean) {
@@ -108,23 +110,36 @@ export default defineWidget<Config, object>({
     const next = tasks.find((t) => !t.done);
     const empty = !tasks.length;
     const size = Math.min(26, ui.tile.control);
-    return (
-      <Tile width={176} onClick={preview ? undefined : () => (empty ? openWidgetSettings(ctx.instanceId) : showList(ctx))}>
-        <Ring value={tasks.length ? done / tasks.length : 0} size={size} color={next || empty ? ui.blue : ui.green} label={empty ? "" : String(tasks.length - done)} />
-        <Column style={{ flex: 1, gap: 0, overflow: "hidden" }}>
-          <Text size={10} weight={600} color={ui.muted} style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
-            {empty ? String(ctx.config.title || "Tarefas") : `${String(ctx.config.title || "Tarefas")} · ${done}/${tasks.length}`}
-          </Text>
-          <Text size={12} weight={600} color={next ? ui.text : ui.muted} style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
-            {empty ? "Adicionar tarefas" : next ? next.text : "Tudo feito"}
-          </Text>
-        </Column>
-        {next && !preview ? (
-          <RoundButton size={22} background="#2a2a2e" onClick={() => tickNext(ctx)}>
-            {check(12, ui.green)}
-          </RoundButton>
-        ) : null}
-      </Tile>
+    const b = buttonSize();
+      const tip = () => {
+        const open = tasks.filter((t) => !t.done);
+        if (empty) return ["Nenhuma tarefa", "Clique para adicionar"];
+        return [
+          `${done} de ${tasks.length} concluídas (${Math.round((done / tasks.length) * 100)}%)`,
+          ...open.slice(0, 5).map((t) => `• ${t.text}`),
+          ...(open.length > 5 ? [`e mais ${open.length - 5}`] : []),
+          next ? "✓ marca a próxima como feita" : "Tudo feito",
+        ];
+      };
+      return (
+        <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
+          <Tile width={176} onClick={preview ? undefined : () => (empty ? openWidgetSettings(ctx.instanceId) : showList(ctx))}>
+          <Ring value={tasks.length ? done / tasks.length : 0} size={size} color={next || empty ? ui.blue : ui.green} label={empty ? "" : String(tasks.length - done)} />
+            <Stack
+              label={empty ? String(ctx.config.title || "Tarefas") : `${String(ctx.config.title || "Tarefas")} · ${done}/${tasks.length}`}
+              value={empty ? "Adicionar tarefas" : next ? next.text : "Tudo feito"}
+            valueColor={next ? ui.text : ui.muted}
+            valueWeight={600}
+            valueSize={ui.tile.height < 32 ? 11 : ui.tile.height >= 46 ? 13 : 12}
+            numericValue={false}
+          />
+          {next && !preview ? (
+            <RoundButton size={b} background="#2a2a2e" onClick={() => tickNext(ctx)}>
+              {check(Math.round(b * 0.55), ui.green)}
+            </RoundButton>
+          ) : null}
+        </Tile>
+      </HoverTip>
     );
   },
 });

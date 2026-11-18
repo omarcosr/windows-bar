@@ -27,64 +27,112 @@ export interface Quote {
   name?: string;
   /** The exchange is outside its regular session: the price stays put until it opens. */
   closed?: boolean;
+  /** The value `change` compares against (previous close, start of the window…), in the quote's currency. */
+  reference?: number;
+  /** When `reference` was taken (epoch ms), when known. */
+  referenceAt?: number;
+  /** When `price` was taken (epoch ms): the ECB fix date for currencies. */
+  asOf?: number;
 }
 
 // ---------- periods ----------
 
-export type Period = "7d" | "30d" | "month" | "90d";
+/** A revenue period: the last N days, the month so far, the whole previous month or the last 12 months. */
+export type Period = "7d" | "30d" | "month" | "prevmonth" | "90d" | "365d";
+/** What a revenue change compares against: the equal period before it or the same days a year earlier. */
+export type CompareTo = "previous" | "year";
 
-export const periodLabels: Record<Period, string> = { "7d": "7 dias", "30d": "30 dias", month: "no mês", "90d": "90 dias" };
+export const periodLabels: Record<Period, string> = { "7d": "7 dias", "30d": "30 dias", month: "no mês", prevmonth: "mês anterior", "90d": "90 dias", "365d": "12 meses" };
 
 export function asPeriod(value: unknown): Period {
-  return value === "7d" || value === "month" || value === "90d" ? value : "30d";
+  return value === "7d" || value === "month" || value === "prevmonth" || value === "90d" || value === "365d" ? value : "30d";
 }
 
-/** Days in the period, today included ("month" = from the 1st). */
-export function periodLength(period: Period, now = new Date()) {
-  return period === "7d" ? 7 : period === "90d" ? 90 : period === "month" ? now.getDate() : 30;
-}
+export const asCompareTo = (value: unknown): CompareTo => (value === "year" ? "year" : "previous");
 
 const previousMonthDays = (now: Date) => new Date(now.getFullYear(), now.getMonth(), 0).getDate();
 
-/** History sizes fetched; several period choices share one request. */
-const HISTORY_TIERS = [31, 62, 93, 186];
+/** Days of a span [from, to], both counted in days before today (0 = today) and included. */
+export type Span = readonly [from: number, to: number];
 
-/** Days of history to fetch for the period (and the one before it, when comparing). Never below 31. */
-export function historyDays(period: Period, compare: boolean) {
-  const now = new Date();
-  const n = periodLength(period, now);
-  const need = compare ? (period === "month" ? n + previousMonthDays(now) : 2 * n) : n;
+/** Days in the period, today included ("month" = from the 1st). */
+export function periodLength(period: Period, now = new Date()) {
+  const [from, to] = periodSpan(period, now);
+  return from - to + 1;
+}
+
+/** The period as days before today. */
+export function periodSpan(period: Period, now = new Date()): Span {
+  if (period === "month") return [now.getDate() - 1, 0];
+  if (period === "prevmonth") return [now.getDate() + previousMonthDays(now) - 1, now.getDate()];
+  const n = period === "7d" ? 7 : period === "90d" ? 90 : period === "365d" ? 365 : 30;
+  return [n - 1, 0];
+}
+
+/** Days before today of the same calendar day one year earlier than `daysAgo` days ago. */
+function yearBack(daysAgo: number, now: Date) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo);
+  const before = new Date(day.getFullYear() - 1, day.getMonth(), day.getDate());
+  return Math.round((today.getTime() - before.getTime()) / DAY_MS);
+}
+
+/**
+ * The span a period is compared with: the equal span right before it (the same days of last month
+ * for "month", the month before for "prevmonth") or the same calendar days one year earlier.
+ */
+export function compareSpan(period: Period, to: CompareTo = "previous", now = new Date()): Span {
+  const [from, end] = periodSpan(period, now);
+  if (to === "year") return [yearBack(from, now), yearBack(end, now)];
+  if (period === "month") {
+    const days = previousMonthDays(now);
+    const n = from + 1;
+    return [from + days, from + days - (Math.min(n, days) - 1)];
+  }
+  if (period === "prevmonth") {
+    const days = new Date(now.getFullYear(), now.getMonth() - 1, 0).getDate();
+    return [from + days, from + 1];
+  }
+  const n = from - end + 1;
+  return [from + n, from + 1];
+}
+
+/** History sizes fetched; several period choices share one request. */
+const HISTORY_TIERS = [31, 62, 93, 186, 366, 731];
+
+/** Days of history to fetch for the period (and the one it is compared with, when comparing). Never below 31. */
+export function historyDays(period: Period, compare: boolean | CompareTo) {
+  const need = (compare ? compareSpan(period, compare === true ? "previous" : compare)[0] : periodSpan(period)[0]) + 1;
   return HISTORY_TIERS.find((t) => t >= need) ?? HISTORY_TIERS[HISTORY_TIERS.length - 1]!;
 }
 
 const sum = (values: readonly number[]) => values.reduce((a, b) => a + b, 0);
 
+/** The days of a span of `daily` (last entry = today), oldest first; what the history holds of it. */
+export function spanDays(daily: readonly number[], span: Span) {
+  const n = daily.length;
+  return daily.slice(Math.max(0, n - 1 - span[0]), Math.max(0, n - span[1]));
+}
+
 /** The days of the period, oldest first. */
-export const periodDays = (daily: readonly number[], period: Period) => daily.slice(-periodLength(period));
+export const periodDays = (daily: readonly number[], period: Period) => spanDays(daily, periodSpan(period));
 
 /** Total of the period. */
 export const periodSum = (daily: readonly number[], period: Period) => sum(periodDays(daily, period));
 
 /**
- * Percent change of the period against the equal period before it (the same days of last
- * month for "month"); null when the history is too short or the previous period is zero.
+ * Percent change of the period against the span it is compared with (compareSpan); null when the
+ * history is too short or that span's total is zero.
  */
-export function periodChange(daily: readonly number[], period: Period): number | null {
-  const now = new Date();
-  const n = periodLength(period, now);
-  let previous: readonly number[];
-  if (period === "month") {
-    const days = previousMonthDays(now);
-    const start = daily.length - n - days;
-    if (start < 0) return null;
-    previous = daily.slice(start, start + Math.min(n, days));
-  } else {
-    if (daily.length < 2 * n) return null;
-    previous = daily.slice(-2 * n, -n);
-  }
-  const before = sum(previous);
+export function periodChange(daily: readonly number[], period: Period, to: CompareTo = "previous"): number | null {
+  const span = compareSpan(period, to);
+  if (span[0] >= daily.length) return null;
+  const before = sum(spanDays(daily, span));
   return before ? ((periodSum(daily, period) - before) / Math.abs(before)) * 100 : null;
 }
+
+/** The total of the span the period is compared with. */
+export const compareSum = (daily: readonly number[], period: Period, to: CompareTo = "previous") => sum(spanDays(daily, compareSpan(period, to)));
 
 /** The month so far, from the 1st (local). */
 export function monthToDate(daily: readonly number[]) {
@@ -483,73 +531,194 @@ export async function convertQuote(quote: Quote, target: string): Promise<Quote>
   if (from === to && !major) return quote;
   try {
     const rate = (await fxRate(from, to)) / (major ? 100 : 1);
-    return { ...quote, price: quote.price * rate, series: quote.series.map((v) => v * rate), currency: to };
+    return { ...quote, price: quote.price * rate, series: quote.series.map((v) => v * rate), reference: quote.reference && quote.reference * rate, currency: to };
   } catch {
     return quote;
   }
 }
 
-/** The pair over the last ~3 weeks of business days from Frankfurter (ECB), latest last. */
-export function fxSeries(from: string, to: string): Promise<Quote> {
+/** How the currency tile's change is measured: against the previous ECB fix, 7 or 30 days back, since the chart starts, or not at all. */
+export type FxChange = "close" | "7d" | "30d" | "window" | "none";
+/** Calendar days of history the currency chart shows. */
+export type FxWindow = "1w" | "1m" | "3m" | "6m" | "1y" | "5y";
+export const FX_WINDOW_DAYS: Record<FxWindow, number> = { "1w": 7, "1m": 31, "3m": 92, "6m": 183, "1y": 365, "5y": 1826 };
+
+/** A dated value (epoch ms), for the chart panel. */
+export interface Point {
+  at: number;
+  v: number;
+}
+
+/** A dated series and what it is in, oldest first. */
+export interface History {
+  points: Point[];
+  currency: string;
+  name?: string;
+  /** When the last value was taken (epoch ms). */
+  asOf: number;
+}
+
+/**
+ * The ECB fixes of the pair over the last `days` calendar days (Frankfurter), oldest first. Cached
+ * per (pair, days) for 15 min: the tile, the chart panel and its comparisons share requests.
+ */
+export function fxPoints(from: string, to: string, days: number): Promise<Point[]> {
   const f = from.toUpperCase();
   const t = to.toUpperCase();
-  return cached(`fxs:${f}:${t}`, 15 * 60_000, async () => {
-    const url = `https://api.frankfurter.dev/v1/${ymd(Date.now() - 21 * DAY_MS)}..?from=${f}&to=${t}`;
+  return cached(`fxs:${f}:${t}:${days}`, 15 * 60_000, async () => {
+    const url = `https://api.frankfurter.dev/v1/${ymd(Date.now() - days * DAY_MS)}..?from=${f}&to=${t}`;
     const body = await json<{ rates: Record<string, Record<string, number>> }>("Câmbio", url);
-    const series = Object.keys(body.rates)
+    const points = Object.keys(body.rates)
       .sort()
-      .map((day) => body.rates[day]![t]!)
-      .filter((v) => Number.isFinite(v));
-    if (series.length === 0) throw new Error("Câmbio 404");
-    // The ECB fixes once a day; the open.er-api rate is fresher when it answers.
-    const latest = await fxRate(f, t).catch(() => series[series.length - 1]!);
-    const prev = series.length > 1 ? series[series.length - 2]! : series[0]!;
-    return { price: latest, change: prev ? ((latest - prev) / prev) * 100 : 0, series: [...series.slice(0, -1), latest], currency: t };
+      .map((day) => ({ at: Date.parse(`${day}T12:00:00`), v: body.rates[day]![t]! }))
+      .filter((p) => Number.isFinite(p.v));
+    if (points.length === 0) throw new Error("Câmbio 404");
+    return points;
   });
+}
+
+/**
+ * The pair from Frankfurter (the ECB's daily reference rates, published around 16:00 CET on
+ * business days): price, chart and change all come from this one series, so the change is never
+ * the gap between two providers. `change` picks the comparison: the fix before the latest
+ * ("close"), the last fix on or before 7/30 days earlier, the first of the chart ("window") or none (0).
+ */
+export async function fxSeries(from: string, to: string, window: FxWindow = "1m", change: FxChange = "close"): Promise<Quote> {
+  const chartDays = FX_WINDOW_DAYS[window] ?? 31;
+  const changeDays = change === "30d" ? 30 : change === "7d" ? 7 : 0;
+  // A week more than either needs, so a span starting on a weekend or holiday still finds a fix.
+  const points = await fxPoints(from, to, Math.max(chartDays, changeDays) + 7);
+  return fxQuote(points, to.toUpperCase(), chartDays, change);
+}
+
+/** Price, change and chart from one dated series (oldest first). */
+export function fxQuote(points: readonly Point[], currency: string, chartDays: number, change: FxChange): Quote {
+  const last = points[points.length - 1]!;
+  const start = last.at - chartDays * DAY_MS;
+  const shown = points.filter((p) => p.at >= start);
+  let ref: Point | undefined;
+  if (change === "close") ref = points.length > 1 ? points[points.length - 2] : undefined;
+  else if (change === "window") ref = shown.length > 1 ? shown[0] : undefined;
+  else if (change !== "none") {
+    const since = last.at - (change === "30d" ? 30 : 7) * DAY_MS;
+    ref = [...points].reverse().find((p) => p.at <= since) ?? points[0];
+  }
+  return {
+    price: last.v,
+    change: ref ? ((last.v - ref.v) / ref.v) * 100 : 0,
+    series: shown.map((p) => p.v),
+    currency,
+    reference: ref?.v,
+    referenceAt: ref?.at,
+    asOf: last.at,
+  };
+}
+
+/** The pair's fixes over the chart window, for the chart panel. */
+export async function fxHistory(from: string, to: string, window: FxWindow): Promise<History> {
+  const days = FX_WINDOW_DAYS[window] ?? 31;
+  const points = await fxPoints(from, to, days + 7);
+  const last = points[points.length - 1]!;
+  return { points: points.filter((p) => p.at >= last.at - days * DAY_MS), currency: to.toUpperCase(), asOf: last.at };
+}
+
+/**
+ * The same window, shifted back: right before it ("previous") or one year earlier ("year"). The
+ * dates are kept as they were (the chart lays both over the same axis).
+ */
+export async function fxHistoryBefore(from: string, to: string, window: FxWindow, shift: CompareTo): Promise<History> {
+  const days = FX_WINDOW_DAYS[window] ?? 31;
+  const back = shift === "year" ? 365 : days;
+  const points = await fxPoints(from, to, days + back + 7);
+  const end = points[points.length - 1]!.at - back * DAY_MS;
+  return { points: points.filter((p) => p.at <= end && p.at >= end - days * DAY_MS), currency: to.toUpperCase(), asOf: end };
 }
 
 // ---------- markets ----------
 
-export type CryptoWindow = "24h" | "7d" | "30d";
+/** Crypto chart windows (Binance trades every day: 7 days rather than 5 business days). */
+export type CryptoWindow = "24h" | "7d" | "30d" | "90d" | "180d" | "1y" | "5y";
 
+/** Candles for the tile's sparkline: a few dozen points are all 86 px can show. */
 const KLINES: Record<CryptoWindow, { interval: string; limit: number }> = {
   "24h": { interval: "1h", limit: 24 },
   "7d": { interval: "4h", limit: 42 },
   "30d": { interval: "12h", limit: 60 },
+  "90d": { interval: "1d", limit: 90 },
+  "180d": { interval: "1d", limit: 180 },
+  "1y": { interval: "3d", limit: 122 },
+  "5y": { interval: "1w", limit: 261 },
 };
+
+/** Candles for the chart panel: one point per 1–2 px of its 300 px plot. */
+const KLINES_HISTORY: Record<CryptoWindow, { interval: string; limit: number }> = {
+  "24h": { interval: "15m", limit: 96 },
+  "7d": { interval: "1h", limit: 168 },
+  "30d": { interval: "4h", limit: 180 },
+  "90d": { interval: "12h", limit: 180 },
+  "180d": { interval: "1d", limit: 180 },
+  "1y": { interval: "1d", limit: 365 },
+  "5y": { interval: "1w", limit: 261 },
+};
+
+export const asCryptoWindow = (value: unknown): CryptoWindow => (typeof value === "string" && value in KLINES ? (value as CryptoWindow) : "24h");
+
+export type CryptoChange = "24h" | "window" | "none";
+
+const quoteAssetOf = (pair: string) => /(USDT|USDC|FDUSD|BUSD|BRL|EUR|TRY|BTC|ETH|BNB)$/.exec(pair)?.[1] ?? "USDT";
 
 /**
  * Binance public market data for a pair (BTCUSDT): klines over the window; the change is the
- * 24 h ticker's for "24h" and from the first open of the window otherwise.
+ * 24 h ticker's ("24h", against the price 24 h ago), from the first open of the chart window
+ * ("window") or none.
  */
-export function cryptoQuote(symbol: string, window: CryptoWindow = "24h"): Promise<Quote> {
+export function cryptoQuote(symbol: string, window: CryptoWindow = "24h", change: CryptoChange = "24h"): Promise<Quote> {
   const s = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const k = KLINES[window] ?? KLINES["24h"];
-  return cached(`binance:${s}:${window}`, 60_000, async () => {
+  return cached(`binance:${s}:${window}:${change}`, 60_000, async () => {
     const [ticker, klines] = await Promise.all([
-      json<{ lastPrice: string; priceChangePercent: string }>("Binance", `https://api.binance.com/api/v3/ticker/24hr?symbol=${s}`),
+      json<{ lastPrice: string; openPrice: string; openTime: number; closeTime: number }>("Binance", `https://api.binance.com/api/v3/ticker/24hr?symbol=${s}`),
       json<[number, string, string, string, string][]>("Binance", `https://api.binance.com/api/v3/klines?symbol=${s}&interval=${k.interval}&limit=${k.limit}`),
     ]);
-    const quoteAsset = /(USDT|USDC|FDUSD|BUSD|BRL|EUR|TRY|BTC|ETH|BNB)$/.exec(s)?.[1] ?? "USDT";
     const last = Number(ticker.lastPrice);
-    const open = Number(klines[0]?.[1]);
+    const day = { v: Number(ticker.openPrice), at: Number(ticker.openTime) };
+    const first = { v: Number(klines[0]?.[1]), at: Number(klines[0]?.[0]) };
+    const ref = change === "none" ? undefined : change === "window" && first.v ? first : day.v ? day : undefined;
     return {
       price: last,
-      change: window === "24h" || !open ? Number(ticker.priceChangePercent) : ((last - open) / open) * 100,
+      change: ref ? ((last - ref.v) / ref.v) * 100 : 0,
       series: klines.map((c) => Number(c[4])),
-      currency: quoteAsset,
+      currency: quoteAssetOf(s),
+      reference: ref?.v,
+      referenceAt: ref?.at,
+      asOf: Number(ticker.closeTime) || Date.now(),
     };
   });
 }
 
-export type StockRange = "1d" | "5d" | "1mo" | "6mo";
+/** The pair's closes over the window (the last one is the running candle: the current price), for the chart panel. */
+export function cryptoHistory(symbol: string, window: CryptoWindow): Promise<History> {
+  const s = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const k = KLINES_HISTORY[window] ?? KLINES_HISTORY["24h"];
+  return cached(`binance:${s}:h:${window}`, 60_000, async () => {
+    const klines = await json<[number, string, string, string, string][]>("Binance", `https://api.binance.com/api/v3/klines?symbol=${s}&interval=${k.interval}&limit=${k.limit}`);
+    const points = klines.map((c) => ({ at: Number(c[0]), v: Number(c[4]) })).filter((p) => Number.isFinite(p.v));
+    if (points.length === 0) throw new Error("Binance 404");
+    return { points, currency: quoteAssetOf(s), asOf: Date.now() };
+  });
+}
+
+export type StockRange = "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "5y";
 export type StockChange = "day" | "window";
 
-const YAHOO_INTERVAL: Record<StockRange, string> = { "1d": "5m", "5d": "30m", "1mo": "60m", "6mo": "1d" };
+const YAHOO_INTERVAL: Record<StockRange, string> = { "1d": "5m", "5d": "30m", "1mo": "60m", "3mo": "1d", "6mo": "1d", "1y": "1d", "5y": "1wk" };
+
+export const asStockRange = (value: unknown): StockRange => (typeof value === "string" && value in YAHOO_INTERVAL ? (value as StockRange) : "1d");
 
 interface YahooChart {
   meta: {
     regularMarketPrice: number;
+    regularMarketTime?: number;
     chartPreviousClose?: number;
     previousClose?: number;
     currency?: string;
@@ -557,20 +726,29 @@ interface YahooChart {
     currentTradingPeriod?: { regular?: { start: number; end: number } };
   };
   series: number[];
+  points: Point[];
 }
 
 function yahooChart(ticker: string, range: StockRange): Promise<YahooChart> {
-  return cached(`yahoo:${ticker}:${range}`, 60_000, async () => {
+  // Intraday ranges move by the minute; a day's close moves once a day.
+  const ttl = range === "1d" || range === "5d" ? 60_000 : 10 * 60_000;
+  return cached(`yahoo:${ticker}:${range}`, ttl, async () => {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${YAHOO_INTERVAL[range]}`;
     const body = await json<{
       chart: {
-        result: { meta: YahooChart["meta"]; indicators: { quote: { close: (number | null)[] }[] } }[] | null;
+        result: { meta: YahooChart["meta"]; timestamp?: number[]; indicators: { quote: { close: (number | null)[] }[] } }[] | null;
         error: unknown;
       };
     }>("Yahoo", url, { headers: UA });
     const r = body.chart.result?.[0];
     if (!r) throw new Error("Yahoo 404");
-    return { meta: r.meta, series: (r.indicators.quote[0]?.close ?? []).filter((v): v is number => v != null) };
+    const close = r.indicators.quote[0]?.close ?? [];
+    const points: Point[] = [];
+    close.forEach((v, i) => {
+      const at = r.timestamp?.[i];
+      if (v != null && at) points.push({ at: at * 1000, v });
+    });
+    return { meta: r.meta, series: close.filter((v): v is number => v != null), points };
   });
 }
 
@@ -592,10 +770,24 @@ export async function stockQuote(ticker: string, range: StockRange = "1d", chang
   return {
     price: last,
     change: prev ? ((last - prev) / prev) * 100 : 0,
+    reference: prev,
     series: chart.series,
     currency: chart.meta.currency ?? "USD",
     name: chart.meta.shortName,
     closed: marketClosed(chart.meta.currentTradingPeriod?.regular),
+  };
+}
+
+/** The ticker's closes over the range, for the chart panel (same request as the tile's). */
+export async function stockHistory(ticker: string, range: StockRange): Promise<History> {
+  const t = ticker.trim().toUpperCase();
+  const chart = await yahooChart(t, YAHOO_INTERVAL[range] ? range : "1d");
+  if (chart.points.length === 0) throw new Error("Yahoo 404");
+  return {
+    points: chart.points,
+    currency: chart.meta.currency ?? "USD",
+    name: chart.meta.shortName,
+    asOf: chart.meta.regularMarketTime ? chart.meta.regularMarketTime * 1000 : chart.points[chart.points.length - 1]!.at,
   };
 }
 

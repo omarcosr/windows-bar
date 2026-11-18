@@ -1,4 +1,4 @@
-import { Column, Row, Text, store, toRaw } from "@tarve/core";
+import { Column, Row, Text, View, store, toRaw } from "@tarve/core";
 import {
   asPeriod,
   dodoRevenue,
@@ -20,7 +20,28 @@ import {
 import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
 import { defineWidget, type WidgetSetting } from "../../types";
-import { Badge, Status, Trend, demoDaily, poll, refreshItem, refreshers, revenueDefaults, revenueSettings, type RevenueOptions } from "./shared";
+import {
+  Badge,
+  BadgeRows,
+  TITLE_ROW,
+  TileTitle,
+  chartClick,
+  chartMenu,
+  chartRow,
+  oneRow,
+  Trend,
+  demoDaily,
+  poll,
+  refreshItem,
+  refreshers,
+  revenueDefaults,
+  revenueSettings,
+  revenueSource,
+  revenueTip,
+  tileAnchor,
+  type RevenueOptions,
+} from "./shared";
+import { asCompareTo } from "../../../services/finance-providers";
 
 const defaults = {
   label: "Receita total",
@@ -57,6 +78,49 @@ function sources(c: Config, days: number): [string, () => Promise<Revenue>][] {
   if (c.shopify && c.shopifyDomain && on(c.useShopify)) out.push(["Shopify", () => shopifyRevenue(c.shopifyDomain, c.shopify, days)]);
   if (c.dodo && on(c.useDodo)) out.push(["Dodo", () => dodoRevenue(c.dodo, false, days)]);
   return out;
+}
+
+/** Every provider's `days` summed in the display currency; `failed` names the ones that could not be read. */
+async function totalDaily(c: Config, days: number) {
+  const list = sources(c, days);
+  const target = displayCurrency(c);
+  if (list.length === 0) return { daily: demoDaily(260, 3, days), currency: target, demo: true, failed: [] as string[], error: undefined as unknown, count: 0 };
+  const results = await Promise.allSettled(
+    list.map(async ([, fetch]) => {
+      const r = await fetch();
+      const rate = await fxRate(r.currency, target);
+      return r.daily.map((v) => v * rate);
+    }),
+  );
+  const daily = new Array<number>(days).fill(0);
+  const failed: string[] = [];
+  let error: unknown;
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") r.value.forEach((v, d) => (daily[d]! += v));
+    else {
+      failed.push(list[i]![0]);
+      error ??= r.reason;
+    }
+  });
+  return { daily, currency: target, demo: false, failed, error, count: list.length };
+}
+
+function totalSource(ctx: { instanceId: string; config: Config; save(): void }) {
+  const c = ctx.config;
+  return revenueSource({
+    key: ctx.instanceId,
+    anchor: tileAnchor(ctx),
+    title: String(c.label || "Receita total"),
+    brand: { color: ui.green, letter: "$" },
+    source: sources(c, 31).length ? `soma de ${sources(c, 31).map(([n]) => n).join(", ")}` : "nenhum provedor com chave",
+    config: c,
+    save: () => ctx.save(),
+    loadDaily: async (days) => {
+      const r = await totalDaily(c, days);
+      if (r.count && r.failed.length === r.count) throw r.error;
+      return r;
+    },
+  });
 }
 
 const secret = (key: keyof Config & string, label: string, placeholder?: string) => ({
@@ -108,52 +172,30 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
     let allFailed = false;
     const load = async () => {
       const id = ++seq;
-      allFailed = false;
       const c = ctx.config;
-      const days = historyDays(asPeriod(c.period), c.compare !== false);
-      const list = sources(c, days);
-      if (list.length === 0) {
-        Object.assign(state, { daily: demoDaily(260, 3), demo: true, error: "", failed: [] });
-        return;
-      }
-      const target = displayCurrency(c);
-      const results = await Promise.allSettled(
-        list.map(async ([, fetch]) => {
-          const r = await fetch();
-          const rate = await fxRate(r.currency, target);
-          return r.daily.map((v) => v * rate);
-        }),
-      );
+      const r = await totalDaily(c, historyDays(asPeriod(c.period), c.compare !== false && asCompareTo(c.compareTo)));
       if (id !== seq) return;
-      const daily = new Array<number>(days).fill(0);
-      const failed: string[] = [];
-      let firstError: unknown;
-      results.forEach((r, i) => {
-        if (r.status === "fulfilled") r.value.forEach((v, d) => (daily[d]! += v));
-        else {
-          failed.push(list[i]![0]);
-          firstError ??= r.reason;
-        }
-      });
-      if (failed.length === list.length) {
-        state.error = errorText(firstError);
-        state.failed = failed;
-        return;
+      allFailed = r.count > 0 && r.failed.length === r.count;
+      if (allFailed) {
+        state.error = errorText(r.error);
+        state.failed = r.failed;
+          return;
       }
-      Object.assign(state, { daily, demo: false, error: failed.length ? `${failed.length} falhou` : "", failed });
-    };
+      Object.assign(state, { daily: r.daily, demo: r.demo, error: r.failed.length ? `${r.failed.length} falhou` : "", failed: r.failed });
+      };
     refreshers.set(toRaw(state), () => {
       invalidate();
       return load();
     });
-    poll(ctx, load, 15);
+    poll(ctx, load, 15, { failed: () => allFailed });
     return state;
   },
-  menu({ state }) {
+  menu({ state, ctx }) {
     const failed = state.failed.map((name) => ({ label: `${name}: falha ao ler`, danger: true, onSelect: () => {} }));
-    return failed.length ? [[refreshItem(state)], failed] : [[refreshItem(state)]];
+    const first = [refreshItem(state), ...chartMenu(() => totalSource(ctx))];
+      return failed.length ? [first, failed] : [first];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const c = ctx.config;
     const currency = displayCurrency(c);
     const format = c.format === "full" ? "full" : "compact";
@@ -163,30 +205,49 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
     const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const expected = goal * ((now.getDate() - 1 + now.getHours() / 24) / monthDays);
     const ahead = mtd >= expected;
+    const label = String(c.label || "Receita total");
+    const tip = () => {
+      const names = sources(c, 31).map(([name]) => name);
+      const source = names.length ? `soma de ${names.join(", ")}, convertida para ${currency} pelo câmbio do dia` : "nenhum provedor com chave";
+      if (!goal) return revenueTip({ label, daily: state.daily, currency, config: c, source, demo: state.demo, error: state.error, click: "Clique para abrir o gráfico" });
+      return [
+        `${label}: ${money(mtd, currency, format)} no mês atual (desde o dia 1º)`,
+        `Meta do mês: ${money(goal, currency, format)} · ${Math.round((mtd / goal) * 100)}% atingido`,
+        `${ahead ? "No ritmo" : "Abaixo do ritmo"}: até agora o esperado era ${money(expected, currency, format)} (meta × fração do mês já passada)`,
+        ...(state.failed.length ? [`Falha ao ler: ${state.failed.join(", ")}`] : []),
+        state.demo ? "Dados de exemplo: informe as chaves nas configurações" : `Fonte: ${source}`,
+          "Clique para abrir o gráfico",
+      ];
+    };
     return (
-      <Tile width={196} padding={{ left: 10, right: 10, top: 6, bottom: 4 }}>
-        <Column style={{ flex: 1, gap: 3 }}>
-          <Row style={{ align: "center", gap: 6 }}>
-            <Badge color={ui.green} letter="$" />
-            <Text size={11} weight={600} color={ui.text} style={{ flex: 1 }}>
-              {String(c.label || "Receita total")}
-              <Status demo={state.demo} error={state.error} />
-            </Text>
+      <Tile
+        width={oneRow() ? 196 : 210}
+        lead={oneRow() ? undefined : "round"}
+        onClick={preview ? undefined : chartClick("panel", undefined, () => totalSource(ctx))}
+        tip={{ id: tileAnchor(ctx), lines: tip }}
+        preview={preview}
+      >
+        <BadgeRows color={ui.green} letter="$">
+          <Row style={{ align: "center", gap: 6, height: TITLE_ROW }}>
+            {oneRow() ? <Badge color={ui.green} letter="$" /> : null}
+            <TileTitle text={label} demo={state.demo} error={state.error} />
             <Text size={12} weight={700} color={ui.text} style={numeric}>
               {money(goal ? mtd : periodSum(state.daily, asPeriod(c.period)), currency, format)}
             </Text>
           </Row>
-          {goal ? (
-            <Row style={{ align: "center", gap: 6 }}>
-              <Meter value={mtd / goal} width={112} color={ahead ? ui.green : ui.orange} />
-              <Text size={10} weight={700} color={ahead ? ui.green : ui.orange} style={{ ...numeric, flex: 1, textAlign: "right" }}>
-                {`${Math.round((mtd / goal) * 100)}% ${ahead ? "no ritmo" : "abaixo"}`}
-              </Text>
+          {oneRow() ? null : goal ? (
+            <Row style={{ align: "center", gap: 6, height: chartRow() }}>
+              <Meter value={mtd / goal} width={96} color={ahead ? ui.green : ui.orange} />
+              <View style={{ flex: 1, align: "end" }}>
+                <Text size={10} weight={700} color={ahead ? ui.green : ui.orange} style={numeric}>
+                  {`${Math.round((mtd / goal) * 100)}% ${ahead ? "no ritmo" : "abaixo"}`}
+                </Text>
+              </View>
             </Row>
           ) : (
-            <Trend daily={state.daily} config={c} />
+            <Trend daily={state.daily} config={c} width={112} />
           )}
-        </Column>
+        </BadgeRows>
       </Tile>
     );
   },

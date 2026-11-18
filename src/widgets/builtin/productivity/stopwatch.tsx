@@ -1,23 +1,22 @@
-import { Column, Row, Svg, Path, Text, store, toRaw } from "@tarve/core";
-import { numeric, ui } from "../../../theme";
+import { Row, Text, store, toRaw } from "@tarve/core";
+import { ui } from "../../../theme";
+import { HoverTip } from "../../../menu/hover-tip";
 import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget } from "../../types";
 import { showDockMenu } from "../../../menu/dock-menu";
-import { clockTenths } from "./shared";
+import { Stack, buttonSize, clockTenths } from "./shared";
 import { onClock } from "../../../services/clock";
 
 const actions = new WeakMap<object, { toggle(): void; lap(): void; reset(): void; showLaps(): void }>();
 
-const flag = (size: number, color = "#fff") => (
-  <Svg width={size} height={size} viewBox="0 0 24 24">
-    <Path d="M6 21V4M6 4h11l-2 4 2 4H6" fill="none" stroke={color} stroke-width={2.2} stroke-linecap="round" stroke-linejoin="round" />
-  </Svg>
+/** Segoe Fluent Icons glyphs, as the Windows Clock app's stopwatch draws its lap and reset buttons. */
+const fluent = (code: number) => (size: number, color = "#fff") => (
+  <Text size={size} color={color} style={{ fontFamily: "Segoe Fluent Icons, Segoe MDL2 Assets", lineHeight: 1 }}>
+    {String.fromCharCode(code)}
+  </Text>
 );
-const resetGlyph = (size: number, color = "#fff") => (
-  <Svg width={size} height={size} viewBox="0 0 24 24">
-    <Path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" fill="none" stroke={color} stroke-width={2.2} stroke-linecap="round" stroke-linejoin="round" />
-  </Svg>
-);
+const flag = fluent(0xe7c1 /* Flag */);
+const resetGlyph = fluent(0xe72c /* Refresh */);
 
 export default defineWidget({
   type: "productivity-stopwatch",
@@ -85,37 +84,45 @@ export default defineWidget({
       ],
     ];
   },
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const a = actions.get(toRaw(state));
     const demo = preview && !state.running && !state.acc;
     const ms = demo ? 83_400 : state.acc + (state.running ? state.now - state.startAt : 0);
     const laps = demo ? 2 : state.laps.length;
     const lapTime = laps && !demo ? state.laps[laps - 1]! - (state.laps[laps - 2] ?? 0) : 41_200;
-    return (
-      <Tile width={156} onClick={a?.toggle}>
-        <Column style={{ flex: 1, gap: 0 }}>
-          <Text size={10} weight={600} color={ui.muted}>
-            {laps ? `Volta ${laps} · ${clockTenths(lapTime)}` : state.running ? "Cronômetro" : ms ? "Pausado" : "Cronômetro"}
-          </Text>
-          <Text size={15} weight={700} color={ms || state.running ? ui.text : ui.muted} style={numeric}>
-            {clockTenths(ms)}
-          </Text>
-        </Column>
-        <Row style={{ gap: 4 }}>
-          {state.running || demo ? (
-            <RoundButton size={22} onClick={() => a?.lap()}>
-              {flag(11)}
+    const b = buttonSize();
+      const tip = () => {
+        const total = state.acc + (state.running ? Date.now() - state.startAt : 0);
+        const last = state.laps.slice(-3).map((t, i, all) => {
+          const n = state.laps.length - all.length + i;
+          return `Volta ${n + 1}: ${clockTenths(t - (state.laps[n - 1] ?? 0))}`;
+        });
+        return [`Total ${clockTenths(total)}${state.running ? "" : total ? " · pausado" : ""}`, ...last, state.running ? "Clique para pausar · bandeira marca volta" : "Clique para iniciar"];
+      };
+      return (
+        <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
+          <Tile width={156} onClick={a?.toggle}>
+            <Stack
+              label={laps ? `Volta ${laps} · ${clockTenths(lapTime)}` : state.running ? "Cronômetro" : ms ? "Pausado" : "Cronômetro"}
+            value={clockTenths(ms)}
+              valueColor={ms || state.running ? ui.text : ui.muted}
+            />
+            <Row style={{ gap: 4 }}>
+            {state.running || demo ? (
+                <RoundButton size={b} onClick={() => a?.lap()}>
+                  {flag(Math.round(b / 2))}
+                </RoundButton>
+              ) : ms ? (
+                <RoundButton size={b} onClick={() => a?.reset()}>
+                  {resetGlyph(Math.round(b / 2))}
+                </RoundButton>
+            ) : null}
+            <RoundButton size={b} background={state.running ? "#2a2a2e" : ui.green} onClick={() => a?.toggle()}>
+              {state.running ? glyphs.pause(Math.round(b * 0.45)) : glyphs.play(Math.round(b * 0.45))}
             </RoundButton>
-          ) : ms ? (
-            <RoundButton size={22} onClick={() => a?.reset()}>
-              {resetGlyph(11)}
-            </RoundButton>
-          ) : null}
-          <RoundButton size={22} background={state.running ? "#2a2a2e" : ui.green} onClick={() => a?.toggle()}>
-            {state.running ? glyphs.pause(10) : glyphs.play(10)}
-          </RoundButton>
-        </Row>
-      </Tile>
+          </Row>
+        </Tile>
+      </HoverTip>
     );
   },
 });

@@ -81,7 +81,10 @@ export const worldClocks = defineWidget({
   menu: clockMenu,
   View({ state, ctx, preview }) {
     const now = state.now;
-    const size = Math.round(ui.tile.height - 17);
+    // City names under the faces need a 36 px tile; on the 40 px bar the faces fill the tile and the
+    // names are in the tooltip (11 px faces under names were unreadable).
+    const labels = ui.tile.height >= 34;
+    const size = Math.round(labels ? ui.tile.height - 17 : ui.tile.height - 6);
     const zones = [ctx.config.zone1, ctx.config.zone2, ctx.config.zone3].map((v, i) => zoneOrDemo(v, now, preview, demos[i]!));
     const tip = () => [
       ...zones.filter((z): z is ZoneTime => !!z).map((z) => {
@@ -94,11 +97,13 @@ export const worldClocks = defineWidget({
         <Tile padding={{ left: 8, right: 8 }} gap={8} onClick={openNotificationCenter}>
           {zones.map((z) =>
             z ? (
-              <Column style={{ align: "center", gap: 1, width: Math.max(size, 34) }}>
+              <Column style={{ align: "center", gap: 1, width: labels ? Math.max(size, 34) : size }}>
                 <AnalogFace size={size} now={z.wall} utc ticks="quarters" />
-                <Text size={8} weight={600} color={ui.muted} style={{ lineHeight: 1 }}>
-                  {z.label.length > 9 ? z.label.slice(0, 8) + "…" : z.label}
-                </Text>
+                {labels ? (
+                  <Text size={8} weight={600} color={ui.muted} style={{ lineHeight: 1 }}>
+                    {z.label.length > 9 ? z.label.slice(0, 8) + "…" : z.label}
+                  </Text>
+                ) : null}
               </Column>
             ) : (
               <Column style={{ align: "center", width: Math.max(size, 34) }}>

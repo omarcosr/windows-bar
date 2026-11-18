@@ -4,7 +4,7 @@ import { graphql } from "../../../services/online-http";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
-import { Badge, errorText, refreshNow, registerRefresh } from "./common";
+import { Badge, errorText, refreshNow, registerRefresh, sourceLines } from "./common";
 import { refreshWidget } from "../../../services/remote";
 
 const QUERY = `query userStats($username: String!) {
@@ -95,10 +95,16 @@ export default defineWidget({
       ],
     ];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const user = String(ctx.config.username || "").trim();
+    const tip = () => [
+      `${user || "LeetCode"}: ${state.solved} problemas resolvidos`,
+      `Fácil ${state.easy} · Médio ${state.medium} · Difícil ${state.hard}`,
+      `Sequência atual: ${state.streak} ${state.streak === 1 ? "dia" : "dias"} · maior no ano: ${state.best}`,
+      ...sourceLines(state, "perfil público do LeetCode", "Clique para abrir o perfil", "informe o usuário nas configurações"),
+    ];
     return (
-      <Tile width={168} padding={{ left: 10, right: 10 }} onClick={() => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com")}>
+      <Tile width={168} onClick={() => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Badge color="#ffa116" letter="L" fg="#1a1a1a" size={18} />
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 4 }}>

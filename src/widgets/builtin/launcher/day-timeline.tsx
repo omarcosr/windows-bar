@@ -1,4 +1,5 @@
 import { Column, Row, Text, View } from "@tarve/core";
+import { HoverTip } from "../../../menu/hover-tip";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { acquireScreenTime, formatDuration, kindInfo, kindOf, usageOf, type AppKind, type DayUsage } from "../../../services/launcher-screen-time";
 import { numeric, ui } from "../../../theme";
@@ -70,21 +71,31 @@ export default defineWidget({
     }));
     return [items.length ? items : [{ label: "Nada contado hoje", onSelect: () => {} }]];
   },
-  View({ preview }) {
+  View({ ctx, preview }) {
     const real = usageOf();
     const day = preview && real.total === 0 ? demoDay() : real;
     const list = cells(day);
     const now = preview ? CELLS : Math.floor(((Date.now() - new Date().setHours(0, 0, 0, 0)) / 1000) / CELL_S);
     const cell = BAR_WIDTH / CELLS;
     const lines = ui.tile.lines;
-    return (
-      <Tile width={BAR_WIDTH + 20} padding={{ left: 10, right: 10 }}>
-        <Column style={{ gap: Math.max(4, lines.gap + 3), flex: 1 }}>
+    // The hour scale needs a 44 px tile (the 56 px bar); below it the title and the line fit and the
+      // scale is in the tooltip (three lines in a 28-36 px tile were cut at the top).
+      const scale = ui.tile.height >= 44;
+      const tip = () => [
+        `Hoje: ${formatDuration(usageOf().total)} com o PC em uso`,
+        ...kindTotals(usageOf()).map(([kind, seconds]) => `${kindInfo[kind].label}: ${formatDuration(seconds)}`),
+        "Cada trecho é 20 min, colorido pelo tipo de app mais usado nele",
+        "De 0h a 24h; ausências de mais de 5 min não contam",
+      ];
+      return (
+        <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
+        <Tile width={BAR_WIDTH + 20} padding={{ left: 10, right: 10 }}>
+        <Column style={{ gap: scale ? Math.max(4, lines.gap + 3) : ui.tile.height < 32 ? 3 : 5, flex: 1, justify: "center" }}>
           <Row style={{ align: "center" }}>
-            <Text size={lines.secondary} color={ui.muted} style={{ flex: 1 }}>
+            <Text size={lines.secondary} color={ui.muted} style={{ flex: 1, lineHeight: 1.2 }}>
               Hoje
             </Text>
-            <Text size={lines.secondary} weight={700} color={ui.text} style={numeric}>
+            <Text size={lines.secondary} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.2 }}>
               {formatDuration(day.total)}
             </Text>
           </Row>
@@ -100,15 +111,18 @@ export default defineWidget({
               />
             ))}
           </Row>
-          <Row>
-            {["0h", "6h", "12h", "18h", "24h"].map((label, i) => (
-              <Text size={9} color={ui.faint} style={{ flex: i === 4 ? 0 : 1 }}>
-                {label}
-              </Text>
-            ))}
-          </Row>
+          {scale ? (
+            <Row>
+              {["0h", "6h", "12h", "18h", "24h"].map((label, i) => (
+                <Text size={9} color={ui.faint} style={{ flex: i === 4 ? 0 : 1, lineHeight: 1.15 }}>
+                    {label}
+                  </Text>
+                ))}
+              </Row>
+            ) : null}
         </Column>
       </Tile>
+      </HoverTip>
     );
   },
 });

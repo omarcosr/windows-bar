@@ -1,4 +1,4 @@
-import { Circle, Column, Path, Row, Svg, Text, store } from "@tarve/core";
+import { Circle, Column, Path, Row, Svg, Text, store, type Child } from "@tarve/core";
 import { forecastPoller, compass, upcomingDays, upcomingHours } from "../../../services/weather-media-forecast";
 import { weatherLabel } from "../../../services/weather";
 import { launch } from "../../../services/windows";
@@ -8,7 +8,8 @@ import { Tile } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
 import { every, onClock, type ClockUnit } from "../../../services/clock";
 import type { DockMenuItem } from "../../../menu/dock-menu";
-import { WeatherIcon, forecastData, weekday } from "./shared";
+import { HoverTip } from "../../../menu/hover-tip";
+import { WeatherIcon, forecastData, temp, unitSetting, weatherTip, weekday, windSpeed } from "./shared";
 
 /** The Windows weather app (MSN Weather), which the taskbar's weather opens. */
 const openWeather = () => launch("msnweather:");
@@ -35,30 +36,44 @@ function Small(props: { children: string; color?: string; size?: number; weight?
   );
 }
 
-const deg = (n: number | undefined) => (n === undefined ? "–" : `${n}°`);
+const deg = (n: number | undefined, unit: unknown) => (n === undefined ? "–" : `${temp(n, unit)}°`);
+
+/** The tooltip wrapper of every weather tile (off in the gallery preview). */
+function Tip(props: { id: string; preview: boolean; tip: () => string[]; children: Child }) {
+  return (
+    <HoverTip id={`tip:${props.id}`} tip={props.tip} disabled={props.preview}>
+      {props.children}
+    </HoverTip>
+  );
+}
 
 const weatherNow = defineWidget({
   type: "weather-media-weather",
   name: "Clima",
   description: "Temperatura agora e a máxima e mínima de hoje.",
   category: "clock",
-  defaultConfig: {},
+  defaultConfig: { unit: "c" },
+  settings: [unitSetting],
   setup: (ctx) => setup(ctx, "day"),
   menu,
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const f = forecastData(preview);
+    const u = ctx.config.unit;
     const today = upcomingDays(1, state.now)[0] ?? f.days[0];
     const icon = Math.round(ui.tile.control * 0.9);
+    const lines = ui.tile.lines;
     return (
-      <Tile width={100} onClick={preview ? undefined : openWeather} padding={{ left: 8, right: 8 }} gap={6}>
-        <WeatherIcon code={f.code} isDay={f.isDay} size={icon} />
-        <Column style={{ gap: 0, minWidth: 0 }}>
-          <Text size={ui.tile.lines.primary + 3} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.05 }}>
-            {f.ready ? `${f.temperature}°` : "–"}
-          </Text>
-          <Small>{today ? `↑${today.max}° ↓${today.min}°` : "Carregando"}</Small>
-        </Column>
-      </Tile>
+      <Tip id={ctx.instanceId} preview={preview} tip={() => weatherTip(f, u, today ? [`Hoje: máxima ${temp(today.max, u)}° · mínima ${temp(today.min, u)}°`] : [])}>
+        <Tile onClick={preview ? undefined : openWeather} padding={{ left: 8, right: 12 }} gap={6}>
+          <WeatherIcon code={f.code} isDay={f.isDay} size={icon} />
+          <Column style={{ gap: 0, minWidth: 0, justify: "center" }}>
+            <Text size={lines.primary + 3} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.1 }}>
+              {f.ready ? `${temp(f.temperature, u)}°` : "–"}
+            </Text>
+            <Small>{today ? `↑${temp(today.max, u)}° ↓${temp(today.min, u)}°` : "Carregando"}</Small>
+          </Column>
+        </Tile>
+      </Tip>
     );
   },
 });
@@ -68,26 +83,35 @@ const weatherDetails = defineWidget({
   name: "Detalhes do clima",
   description: "Vento, chance de chuva e a variação de temperatura do dia.",
   category: "clock",
-  defaultConfig: {},
+  defaultConfig: { unit: "c" },
+  settings: [unitSetting],
   setup: (ctx) => setup(ctx, "day"),
   menu,
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const f = forecastData(preview);
+    const u = ctx.config.unit;
     const today = upcomingDays(1, state.now)[0] ?? f.days[0];
     const cell = (label: string, value: string) => (
-      <Column style={{ gap: 1, width: 44, minWidth: 0 }}>
+      <Column style={{ gap: 1, minWidth: 0, justify: "center" }}>
         <Small size={9}>{label}</Small>
         <Small size={11} weight={650} color={ui.text}>
           {value}
         </Small>
       </Column>
     );
+    const tip = () =>
+      weatherTip(f, u, [
+        f.ready ? `Vento de ${compass(f.windDirection)} a ${windSpeed(f.wind, u)}` : "",
+        today ? `Chance de chuva hoje: ${today.rainChance}%${today.rainSum ? ` (${today.rainSum.toFixed(1).replace(".", ",")} mm)` : ""}` : "",
+      ].filter(Boolean));
     return (
-      <Tile width={160} onClick={preview ? undefined : openWeather} gap={6}>
-        {cell("Vento", f.ready ? `${f.wind} ${compass(f.windDirection)}` : "–")}
-        {cell("Chuva", today ? `${today.rainChance}%` : "–")}
-        {cell("Dia", today ? `${today.min}–${today.max}°` : "–")}
-      </Tile>
+      <Tip id={ctx.instanceId} preview={preview} tip={tip}>
+        <Tile onClick={preview ? undefined : openWeather} padding={{ left: 10, right: 12 }} gap={12}>
+          {cell("Vento", f.ready ? `${u === "f" ? Math.round(f.wind / 1.609) : f.wind} ${compass(f.windDirection)}` : "–")}
+          {cell("Chuva", today ? `${today.rainChance}%` : "–")}
+          {cell("Dia", today ? `${temp(today.min, u)}–${temp(today.max, u)}°` : "–")}
+        </Tile>
+      </Tip>
     );
   },
 });
@@ -97,34 +121,58 @@ const weatherForecast = defineWidget({
   name: "Hoje e previsão",
   description: "Hoje e os próximos 3 dias, com máxima e mínima.",
   category: "clock",
-  defaultConfig: {},
+  defaultConfig: { unit: "c", days: "4" },
+  settings: [
+    unitSetting,
+    {
+      kind: "choice",
+      key: "days",
+      label: "Dias",
+      options: [
+        { value: "3", label: "Hoje e 2 dias" },
+        { value: "4", label: "Hoje e 3 dias" },
+        { value: "5", label: "Hoje e 4 dias" },
+      ],
+    },
+  ],
   setup: (ctx) => setup(ctx, "day"),
   menu,
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const f = forecastData(preview);
-    let list = upcomingDays(4, state.now);
-    if (!list.length) list = f.days.slice(0, 4);
+    const u = ctx.config.unit;
+    const n = Math.max(3, Math.min(5, Number(ctx.config.days) || 4));
+    let list = upcomingDays(n, state.now);
+    if (!list.length) list = f.days.slice(0, n);
+    const tip = () =>
+      weatherTip(
+        f,
+        u,
+        list.map((d, i) => `${i === 0 ? "Hoje" : weekday(new Date(d.date))}: ${weatherLabel(d.code)}, ${temp(d.max, u)}°/${temp(d.min, u)}°, chuva ${d.rainChance}%`),
+      );
     return (
-      <Tile width={172} onClick={preview ? undefined : openWeather} gap={2} padding={{ left: 6, right: 6 }}>
-        {list.length ? (
-          list.map((d, i) => (
-            <Column style={{ flex: 1, align: "center", gap: 1, minWidth: 0 }}>
-              <Small size={9} weight={i === 0 ? 700 : 500} color={i === 0 ? ui.text : ui.muted}>
-                {i === 0 ? "Hoje" : weekday(new Date(d.date))}
-              </Small>
-              <Row style={{ align: "center", gap: 2 }}>
-                <WeatherIcon code={d.code} size={13} />
-                <Small size={10} weight={650} color={ui.text}>
-                  {`${d.max}°`}
+      <Tip id={ctx.instanceId} preview={preview} tip={tip}>
+        <Tile onClick={preview ? undefined : openWeather} gap={4} padding={{ left: 8, right: 8 }}>
+          {list.length ? (
+            list.map((d, i) => (
+              // Fixed cells: the min temperature of one day no longer runs into the next day's icon.
+              <Column style={{ width: 44, align: "center", gap: 1, justify: "center" }}>
+                <Small size={9} weight={i === 0 ? 700 : 500} color={i === 0 ? ui.text : ui.muted}>
+                  {i === 0 ? "Hoje" : weekday(new Date(d.date))}
                 </Small>
-                <Small size={9}>{`${d.min}°`}</Small>
-              </Row>
-            </Column>
-          ))
-        ) : (
-          <Small>Carregando previsão…</Small>
-        )}
-      </Tile>
+                <Row style={{ align: "center", gap: 2 }}>
+                  <WeatherIcon code={d.code} size={13} />
+                  <Small size={10} weight={650} color={ui.text}>
+                    {`${temp(d.max, u)}°`}
+                  </Small>
+                  <Small size={9}>{`${temp(d.min, u)}°`}</Small>
+                </Row>
+              </Column>
+            ))
+          ) : (
+            <Small>Carregando previsão…</Small>
+          )}
+        </Tile>
+      </Tip>
     );
   },
 });
@@ -134,25 +182,28 @@ const weatherStatus = defineWidget({
   name: "Condição do tempo",
   description: "O tempo agora em palavras e a sua cidade.",
   category: "clock",
-  defaultConfig: { showTemperature: true },
-  settings: [{ kind: "toggle", key: "showTemperature", label: "Mostrar temperatura" }],
+  defaultConfig: { showTemperature: true, unit: "c" },
+  settings: [{ kind: "toggle", key: "showTemperature", label: "Mostrar temperatura" }, unitSetting],
   setup: (ctx) => setup(ctx, null),
   menu,
   View({ ctx, preview }) {
     const f = forecastData(preview);
     const lines = ui.tile.lines;
+    const u = ctx.config.unit;
     return (
-      <Tile width={150} onClick={preview ? undefined : openWeather} gap={7}>
-        <WeatherIcon code={f.code} isDay={f.isDay} size={Math.round(ui.tile.control * 0.85)} />
-        <Column style={{ flex: 1, gap: lines.gap, minWidth: 0 }}>
-          <Text size={lines.primary - 1} weight={650} color={ui.text} style={{ ...line, lineHeight: lines.lineHeight }}>
-            {f.ready ? `${ctx.config.showTemperature ? `${f.temperature}° · ` : ""}${weatherLabel(f.code)}` : "Carregando…"}
-          </Text>
-          <Text size={lines.secondary - 1} color={ui.muted} style={{ ...line, lineHeight: lines.lineHeight }}>
-            {f.city || "Localizando"}
-          </Text>
-        </Column>
-      </Tile>
+      <Tip id={ctx.instanceId} preview={preview} tip={() => weatherTip(f, u)}>
+        <Tile onClick={preview ? undefined : openWeather} gap={7} padding={{ left: 8, right: 12 }} style={{ maxWidth: 220 }}>
+          <WeatherIcon code={f.code} isDay={f.isDay} size={Math.round(ui.tile.control * 0.85)} />
+          <Column style={{ flex: 1, gap: lines.gap, minWidth: 0, justify: "center" }}>
+            <Text size={lines.primary - 1} weight={650} color={ui.text} style={{ ...line, lineHeight: lines.lineHeight }}>
+              {f.ready ? `${ctx.config.showTemperature ? `${temp(f.temperature, u)}° · ` : ""}${weatherLabel(f.code)}` : "Carregando…"}
+            </Text>
+            <Text size={lines.secondary - 1} color={ui.muted} style={{ ...line, lineHeight: lines.lineHeight }}>
+              {f.city || "Localizando"}
+            </Text>
+          </Column>
+        </Tile>
+      </Tip>
     );
   },
 });
@@ -162,34 +213,39 @@ const weatherHourly = defineWidget({
   name: "Por hora",
   description: "Temperatura e tempo das próximas 6 horas.",
   category: "clock",
-  defaultConfig: { showRain: false },
-  settings: [{ kind: "toggle", key: "showRain", label: "Mostrar chance de chuva", description: "No lugar da temperatura." }],
+  defaultConfig: { showRain: false, unit: "c" },
+  settings: [{ kind: "toggle", key: "showRain", label: "Mostrar chance de chuva", description: "No lugar da temperatura." }, unitSetting],
   setup: (ctx) => setup(ctx, "hour"),
   menu,
   View({ state, ctx, preview }) {
     const f = forecastData(preview);
+    const u = ctx.config.unit;
     let hours = upcomingHours(6, state.now);
     if (!hours.length) hours = f.hours.slice(0, 6);
+    const hourLabel = (time: number) => formatTime(new Date(time));
+    const tip = () => weatherTip(f, u, hours.map((h) => `${hourLabel(h.time)}: ${deg(h.temperature, u)} · ${weatherLabel(h.code)} · chuva ${h.rainChance}%`));
     return (
-      <Tile width={190} onClick={preview ? undefined : openWeather} gap={2} padding={{ left: 6, right: 6 }}>
-        {hours.length ? (
-          hours.map((h, i) => (
-            <Column style={{ flex: 1, align: "center", gap: 1, minWidth: 0 }}>
-              <Small size={9} weight={i === 0 ? 700 : 500} color={i === 0 ? ui.text : ui.muted}>
-                {i === 0 ? "Agora" : `${new Date(h.time).getHours()}h`}
-              </Small>
-              <Row style={{ align: "center", gap: 1 }}>
-                <WeatherIcon code={h.code} size={12} />
-                <Small size={10} weight={650} color={ctx.config.showRain ? "#4aa8ff" : ui.text}>
-                  {ctx.config.showRain ? `${h.rainChance}%` : deg(h.temperature)}
+      <Tip id={ctx.instanceId} preview={preview} tip={tip}>
+        <Tile onClick={preview ? undefined : openWeather} gap={2} padding={{ left: 8, right: 8 }}>
+          {hours.length ? (
+            hours.map((h, i) => (
+              <Column style={{ width: 34, align: "center", gap: 1, justify: "center" }}>
+                <Small size={9} weight={i === 0 ? 700 : 500} color={i === 0 ? ui.text : ui.muted}>
+                  {i === 0 ? "Agora" : `${new Date(h.time).getHours()}h`}
                 </Small>
-              </Row>
-            </Column>
-          ))
-        ) : (
-          <Small>Carregando previsão…</Small>
-        )}
-      </Tile>
+                <Row style={{ align: "center", gap: 2 }}>
+                  <WeatherIcon code={h.code} size={12} />
+                  <Small size={10} weight={650} color={ctx.config.showRain ? "#4aa8ff" : ui.text}>
+                    {ctx.config.showRain ? `${h.rainChance}%` : deg(h.temperature, u)}
+                  </Small>
+                </Row>
+              </Column>
+            ))
+          ) : (
+            <Small>Carregando previsão…</Small>
+          )}
+        </Tile>
+      </Tip>
     );
   },
 });
@@ -199,10 +255,10 @@ const weatherSun = defineWidget({
   name: "Nascer e pôr do sol",
   description: "A posição do sol no céu entre o nascer e o pôr do sol.",
   category: "clock",
-  defaultConfig: {},
+  defaultConfig: { unit: "c" },
   setup: (ctx) => setup(ctx, "minute"),
   menu,
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const f = forecastData(preview);
     const today = upcomingDays(1, state.now)[0] ?? f.days[0];
     const w = 56;
@@ -224,20 +280,28 @@ const weatherSun = defineWidget({
     const end = { x: cx + Math.cos(Math.PI * (1 - t)) * r, y: cy - Math.sin(Math.PI * (1 - t)) * r };
     const done = t > 0 ? `M${cx - r} ${cy}A${r} ${r} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}` : "";
     return (
-      <Tile width={136} onClick={preview ? undefined : openWeather} gap={6}>
+      <Tip
+        id={ctx.instanceId}
+        preview={preview}
+        tip={() =>
+          weatherTip(f, ctx.config.unit, today ? [`Nascer do sol ${formatTime(new Date(today.sunrise))} · pôr do sol ${formatTime(new Date(today.sunset))}`, `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}% do dia claro`] : [])
+        }
+      >
+      <Tile onClick={preview ? undefined : openWeather} gap={8} padding={{ left: 10, right: 12 }}>
         <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
           <Path d={`M1 ${cy}H${w - 1}`} fill="none" stroke={ui.faint} stroke-width={1} />
           <Path d={arc} fill="none" stroke={ui.track} stroke-width={1.6} stroke-dasharray="2 2.5" />
           {done ? <Path d={done} fill="none" stroke="#ffb340" stroke-width={1.8} stroke-linecap="round" /> : null}
           {sun ? <Circle cx={sun.x} cy={sun.y} r={3.6} fill="#ffcc33" stroke="none" /> : null}
         </Svg>
-        <Column style={{ gap: 1, minWidth: 0 }}>
+        <Column style={{ gap: 1, minWidth: 0, justify: "center" }}>
           <Small size={10} color={ui.text} weight={600}>
             {today ? `↑ ${formatTime(new Date(today.sunrise))}` : "–"}
           </Small>
           <Small size={10}>{today ? `↓ ${formatTime(new Date(today.sunset))}` : "Carregando"}</Small>
         </Column>
       </Tile>
+      </Tip>
     );
   },
 });

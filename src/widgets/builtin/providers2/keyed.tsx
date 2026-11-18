@@ -1,12 +1,13 @@
-import { Column, Row, Text, store, toRaw } from "@tarve/core";
+import { Column, Row, Text, View, store, toRaw } from "@tarve/core";
 import { launch } from "../../../services/windows";
 import { errorText } from "../../../services/finance-providers";
 import { datafastVisitors, deepseekBalance, zaiQuota, type DeepseekBalance, type ZaiQuota } from "../../../services/providers2-keyed";
 import { resetLabel } from "../../../services/ai-usage";
+import { rowGap, tight } from "../ai/shared";
 import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
-import { Badge, Bars, Delta, Status, poll, refreshItem, refreshers } from "../finance/shared";
+import { Badge, Bars, Delta, TileTitle, oneRow, changeText, momentLabel, poll, refreshItem, refreshers } from "../finance/shared";
 
 interface Keyed<T> {
   data: T;
@@ -39,17 +40,19 @@ function keyed<C extends object, T>(ctx: WidgetContext<C>, demo: () => T, load: 
 
 const tone = (used: number) => (used >= 90 ? ui.danger : used >= 70 ? "#ff9f0a" : ui.green);
 
-function Title(props: { color: string; letter: string; title: string; demo: boolean; error: string; right?: string }) {
+function Title(props: { color: string; letter: string; title: string; demo: boolean; error: string; right?: string; value?: { text: string; color: string } }) {
   return (
     <Row style={{ align: "center", gap: 6 }}>
       <Badge color={props.color} letter={props.letter} />
-      <Text size={11} weight={600} color={ui.text} style={{ flex: 1 }}>
-        {props.title}
-        <Status demo={props.demo} error={props.error} />
-      </Text>
+      <TileTitle text={props.title} demo={props.demo} error={props.error} />
       {props.right ? (
         <Text size={10} color={ui.muted} style={numeric}>
           {props.right}
+        </Text>
+      ) : null}
+      {props.value ? (
+        <Text size={12} weight={700} color={props.value.color} style={numeric}>
+          {props.value.text}
         </Text>
       ) : null}
     </Row>
@@ -88,13 +91,28 @@ const deepseek = defineWidget({
   ],
   setup: (ctx) => keyed(ctx, deepseekDemo, (c) => (c.key ? deepseekBalance(c.key) : null), 15),
   menu: ({ state }) => [[refreshItem(state), { label: "Abrir uso no DeepSeek", icon: "star", onSelect: () => launch(DEEPSEEK_URL) }]],
-  View({ state }) {
+  View({ state, ctx, preview }) {
     const b = state.data;
+    const tip = () => [
+      `Saldo da API do DeepSeek: ${money(b.total, b.currency)}${b.available ? "" : " (insuficiente para chamadas)"}`,
+      `Recarregado ${money(b.toppedUp, b.currency)} · bônus ${money(b.granted, b.currency)}`,
+      "A API informa só o saldo atual, não o gasto por período",
+      state.demo ? "Dados de exemplo: informe a chave nas configurações" : state.error ? `DeepSeek: ${state.error}` : "Fonte: API de saldo do DeepSeek (/user/balance)",
+      "Clique para abrir o uso no DeepSeek",
+    ];
     return (
-      <Tile width={170} padding={{ left: 10, right: 10 }} onClick={() => launch(DEEPSEEK_URL)}>
+      <Tile width={oneRow() ? 196 : 170} onClick={() => launch(DEEPSEEK_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 2 }}>
-          <Title color="#4d6bfe" letter="D" title="DeepSeek" demo={state.demo} error={state.error} />
-          <Row style={{ align: "center", gap: 6 }}>
+          <Title
+            color="#4d6bfe"
+            letter="D"
+            title="DeepSeek"
+            demo={state.demo}
+            error={state.error}
+            // One row on a 28 px tile (oneRow): the balance beside the title; the bonus is in the tip.
+            value={oneRow() ? { text: money(b.total, b.currency), color: b.available ? ui.text : ui.danger } : undefined}
+          />
+          <Row style={{ align: "center", gap: 6, display: oneRow() ? "none" : "flex" }}>
             <Text size={13} weight={700} color={b.available ? ui.text : ui.danger} style={numeric}>
               {money(b.total, b.currency)}
             </Text>
@@ -122,15 +140,15 @@ function QuotaRow(props: { label: string; used: number | null; right?: string })
   const used = props.used ?? 0;
   return (
     <Row style={{ align: "center", gap: 6 }}>
-      <Text size={10} weight={600} color={ui.muted} style={{ width: 26 }}>
+      <Text size={10} weight={600} color={ui.muted} style={{ ...tight(), width: 26 }}>
         {props.label}
       </Text>
       <Meter value={used / 100} width={56} color={tone(used)} />
-      <Text size={11} weight={700} color={props.used === null ? ui.faint : ui.text} style={{ ...numeric, width: 30, textAlign: "right" }}>
+      <Text size={11} weight={700} color={props.used === null ? ui.faint : ui.text} style={{ ...numeric, ...tight(), width: 30, textAlign: "right" }}>
         {props.used === null ? "—" : `${used}%`}
       </Text>
       {props.right ? (
-        <Text size={10} color={ui.muted} style={numeric}>
+        <Text size={10} color={ui.muted} style={{ ...numeric, ...tight() }}>
           {props.right}
         </Text>
       ) : null}
@@ -164,16 +182,23 @@ const zai = defineWidget({
   ],
   setup: (ctx) => keyed(ctx, zaiDemo, (c) => (c.key ? zaiQuota(c.key, c.region) : null), 5),
   menu: ({ state, ctx }) => [[refreshItem(state), { label: "Abrir assinatura", icon: "star", onSelect: () => launch(zaiUrl(ctx.config.region)) }]],
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const q = state.data;
-    // Three rows (title, 5h, MCP) need a 44 px tile; below it the title gives way to the badge on
+    const tip = () => [
+      `GLM Coding Plan${q.plan ? ` ${q.plan}` : ""}`,
+      q.tokens ? `Tokens na janela de 5 h: ${q.tokens.used}% usado${q.tokens.resetsAt ? `, renova ${momentLabel(q.tokens.resetsAt)}` : ""}` : "Tokens: sem dados",
+      ...(q.mcp ? [`Chamadas MCP no mês: ${q.mcp.used}%${q.mcp.total ? ` (${q.mcp.current} de ${q.mcp.total})` : ""}`] : []),
+      state.demo ? "Dados de exemplo: informe a chave nas configurações" : state.error ? `Z.ai: ${state.error}` : "Fonte: consulta de cota do plugin oficial glm-plan-usage",
+      "Clique para abrir a assinatura",
+    ];
+      // Three rows (title, 5h, MCP) need a 44 px tile; below it the title gives way to the badge on
       // the left and the reset time moves onto the 5h row.
       const compact = !!q.mcp && ui.tile.height < 44;
       const reset = resetLabel(q.tokens?.resetsAt ?? null);
       return (
-        <Tile width={compact ? 228 : 196} padding={{ left: 10, right: 10 }} onClick={() => launch(zaiUrl(ctx.config.region))}>
+        <Tile width={compact ? 228 : 196} lead={compact ? "round" : undefined} onClick={() => launch(zaiUrl(ctx.config.region))} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
           {compact ? <Badge color="#2d5bff" letter="Z" /> : null}
-          <Column style={{ flex: 1, gap: 2 }}>
+          <Column style={{ flex: 1, gap: compact ? rowGap(2) : 2 }}>
           {compact ? null : (
             <Title color="#2d5bff" letter="Z" title={`GLM${q.plan ? ` ${q.plan}` : ""}`} demo={state.demo} error={state.error} right={reset} />
           )}
@@ -221,26 +246,30 @@ const datafast = defineWidget({
   ],
   setup: (ctx) => keyed(ctx, datafastDemo, (c) => (c.key ? datafastVisitors(c.key, c.websiteId, 14) : null), 15),
   menu: ({ state }) => [[refreshItem(state), { label: "Abrir DataFast", icon: "star", onSelect: () => launch("https://datafa.st/dashboard") }]],
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const days = state.data;
     const week = days.slice(-7).reduce((a, b) => a + b, 0);
     const before = days.slice(-14, -7).reduce((a, b) => a + b, 0);
+    const tip = () => [
+      `${String(ctx.config.label || "DataFast")}: ${week.toLocaleString("pt-BR")} visitantes nos últimos 7 dias`,
+      before > 0 ? `${changeText(((week - before) / before) * 100, 1)} contra os 7 dias anteriores (${before.toLocaleString("pt-BR")})` : "Sem dados da semana anterior para comparar",
+      "Barras: visitantes por dia nos últimos 14 dias",
+      state.demo ? "Dados de exemplo: informe a chave nas configurações" : state.error ? `DataFast: ${state.error}` : "Fonte: API do DataFast",
+      "Clique para abrir o DataFast",
+    ];
     return (
-      <Tile width={196} padding={{ left: 10, right: 10, top: 6, bottom: 4 }} onClick={() => launch("https://datafa.st/dashboard")}>
+      <Tile width={196} onClick={() => launch("https://datafa.st/dashboard")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 2 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#e7663b" letter="D" />
-            <Text size={11} weight={600} color={ui.text} style={{ flex: 1 }}>
-              {String(ctx.config.label || "DataFast")}
-              <Status demo={state.demo} error={state.error} />
-            </Text>
+            <TileTitle text={String(ctx.config.label || "DataFast")} demo={state.demo} error={state.error} />
             <Text size={12} weight={700} color={ui.text} style={numeric}>
               {compact.format(week)}
             </Text>
           </Row>
-          <Row style={{ align: "end", gap: 6 }}>
+          <Row style={{ align: "center", gap: 6, height: 18, display: oneRow() ? "none" : "flex" }}>
             <Bars values={days} width={112} height={16} color="#e7663b" />
-            {before > 0 ? <Delta value={((week - before) / before) * 100} /> : <Text size={9} color={ui.faint}>{"7 dias"}</Text>}
+            {before > 0 ? <Delta value={((week - before) / before) * 100} /> : <View style={{ flex: 1, align: "end" }}><Text size={10} color={ui.faint}>{"7 dias"}</Text></View>}
           </Row>
         </Column>
       </Tile>

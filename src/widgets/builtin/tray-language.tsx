@@ -4,7 +4,6 @@ import { foregroundApp, launch } from "../../services/windows";
 import { languagePoller, refreshLanguage, status } from "../../services/status";
 import { ui } from "../../theme";
 import { Tile } from "../ui";
-import { HoverTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
 /**
@@ -38,11 +37,7 @@ export default defineWidget({
   View({ ctx, preview }) {
     const tip = () => [status.languageName || status.language, status.layout ? `Teclado ${status.layout}` : "", "Para alternar, pressione Windows + Espaço"];
     return (
-      <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
-      <Tile
-        padding={{ left: 10, right: 10 }}
-        onClick={switchLanguage}
-      >
+      <Tile onClick={switchLanguage} preview={preview} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}>
         <Column style={{ align: "center", gap: ui.tile.lines.gap }}>
           <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ lineHeight: ui.tile.lines.lineHeight }}>
             {status.language || "–"}
@@ -52,7 +47,6 @@ export default defineWidget({
           </Text>
         </Column>
       </Tile>
-      </HoverTip>
     );
   },
 });

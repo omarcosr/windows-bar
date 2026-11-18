@@ -8,14 +8,45 @@ import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Colon, SegmentDigit, clockMenu, clockParts, clockState, hourFormatSetting, monthName, timeText, weekdayName, type HourFormat } from "./shared";
 
+/** The clock's date line in the chosen style, from Windows' regional formats. */
+function dateText(now: Date, style: string) {
+  switch (style) {
+    case "short":
+      return formatDate(now, "short");
+    case "long":
+      return formatDate(now, "long");
+    case "dayMonth":
+      return `${weekdayName(now)}, ${now.getDate()} ${monthName(now).toLowerCase()}`;
+    default:
+      return `${weekdayName(now)}, ${formatDate(now, "short")}`;
+  }
+}
+
 /** Large time with seconds over the short date. */
 export const clock = defineWidget({
   type: "clocks-clock",
   name: "Relógio",
   description: "Hora grande com segundos e a data, no formato do Windows ou em 12/24 h.",
   category: "clock",
-  defaultConfig: { hourFormat: "system", showSeconds: true, showDate: true },
-  settings: [hourFormatSetting, { kind: "toggle", key: "showSeconds", label: "Mostrar segundos" }, { kind: "toggle", key: "showDate", label: "Mostrar data" }],
+  defaultConfig: { hourFormat: "system", showSeconds: true, showDate: true, dateStyle: "weekday" },
+  settings: [
+    hourFormatSetting,
+    { kind: "toggle", key: "showSeconds", label: "Mostrar segundos" },
+    { kind: "toggle", key: "showDate", label: "Mostrar data" },
+    {
+      kind: "choice",
+      key: "dateStyle",
+      label: "Formato da data",
+      description: "Datas no formato regional do Windows.",
+      when: (c) => c.showDate,
+      options: [
+        { value: "weekday", label: "Dia da semana e data curta (Qua, 18/11/2026)" },
+        { value: "short", label: "Data curta do Windows (18/11/2026)" },
+        { value: "dayMonth", label: "Dia da semana, dia e mês (Qua, 18 nov)" },
+        { value: "long", label: "Data longa do Windows" },
+      ],
+    },
+  ],
   setup(ctx) {
     return clockState(ctx, () => (ctx.config.showSeconds ? "second" : "minute"));
   },
@@ -32,7 +63,7 @@ export const clock = defineWidget({
             </Text>
             {ctx.config.showDate ? (
               <Text size={ui.tile.lines.secondary - 1} weight={500} color={ui.muted} style={{ ...numeric, lineHeight: 1.1 }}>
-                {`${weekdayName(now)}, ${formatDate(now, "short")}`}
+                {dateText(now, String(ctx.config.dateStyle))}
               </Text>
             ) : null}
           </Column>

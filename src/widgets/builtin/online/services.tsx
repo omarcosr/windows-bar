@@ -3,10 +3,11 @@ import { launch } from "../../../services/windows";
 import { graphql, postJson } from "../../../services/online-http";
 import { refreshWidget, remoteJson as getJson } from "../../../services/remote";
 import { numeric, ui } from "../../../theme";
-import { Sparkline, Tile } from "../../ui";
+import { Meter, Sparkline, Tile } from "../../ui";
+import { oneRow } from "../finance/shared";
 import { defineWidget } from "../../types";
 import type { DockMenuItem } from "../../../menu/dock-menu";
-import { Badge, Stat, Title, Trend, compact, errorText, percentChange, refreshNow, registerRefresh } from "./common";
+import { Badge, Title, Trend, changeLine, compact, errorText, percentChange, refreshNow, registerRefresh, sourceLines, Stat } from "./common";
 
 const DAY_MS = 86_400_000;
 
@@ -27,6 +28,20 @@ function localZone() {
   }
 }
 
+/** "Período" of the analytics tiles: the days counted, compared with as many days before. */
+const periodSetting = {
+  kind: "choice" as const,
+  key: "period" as const,
+  label: "Período",
+  description: "A variação compara com o mesmo número de dias antes.",
+  options: [
+    { value: "7", label: "7 dias" },
+    { value: "30", label: "30 dias" },
+  ],
+};
+
+const periodOf = (value: unknown) => (String(value) === "30" ? 30 : 7);
+
 /** Shared tile: brand, title, big number, sparkline + trend. */
 function MetricTile(props: {
   color: string;
@@ -40,20 +55,27 @@ function MetricTile(props: {
   error: string;
   sparkColor?: string;
   onClick: () => void;
+  tip: { id: string; lines: () => string[] };
+  preview: boolean;
 }) {
   return (
-    <Tile width={176} padding={{ left: 10, right: 10, top: 5, bottom: 4 }} onClick={props.onClick}>
-      <Column style={{ flex: 1, gap: 1 }}>
+    <Tile width={176} onClick={props.onClick} tip={props.tip} preview={props.preview}>
+      <Column style={{ flex: 1, gap: 2 }}>
         <Row style={{ align: "center", gap: 6 }}>
           <Badge color={props.color} letter={props.letter} fg={props.fg} size={14} />
           <Title text={props.title} demo={props.demo} error={props.error} />
+          {oneRow() && props.change !== null ? <Trend change={props.change} /> : null}
           <Text size={12} weight={700} color={ui.text} style={numeric}>
             {props.value}
           </Text>
         </Row>
-        <Row style={{ align: "end", gap: 6 }}>
-          <Sparkline values={props.series} width={112} height={16} color={props.sparkColor ?? ui.green} />
-          <View style={{ flex: 1, align: "end" }}>{props.change === null ? null : <Trend change={props.change} />}</View>
+        <Row style={{ align: "center", gap: 6, height: 18, display: oneRow() ? "none" : "flex" }}>
+          <Sparkline values={props.series} width={props.change === null ? 156 : 112} height={18} color={props.sparkColor ?? ui.green} />
+          {props.change === null ? null : (
+            <View style={{ flex: 1, align: "end" }}>
+              <Trend change={props.change} />
+            </View>
+          )}
         </Row>
       </Column>
     </Tile>
@@ -131,10 +153,15 @@ const linear = defineWidget({
       ],
     ];
   },
-  View({ state }) {
+  View({ state, ctx, preview }) {
     const started = state.issues.filter((i) => i.state.type === "started").length;
+    const tip = () => [
+      `Issues abertas atribuídas a você: ${state.issues.length}`,
+      `Em andamento: ${started} · as outras estão em Todo ou Backlog`,
+      ...sourceLines(state, "API do Linear (GraphQL)", "Clique para abrir o Linear; as issues ficam no botão direito"),
+    ];
     return (
-      <Tile width={150} padding={{ left: 10, right: 10 }} onClick={() => launch("https://linear.app")}>
+      <Tile width={150} onClick={() => launch("https://linear.app")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#5e6ad2" letter="L" size={14} />
@@ -243,22 +270,30 @@ const supabase = defineWidget({
     ];
     return sections.filter((s) => s.length);
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const ok = state.healthy === state.services;
     const ref = String(ctx.config.projectRef || "").trim();
+    const tip = () => [
+      `${state.requests.toLocaleString("pt-BR")} requisições nas últimas 24 h (auth, REST, storage e realtime)`,
+      ok ? `Serviços saudáveis: ${state.healthy} de ${state.services}` : `Com problema: ${state.down.join(", ")}`,
+      "Gráfico: requisições por hora",
+      ...sourceLines(state, `Management API do Supabase${ref ? `, projeto ${ref}` : ""}`, "Clique para abrir o projeto", "informe o token e o project ref"),
+    ];
     return (
       <MetricTile
         color="#1c1c1c"
         letter="S"
         fg="#3ecf8e"
         title={ok ? "Supabase" : `${state.services - state.healthy} com falha`}
-        value={`${compact(state.requests)} req`}
+        value={compact(state.requests)}
         series={state.series}
         change={null}
         demo={state.demo}
         error={state.error}
         sparkColor={ok ? "#3ecf8e" : ui.danger}
         onClick={() => launch(ref ? `https://supabase.com/dashboard/project/${ref}` : "https://supabase.com/dashboard")}
+        tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}
+        preview={preview}
       />
     );
   },
@@ -344,18 +379,30 @@ const resend = defineWidget({
       ],
     ];
   },
-  View({ state }) {
+  View({ state, ctx, preview }) {
     const rate = state.sent ? Math.round((state.delivered / state.sent) * 100) : 0;
+    const tip = () => [
+      `${state.sent.toLocaleString("pt-BR")} e-mails enviados nos últimos 7 dias`,
+      `${state.delivered.toLocaleString("pt-BR")} entregues (${rate}%): último evento entregue, aberto ou clicado`,
+      ...sourceLines(state, "API do Resend (lista de e-mails)", "Clique para abrir os e-mails no Resend"),
+    ];
     return (
-      <Tile width={196} padding={{ left: 10, right: 10, top: 5, bottom: 4 }} onClick={() => launch("https://resend.com/emails")}>
-        <Column style={{ flex: 1, gap: 1 }}>
+      <Tile width={176} onClick={() => launch("https://resend.com/emails")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+        <Column style={{ flex: 1, gap: 2 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#000" letter="R" size={14} />
-            <Title text="Resend · 7 dias" demo={state.demo} error={state.error} />
+            <Title text="Resend" demo={state.demo} error={state.error} />
+            <Text size={12} weight={700} color={ui.text} style={numeric}>
+              {compact(state.sent)}
+            </Text>
           </Row>
-          <Row style={{ align: "end", gap: 8 }}>
-            <Stat label="enviados" value={compact(state.sent)} />
-            <Stat label={`entregues ${rate}%`} value={compact(state.delivered)} color={ui.green} />
+          <Row style={{ align: "center", gap: 6, height: 18, display: oneRow() ? "none" : "flex" }}>
+            <Meter value={rate / 100} width={84} color={rate >= 95 ? ui.green : rate >= 80 ? ui.orange : ui.danger} />
+            <View style={{ flex: 1, align: "end" }}>
+              <Text size={10} weight={700} color={rate >= 95 ? ui.green : ui.text} style={numeric}>
+                {`${rate}% entregues`}
+              </Text>
+            </View>
           </Row>
         </Column>
       </Tile>
@@ -374,7 +421,7 @@ const plausible = defineWidget({
   name: "Plausible",
   description: "Visitantes nos últimos 7 dias e a variação contra a semana anterior (Stats API v2).",
   category: "productivity",
-  defaultConfig: { apiKey: "", siteId: "", host: "https://plausible.io" },
+  defaultConfig: { apiKey: "", siteId: "", host: "https://plausible.io", period: "7" },
   settings: [
     {
       kind: "text",
@@ -385,23 +432,25 @@ const plausible = defineWidget({
     },
     { kind: "text", key: "siteId", label: "Site (domínio)", placeholder: "exemplo.com" },
     { kind: "text", key: "host", label: "Servidor", description: "Para Plausible auto-hospedado.", placeholder: "https://plausible.io" },
+    periodSetting,
   ],
   setup(ctx) {
     const demoSeries = [410, 455, 390, 520, 610, 580, 640];
-    const state = store({ visitors: 3605, change: 18, series: demoSeries, demo: true, error: "" });
+    const state = store({ visitors: 3605, previous: 3055, change: 18, series: demoSeries, demo: true, error: "" });
     const load = async () => {
       const key = String(ctx.config.apiKey || "").trim();
       const site = String(ctx.config.siteId || "").trim();
       if (!key || !site) {
-        Object.assign(state, { visitors: 3605, change: 18, series: demoSeries, demo: true, error: "" });
+        Object.assign(state, { visitors: 3605, previous: 3055, change: 18, series: demoSeries, demo: true, error: "" });
         return;
       }
       try {
         const host = (String(ctx.config.host || "").trim() || "https://plausible.io").replace(/\/+$/, "");
         const url = `${host}/api/v2/query`;
         const h = { Authorization: `Bearer ${key}` };
-        const week = [ymd(daysAgo(6)), ymd(daysAgo(0))];
-        const before = [ymd(daysAgo(13)), ymd(daysAgo(7))];
+        const n = periodOf(ctx.config.period);
+        const week = [ymd(daysAgo(n - 1)), ymd(daysAgo(0))];
+        const before = [ymd(daysAgo(2 * n - 1)), ymd(daysAgo(n))];
         const [current, previous, daily] = await Promise.all([
           postJson<PlausibleResult>(url, { site_id: site, metrics: ["visitors"], date_range: week }, h, "Plausible"),
           postJson<PlausibleResult>(url, { site_id: site, metrics: ["visitors"], date_range: before }, h, "Plausible"),
@@ -410,8 +459,8 @@ const plausible = defineWidget({
         const visitors = current.results[0]?.metrics[0] ?? 0;
         const prev = previous.results[0]?.metrics[0] ?? 0;
         const byDay = new Map(daily.results.map((r) => [r.dimensions[0]!.slice(0, 10), r.metrics[0] ?? 0]));
-        const series = Array.from({ length: 7 }, (_, i) => byDay.get(ymd(daysAgo(6 - i))) ?? 0);
-        Object.assign(state, { visitors, change: percentChange(visitors, prev), series, demo: false, error: "" });
+        const series = Array.from({ length: n }, (_, i) => byDay.get(ymd(daysAgo(n - 1 - i))) ?? 0);
+        Object.assign(state, { visitors, previous: prev, change: percentChange(visitors, prev), series, demo: false, error: "" });
       } catch (error) {
         state.error = errorText(error);
       }
@@ -428,9 +477,18 @@ const plausible = defineWidget({
       ],
     ];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
+    const n = periodOf(ctx.config.period);
+    const tip = () => [
+      `${state.visitors.toLocaleString("pt-BR")} visitantes únicos nos últimos ${n} dias`,
+      `${changeLine(state.change)} contra os ${n} dias anteriores (${state.previous.toLocaleString("pt-BR")})`,
+      "Gráfico: visitantes por dia",
+      ...sourceLines(state, `Stats API do Plausible${ctx.config.siteId ? `, ${ctx.config.siteId}` : ""}`, "Clique para abrir o painel do Plausible", "informe a chave e o site"),
+    ];
     return (
       <MetricTile
+        tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}
+        preview={preview}
         color="#5850ec"
         letter="P"
         title={String(ctx.config.siteId || "Plausible")}
@@ -459,7 +517,7 @@ const dub = defineWidget({
   name: "Dub",
   description: "Cliques nos seus links nos últimos 7 dias e a variação contra a semana anterior.",
   category: "productivity",
-  defaultConfig: { apiKey: "" },
+  defaultConfig: { apiKey: "", period: "7" },
   settings: [
     {
       kind: "text",
@@ -469,29 +527,31 @@ const dub = defineWidget({
       placeholder: "dub_…",
       secret: true,
     },
+    periodSetting,
   ],
   setup(ctx) {
     const demoSeries = [88, 120, 96, 140, 132, 170, 158];
-    const state = store({ clicks: 904, change: 12, series: demoSeries, demo: true, error: "" });
+    const state = store({ clicks: 904, previous: 807, change: 12, series: demoSeries, demo: true, error: "" });
     const load = async () => {
       const key = String(ctx.config.apiKey || "").trim();
       if (!key) {
-        Object.assign(state, { clicks: 904, change: 12, series: demoSeries, demo: true, error: "" });
+        Object.assign(state, { clicks: 904, previous: 807, change: 12, series: demoSeries, demo: true, error: "" });
         return;
       }
       try {
         const tz = encodeURIComponent(localZone());
         const { body } = await getJson<{ start: string; clicks: number }[]>(
-          `https://api.dub.co/analytics?event=clicks&groupBy=timeseries&interval=30d&timezone=${tz}`,
+          `https://api.dub.co/analytics?event=clicks&groupBy=timeseries&interval=${periodOf(ctx.config.period) > 7 ? "90d" : "30d"}&timezone=${tz}`,
           { Authorization: `Bearer ${key}` },
           "Dub",
         );
         const days = [...body].sort((a, b) => a.start.localeCompare(b.start)).map((d) => d.clicks);
-        const week = days.slice(-7);
-        const prev = days.slice(-14, -7);
+        const n = periodOf(ctx.config.period);
+        const week = days.slice(-n);
+        const prev = days.slice(-2 * n, -n);
         const clicks = week.reduce((a, b) => a + b, 0);
         const before = prev.reduce((a, b) => a + b, 0);
-        Object.assign(state, { clicks, change: percentChange(clicks, before), series: week, demo: false, error: "" });
+        Object.assign(state, { clicks, previous: before, change: percentChange(clicks, before), series: week, demo: false, error: "" });
       } catch (error) {
         state.error = errorText(error);
       }
@@ -508,12 +568,21 @@ const dub = defineWidget({
       ],
     ];
   },
-  View({ state }) {
+  View({ state, ctx, preview }) {
+    const n = periodOf(ctx.config.period);
+    const tip = () => [
+      `${state.clicks.toLocaleString("pt-BR")} cliques nos seus links nos últimos ${n} dias`,
+      `${changeLine(state.change)} contra os ${n} dias anteriores (${state.previous.toLocaleString("pt-BR")})`,
+      "Gráfico: cliques por dia",
+      ...sourceLines(state, "API de analytics do Dub", "Clique para abrir o Dub"),
+    ];
     return (
       <MetricTile
+        tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}
+        preview={preview}
         color="#000"
         letter="D"
-        title="Dub · cliques"
+        title={`Dub · ${n} dias`}
         value={compact(state.clicks)}
         series={state.series}
         change={state.change}

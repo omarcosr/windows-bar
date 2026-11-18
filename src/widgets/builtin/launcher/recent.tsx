@@ -3,6 +3,7 @@ import { showDockMenu, type DockMenuItem } from "../../../menu/dock-menu";
 import { recentItems } from "../../../services/launcher-shortcuts";
 import { launch, openFileLocation } from "../../../services/windows";
 import { ui } from "../../../theme";
+import { HoverTip } from "../../../menu/hover-tip";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Glyph, fluentGlyph, shellMenuIcon } from "./shared";
@@ -46,6 +47,7 @@ export default defineWidget({
     const lines = ui.tile.lines;
     const label = ctx.config.showLabel;
     return (
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => ["Abertos recentemente", ...recentItems(3).map((i) => i.name), "Clique para ver a lista"]} disabled={preview}>
       <Tile padding={{ left: 10, right: label ? 12 : 10 }} gap={8} onClick={preview ? undefined : openList}>
         <Glyph code={fluentGlyph.history} size={18} />
         {label ? (
@@ -61,6 +63,7 @@ export default defineWidget({
           </Column>
         ) : null}
       </Tile>
+      </HoverTip>
     );
   },
 });

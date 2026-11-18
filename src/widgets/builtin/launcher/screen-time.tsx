@@ -1,4 +1,5 @@
 import { Column, Text } from "@tarve/core";
+import { HoverTip } from "../../../menu/hover-tip";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { acquireScreenTime, formatDuration, topApps, usageOf } from "../../../services/launcher-screen-time";
 import { activateApp } from "../../../services/windows";
@@ -38,15 +39,23 @@ export default defineWidget({
       week.length ? week : none("Nada contado na semana"),
     ];
   },
-  View({ preview }) {
+  View({ ctx, preview }) {
     const lines = ui.tile.lines;
     const day = usageOf();
     const hour = new Date().getHours();
     const real = day.hours.slice(0, hour + 1);
     const hours = preview && day.total === 0 ? DEMO_HOURS : real.length >= 2 ? real : [0, ...real];
     const total = preview && day.total === 0 ? 7.6 * 3600 : day.total;
-    const chartHeight = Math.max(16, ui.tile.height - 16);
-    return (
+    const chartHeight = Math.max(14, Math.min(32, ui.tile.height - 14));
+    const tip = () => [
+      `Hoje: ${formatDuration(usageOf().total)} com o PC em uso`,
+      ...topApps(1, 3).map((app) => `${app.name || app.key}: ${formatDuration(app.seconds)}`),
+      "Conta o app em primeiro plano enquanto você usa teclado ou mouse;",
+      "mais de 5 min sem uso, tela bloqueada ou desligada não contam.",
+      "Gráfico: minutos por hora, desde a meia-noite",
+      ];
+      return (
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
       <Tile width={150} padding={{ left: 10, right: 10 }} gap={8}>
         <Column style={{ gap: lines.gap, width: 58 }}>
           <Text size={lines.secondary} color={ui.muted} style={{ lineHeight: lines.lineHeight }}>
@@ -58,6 +67,7 @@ export default defineWidget({
         </Column>
         <Sparkline values={hours} width={64} height={chartHeight} color={ui.blue} />
       </Tile>
+      </HoverTip>
     );
   },
 });

@@ -46,6 +46,10 @@ export const ui = {
   tile: {
     background: "#1c1c1f",
     hover: "#252529",
+    /** Hover on a joined tile (transparent on the shared card): the taskbar button's white wash. */
+    hoverJoined: "rgba(255,255,255,0.06)",
+    /** Side padding of a tile's content; `round` where it starts with a round icon or ring. */
+    inset: { side: 10, round: 8 },
     border: "rgba(255,255,255,0.05)",
     radius: 12,
     /**
@@ -123,6 +127,23 @@ export function darken(color: string, amount = 0.15) {
   const [r, g, b, a] = parts as [number, number, number, number?];
   const c = (v: number) => Math.round(v * k);
   return a === undefined ? `rgb(${c(r)},${c(g)},${c(b)})` : `rgba(${c(r)},${c(g)},${c(b)},${a})`;
+}
+
+/**
+ * The hover fill of a tile with its own colour: a little lighter on a dark colour, a little darker
+ * on a light one, as the taskbar washes its buttons (white over dark, black over light).
+ */
+export function hoverShade(color: string) {
+  // #rgb is #rrggbb with each digit doubled.
+  const full = /^#[0-9a-f]{3}$/i.test(color) ? `#${[...color.slice(1)].map((d) => d + d).join("")}` : color;
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(full);
+  const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
+  const parts = hex ? hex.slice(1).map((h) => parseInt(h, 16)) : rgb ? rgb[1]!.split(",").map((v) => parseFloat(v)) : null;
+  if (!parts) return color;
+  const [r, g, b, a] = parts as [number, number, number, number?];
+  const light = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.6;
+  const mix = (v: number) => Math.round(light ? v * 0.92 : v + (255 - v) * 0.07);
+  return a === undefined ? `rgb(${mix(r)},${mix(g)},${mix(b)})` : `rgba(${mix(r)},${mix(g)},${mix(b)},${Math.min(1, a + 0.06)})`;
 }
 
 export const numeric = { fontVariantNumeric: "tabular-nums" } as const;

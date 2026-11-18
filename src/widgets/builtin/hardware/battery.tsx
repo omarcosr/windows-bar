@@ -3,6 +3,7 @@ import { batteryWatch, system } from "../../../services/system";
 import { onShellEvent } from "../../../native/shell-events";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
+import { hideTip, hoverTip } from "../../../menu/hover-tip";
 import { defineWidget, type WidgetContext } from "../../types";
 import {
   Bolt,
@@ -11,6 +12,7 @@ import {
   battery,
   batteryLabel,
   batteryMenu,
+  batteryTip,
   batteryTone,
   noBattery,
   openBatteryFlyout,
@@ -50,11 +52,16 @@ const base = {
   menu: batteryMenu,
 };
 
+/** "⚡ 100%": the charge, with the bolt beside it (on one line, centred) while plugged in. */
 function Percent(props: { b: BatteryReading; size?: number }) {
+  const size = props.size ?? ui.tile.lines.primary;
   return (
-    <Text size={props.size ?? ui.tile.lines.primary} weight={700} color={ui.text} style={numeric}>
-      {`${props.b.percent}%`}
-    </Text>
+    <Row style={{ align: "center", gap: 2, shrink: 0 }}>
+      {props.b.plugged ? <Bolt size={size - 2} /> : null}
+      <Text size={size} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1 }}>
+        {`${props.b.percent}%`}
+      </Text>
+    </Row>
   );
 }
 
@@ -104,10 +111,10 @@ export const batteryFill = defineWidget({
   name: "Bateria",
   description: "Carga da bateria num ícone que enche, com raio quando está carregando.",
   setup: batterySetup,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const b = battery(preview);
     return (
-      <Tile width={112} padding={{ left: 10, right: 10 }} onClick={openBatteryFlyout}>
+      <Tile onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
         <BatteryShape b={b} width={28} height={15} />
         <Metric label={batteryLabel(b)} value={`${b.percent}%`} />
       </Tile>
@@ -127,10 +134,10 @@ export const batteryRing = defineWidget({
     chargeBlink(ctx, state, "pulse", 700);
     return state;
   },
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const b = battery(preview);
     return (
-      <Tile width={98} padding={{ left: 6, right: 10 }} onClick={openBatteryFlyout}>
+      <Tile lead="round" onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
         <Ring value={b.percent / 100} color={batteryTone(b)}>
           {b.plugged ? (
             <View style={{ opacity: state.pulse ? 1 : 0.45, transition: { opacity: { duration: 600, easing: "easeInOut" } } }}>
@@ -171,7 +178,7 @@ export const batteryLiquid = defineWidget({
   name: "Bateria líquida",
   description: "Um quadrado que se enche de água até a carga, com o número e um raio quando está na tomada.",
   setup: batterySetup,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const b = battery(preview);
     const size = ui.tile.height;
     const c = waterColors(b);
@@ -189,7 +196,11 @@ export const batteryLiquid = defineWidget({
           background: c.air,
           shrink: 0,
           cursor: "pointer",
+          // Its own colours fill the whole tile: the hover only dims it a little.
+          opacity: 1,
+          hover: { opacity: 0.9 },
           active: { transform: "scale(0.96)" },
+          transition: { opacity: { duration: 140, easing: "easeOut" } },
         }}
       >
         <Svg width={size} height={size} viewBox={[0, 0, size, size]}>
@@ -220,13 +231,13 @@ export const batteryCore = defineWidget({
     chargeBlink(ctx, state, "blink", 600);
     return state;
   },
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     const b = battery(preview);
     const lit = Math.round((b.percent / 100) * CELLS);
     const tone = batteryTone(b);
     const h = Math.min(18, ui.tile.height - 16);
     return (
-      <Tile width={128} padding={{ left: 10, right: 10 }} gap={8} onClick={openBatteryFlyout}>
+      <Tile gap={8} onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
         <Row style={{ gap: 2, align: "center" }}>
           {Array.from({ length: CELLS }, (_, i) => {
             const on = i < lit;
@@ -246,10 +257,7 @@ export const batteryCore = defineWidget({
             );
           })}
         </Row>
-        <Column style={{ align: "end", gap: 0, flex: 1 }}>
-          <Percent b={b} />
-          {b.plugged ? <Bolt size={10} /> : null}
-        </Column>
+        <Percent b={b} />
       </Tile>
     );
   },
@@ -266,7 +274,7 @@ export const batteryDots = defineWidget({
   name: "Bateria em pontos",
   description: "Matriz de pontos que se preenche da esquerda para a direita com a carga.",
   setup: batterySetup,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const b = battery(preview);
     const total = DOT_COLS * DOT_ROWS;
     const lit = Math.round((b.percent / 100) * total);
@@ -276,7 +284,7 @@ export const batteryDots = defineWidget({
     const w = DOT_COLS * dot + (DOT_COLS - 1) * gap;
     const h = DOT_ROWS * dot + (DOT_ROWS - 1) * gap;
     return (
-      <Tile width={112} padding={{ left: 10, right: 10 }} onClick={openBatteryFlyout}>
+      <Tile gap={8} onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
         <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
           {Array.from({ length: total }, (_, i) => {
             // Column by column, bottom to top, like a filling tank.
@@ -294,10 +302,7 @@ export const batteryDots = defineWidget({
             );
           })}
         </Svg>
-        <Column style={{ align: "end", gap: 0, flex: 1 }}>
-          <Percent b={b} size={12} />
-          {b.plugged ? <Bolt size={10} /> : null}
-        </Column>
+        <Percent b={b} />
       </Tile>
     );
   },
@@ -311,7 +316,7 @@ export const batteryGauge = defineWidget({
   name: "Medidor de bateria",
   description: "Ponteiro de combustível de E (vazia) a F (cheia).",
   setup: batterySetup,
-  View({ preview }) {
+  View({ ctx, preview }) {
     const b = battery(preview);
     const w = 44;
     const h = Math.min(26, ui.tile.height - 10);
@@ -328,7 +333,7 @@ export const batteryGauge = defineWidget({
     });
     const low = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${(cx + r * Math.cos(Math.PI * 0.8)).toFixed(2)} ${(cy - r * Math.sin(Math.PI * 0.8)).toFixed(2)}`;
     return (
-      <Tile width={112} padding={{ left: 8, right: 10 }} gap={6} onClick={openBatteryFlyout}>
+      <Tile gap={6} onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
         <Text size={9} weight={700} color={ui.danger}>
           E
         </Text>
@@ -344,10 +349,7 @@ export const batteryGauge = defineWidget({
         <Text size={9} weight={700} color={ui.muted}>
           F
         </Text>
-        <Column style={{ align: "end", gap: 0, flex: 1 }}>
-          <Percent b={b} size={12} />
-          {b.plugged ? <Bolt size={10} /> : null}
-        </Column>
+        <Percent b={b} />
       </Tile>
     );
   },

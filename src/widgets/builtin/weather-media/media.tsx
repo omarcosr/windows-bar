@@ -80,7 +80,7 @@ function TrackText(props: { title: string; artist: string; open?: () => void }) 
   );
   if (!props.open) return body;
   return (
-    <Pressable onClick={props.open} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+    <Pressable onClick={props.open} focusable={false} style={{ flex: 1, minWidth: 0, cursor: "pointer", opacity: 1, hover: { opacity: 0.75 }, transition: { opacity: { duration: 120, easing: "easeOut" } } }}>
       {body}
     </Pressable>
   );
@@ -178,7 +178,7 @@ const nowBar = defineWidget({
       <Tile width={250} padding={{ left: 10, right: (ui.tile.height - ui.tile.control) / 2 }} gap={6}>
         <Column style={{ flex: 1, gap: 4, minWidth: 0 }}>
           {open ? (
-            <Pressable onClick={open} style={{ minWidth: 0, cursor: "pointer" }}>
+            <Pressable onClick={open} focusable={false} style={{ minWidth: 0, cursor: "pointer", opacity: 1, hover: { opacity: 0.75 }, transition: { opacity: { duration: 120, easing: "easeOut" } } }}>
               {text}
             </Pressable>
           ) : (

@@ -1,6 +1,7 @@
-import { Path, Svg, Circle, Text, View } from "@tarve/core";
+import { Path, Svg, Circle, Text, View, Column } from "@tarve/core";
 import { systemSound } from "../../../native/productivity-sound";
 import { numeric, ui } from "../../../theme";
+import { formatTime } from "../../../native/locale-format";
 
 export const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -70,3 +71,34 @@ export function flashBackground(state: { flashUntil: number; now: number }, colo
 }
 
 export const minuteOptions = (values: number[]) => values.map((v) => ({ value: String(v), label: `${v} min` }));
+/**
+ * A caption over a value, the two text lines of the productivity tiles. Sized from the tile so both
+ * fit without clipping at every bar height (the 40 px bar's 28 px tile included): the 48 px bar keeps
+ * the 10/15 px pair, a short tile shrinks the value and tightens the lines.
+ */
+export function Stack(props: { label: string; value: string; labelColor?: string; valueColor?: string; valueWeight?: number; valueSize?: number; numericValue?: boolean }) {
+  const short = ui.tile.height < 32;
+  const big = props.valueSize ?? (short ? 13 : ui.tile.height >= 46 ? 16 : 15);
+  const small = short ? 9 : 10;
+  return (
+    <Column style={{ flex: 1, minWidth: 0, gap: 0, justify: "center" }}>
+      <Text size={small} weight={600} color={props.labelColor ?? ui.muted} style={{ lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {props.label}
+      </Text>
+      <Text
+        size={big}
+        weight={props.valueWeight ?? 700}
+        color={props.valueColor ?? ui.text}
+        style={{ ...(props.numericValue === false ? {} : numeric), lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {props.value}
+      </Text>
+    </Column>
+  );
+}
+
+/** The wall clock `ms` from now, in Windows' short time format ("15:42"). */
+export const endsAt = (ms: number) => formatTime(new Date(Date.now() + Math.max(0, ms)));
+
+/** The side of the round buttons inside a productivity tile: 22 px, 26 px on tall bars. */
+export const buttonSize = () => Math.min(ui.tile.height >= 46 ? 26 : 22, ui.tile.height - 6);

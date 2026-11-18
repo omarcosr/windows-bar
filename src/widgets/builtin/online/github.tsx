@@ -5,7 +5,7 @@ import { nextLinkOf, refreshWidget, remoteJson as getJson } from "../../../servi
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
-import { Badge, Stat, Title, compact, errorText, refreshNow, registerRefresh } from "./common";
+import { Badge, Stat, Title, compact, errorText, refreshNow, registerRefresh, sourceLines } from "./common";
 
 const API = "https://api.github.com";
 const headers = (token: string) => ({
@@ -76,10 +76,14 @@ const github = defineWidget({
       ],
     ];
   },
-  View({ state }) {
+  View({ state, ctx, preview }) {
     const l = ui.tile.lines;
+    const tip = () => [
+      `Notificações não lidas: ${state.unread}`,
+      ...sourceLines(state, "API do GitHub (/notifications)", "Clique para abrir as notificações", "informe o token nas configurações"),
+    ];
     return (
-      <Tile width={112} onClick={() => launch("https://github.com/notifications")}>
+      <Tile width={112} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <GithubMark size={18} />
         <Column style={{ flex: 1, gap: l.gap }}>
           <Text size={l.primary} weight={700} color={state.unread ? ui.text : ui.muted} style={numeric}>
@@ -147,9 +151,15 @@ const overview = defineWidget({
       ],
     ];
   },
-  View({ state }) {
+  View({ state, ctx, preview }) {
+    const tip = () => [
+      `${state.login || "GitHub"}: ${state.unread} notificações não lidas`,
+      `${state.prs} pull requests seus abertos`,
+      `${state.stars.toLocaleString("pt-BR")} estrelas somadas nos seus repositórios`,
+      ...sourceLines(state, "API do GitHub", "Clique para abrir as notificações", "informe o token nas configurações"),
+    ];
     return (
-      <Tile width={176} padding={{ left: 10, right: 10 }} onClick={() => launch("https://github.com/notifications")}>
+      <Tile width={176} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <GithubMark size={14} />
@@ -258,7 +268,7 @@ const activity = defineWidget({
       ],
     ];
   },
-  View({ state, ctx }) {
+  View({ state, ctx, preview }) {
     const weeks = Math.max(4, Math.min(26, Number(ctx.config.weeks) || 16));
     const gap = 1;
     const cell = Math.max(3, Math.floor((ui.tile.height - 8 - gap * 6) / 7));
@@ -288,7 +298,20 @@ const activity = defineWidget({
     const streak = currentStreak(days);
     const l = ui.tile.lines;
     return (
-      <Tile padding={{ left: 8, right: 10 }} onClick={() => launch(state.login ? `https://github.com/${state.login}` : "https://github.com")}>
+      <Tile
+        padding={{ left: 8, right: 10 }}
+        onClick={() => launch(state.login ? `https://github.com/${state.login}` : "https://github.com")}
+        tip={{
+          id: `tip:${ctx.instanceId}`,
+          lines: () => [
+            `Sequência atual: ${streak} ${streak === 1 ? "dia seguido" : "dias seguidos"} com contribuições`,
+            `${state.total.toLocaleString("pt-BR")} contribuições nos últimos 12 meses`,
+            `Grade: últimas ${weeks} semanas, cor mais forte = mais contribuições no dia`,
+            ...sourceLines(state, "API do GitHub (contributionsCollection)", "Clique para abrir seu perfil", "informe o token nas configurações"),
+          ],
+        }}
+        preview={preview}
+      >
         <Row style={{ gap }}>{columns}</Row>
         <Column style={{ gap: l.gap }}>
           <Text size={l.primary} weight={700} color={streak ? ui.green : ui.muted} style={numeric}>

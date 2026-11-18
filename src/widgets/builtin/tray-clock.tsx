@@ -3,7 +3,6 @@ import { openNotificationCenter } from "../../native/desktop";
 import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Tile } from "../ui";
-import { HoverTip } from "../../menu/hover-tip";
 import { clockTip } from "../../services/clock-tooltip";
 import { defineWidget } from "../types";
 import { clockShowsSeconds, formatDate, formatTime } from "../../native/locale-format";
@@ -51,20 +50,19 @@ export default defineWidget({
     const time = formatTime(now, { seconds: state.seconds });
     const date = formatDate(now, "short");
     return (
-      <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
-      <Tile padding={{ left: 12, right: 12 }} onClick={openNotificationCenter}>
+      <Tile onClick={openNotificationCenter} preview={preview} tip={{ id: `tip:${ctx.instanceId}`, lines: clockTip }}>
         <Column style={{ align: "end", gap: ui.tile.lines.gap }}>
-          <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
+          <Text size={ui.tile.lines.primary} weight={400} color={ui.text} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
             {time}
           </Text>
           {ctx.config.showDate ? (
-            <Text size={ui.tile.lines.secondary + 1} weight={500} color={ui.muted} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
+            // Windows 11 draws the date as the time: same size, same colour, right-aligned under it.
+            <Text size={ui.tile.lines.primary} weight={400} color={ui.text} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
               {date}
             </Text>
           ) : null}
         </Column>
       </Tile>
-      </HoverTip>
     );
   },
 });

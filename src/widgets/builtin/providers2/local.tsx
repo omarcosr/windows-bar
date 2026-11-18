@@ -7,7 +7,7 @@ import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
 import { Badge } from "../finance/shared";
-import { StatusLine, demo, showsData, tone } from "../ai/shared";
+import { StatusLine, demo, rowGap, short, showsData, tight, tone, whenLabel } from "../ai/shared";
 
 // ---------------------------------------------------------------- Gemini CLI
 
@@ -52,24 +52,31 @@ const geminiWidget = defineWidget({
   },
   hidden: () => gemini.usage.status === "missing",
   menu: () => [[{ label: "Atualizar agora", icon: "download", onSelect: () => void refreshGemini() }]],
-  View({ state, preview }) {
+  View({ state, ctx, preview }) {
     void state.tick;
     const u = preview ? geminiDemo() : gemini.usage;
     const rows = u.models.slice(0, 2);
+    const tip = () => [
+      "Gemini CLI: cota diária por modelo (a mesma do /stats)",
+      ...u.models.map((m) => `${m.model}: ${m.used}% usado${m.resetsAt ? `, renova em ${resetLabel(m.resetsAt)} (${whenLabel(m.resetsAt)})` : ""}`),
+      ...(u.status === "ok" ? [] : [u.note || "Indisponível"]),
+      preview ? "Dados de exemplo" : "Fonte: cota do login Google do Gemini CLI",
+      "Clique para abrir o uso no Google AI Studio",
+    ];
     return (
-      <Tile width={196} padding={{ left: 10, right: 10 }} onClick={() => launch(GEMINI_URL)}>
-        <Column style={{ flex: 1, gap: 3 }}>
+      <Tile width={196} onClick={() => launch(GEMINI_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+        <Column style={{ flex: 1, gap: rowGap(3) }}>
           {u.status === "ok" && rows.length ? (
             rows.map((m) => (
               <Row style={{ align: "center", gap: 6 }}>
-                <Text size={10} weight={600} color={ui.muted} style={{ width: 52 }}>
+                <Text size={10} weight={600} color={ui.muted} style={{ ...tight(), width: 52 }}>
                   {m.model.length > 10 ? `${m.model.slice(0, 9)}…` : m.model}
                 </Text>
                 <Meter value={m.used / 100} width={40} color={tone(m.used)} />
-                <Text size={11} weight={700} color={ui.text} style={{ ...numeric, width: 30, textAlign: "right" }}>
+                <Text size={11} weight={700} color={ui.text} style={{ ...numeric, ...tight(), width: 30, textAlign: "right" }}>
                   {`${m.used}%`}
                 </Text>
-                <Text size={10} color={ui.muted} style={numeric}>
+                <Text size={10} color={ui.muted} style={{ ...numeric, ...tight() }}>
                   {resetLabel(m.resetsAt)}
                 </Text>
               </Row>
@@ -82,7 +89,7 @@ const geminiWidget = defineWidget({
                   {"Gemini CLI"}
                 </Text>
               </Row>
-              {u.status === "ok" ? (
+              {short() ? null : u.status === "ok" ? (
                 <Text size={10} color={ui.muted}>
                   {"sem cota informada"}
                 </Text>
@@ -104,14 +111,14 @@ const geminiWidget = defineWidget({
 function UsageLine(props: { label: string; tokens: number; cost: number }) {
   return (
     <Row style={{ align: "center", gap: 6 }}>
-      <Text size={10} weight={600} color={ui.muted} style={{ width: 22 }}>
+      <Text size={10} weight={600} color={ui.muted} style={{ ...tight(), width: 22 }}>
         {props.label}
       </Text>
-      <Text size={11} weight={700} color={ui.text} style={{ ...numeric, flex: 1 }}>
+      <Text size={11} weight={700} color={ui.text} style={{ ...numeric, ...tight(), flex: 1 }}>
         {tokensLabel(props.tokens)}
       </Text>
-      <Text size={10} color={ui.muted} style={numeric}>
-        {props.cost > 0 ? `US$ ${props.cost.toFixed(2)}` : ""}
+      <Text size={10} color={ui.muted} style={{ ...numeric, ...tight() }}>
+        {props.cost > 0 ? `US$ ${props.cost.toFixed(2).replace(".", ",")}` : ""}
       </Text>
     </Row>
   );
@@ -129,13 +136,24 @@ const opencodePlan = defineWidget({
   },
   hidden: () => aiUsage.opencode.status === "missing",
   menu: () => [[{ label: "Atualizar agora", icon: "download", onSelect: () => void refreshOpencode() }]],
-  View({ preview }) {
+  View({ ctx, preview }) {
     const u = preview ? demo.opencode() : aiUsage.opencode;
     const top = u.top[0];
+    const tip = () => [
+      `OpenCode, últimas 5 h: ${u.tokens5h.toLocaleString("pt-BR")} tokens${u.cost5h > 0 ? ` · US$ ${u.cost5h.toFixed(2)}` : ""}`,
+      `Últimos 7 dias: ${u.tokens7d.toLocaleString("pt-BR")} tokens${u.cost7d > 0 ? ` · US$ ${u.cost7d.toFixed(2)}` : ""} · ${u.messages7d} mensagens`,
+      ...(top ? [`Modelo mais usado: ${top.model} (${top.share}% dos tokens)`] : []),
+      "O custo é o que o OpenCode registrou para cada mensagem",
+      preview ? "Dados de exemplo" : `Fonte: banco local do OpenCode${u.updated ? `, lido ${whenLabel(u.updated)}` : ""}`,
+    ];
     return (
-      <Tile width={214} padding={{ left: 10, right: 10 }} gap={10}>
+      <Tile width={short() ? 176 : 214} gap={10} lead={short() ? "round" : undefined} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+        {/* Badge and model are 30 px tall: on a 28 px tile the model is in the tip. */}
+        {short() ? (
+          <Badge color="#3b3b40" letter="O" />
+        ) : (
         <Column style={{ align: "center", gap: 3, width: 58 }}>
-          <Badge color="#3b3b40" letter="▣" />
+          <Badge color="#3b3b40" letter="O" />
           <Text size={9} color={ui.muted} style={{ textAlign: "center" }}>
             {top ? `${top.model.length > 11 ? `${top.model.slice(0, 10)}…` : top.model}` : "OpenCode"}
           </Text>
@@ -146,8 +164,9 @@ const opencodePlan = defineWidget({
             </Text>
           ) : null}
         </Column>
+        )}
         {showsData(u) ? (
-          <Column style={{ flex: 1, gap: 4 }}>
+          <Column style={{ flex: 1, gap: rowGap(4) }}>
             <UsageLine label="5h" tokens={u.tokens5h} cost={u.cost5h} />
             <UsageLine label="sem" tokens={u.tokens7d} cost={u.cost7d} />
           </Column>
