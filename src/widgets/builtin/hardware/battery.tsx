@@ -2,7 +2,7 @@ import { Circle, Column, Line, Path, Pressable, Row, Svg, Text, View, store } fr
 import { batteryWatch, system } from "../../../services/system";
 import { onShellEvent } from "../../../native/shell-events";
 import { numeric, ui } from "../../../theme";
-import { Tile } from "../../ui";
+import { Tile, compactView } from "../../ui";
 import { hideTip, hoverTip } from "../../../menu/hover-tip";
 import { defineWidget, type WidgetContext } from "../../types";
 import {
@@ -236,18 +236,21 @@ export const batteryCore = defineWidget({
     const lit = Math.round((b.percent / 100) * CELLS);
     const tone = batteryTone(b);
     const h = Math.min(18, ui.tile.height - 16);
+    // Compact (side-edge column): the cells lie flat and stack, filling from the bottom.
+    const compact = compactView(preview);
     return (
       <Tile gap={8} onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
-        <Row style={{ gap: 2, align: "center" }}>
-          {Array.from({ length: CELLS }, (_, i) => {
+        <View style={{ direction: compact ? "column" : "row", gap: compact ? 1 : 2, align: "center" }}>
+          {Array.from({ length: CELLS }, (_, k) => {
+            const i = compact ? CELLS - 1 - k : k;
             const on = i < lit;
             const charging = b.plugged && i === lit && lit < CELLS;
             return (
               <View
                 key={i}
                 style={{
-                  width: 4,
-                  height: h,
+                  width: compact ? 18 : 4,
+                  height: compact ? 2 : h,
                   radius: 1.5,
                   background: on ? tone : charging && state.blink ? tone : ui.track,
                   opacity: charging && state.blink ? 0.6 : 1,
@@ -256,7 +259,7 @@ export const batteryCore = defineWidget({
               />
             );
           })}
-        </Row>
+        </View>
         <Percent b={b} />
       </Tile>
     );
@@ -332,20 +335,24 @@ export const batteryGauge = defineWidget({
       return { x1: cx + r * Math.cos(a), y1: cy - r * Math.sin(a), x2: cx + (r - 4) * Math.cos(a), y2: cy - (r - 4) * Math.sin(a), t };
     });
     const low = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${(cx + r * Math.cos(Math.PI * 0.8)).toFixed(2)} ${(cy - r * Math.sin(Math.PI * 0.8)).toFixed(2)}`;
+    const gauge = (
+      <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
+        <Path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke={ui.track} stroke-width={3} stroke-linecap="round" />
+        <Path d={low} fill="none" stroke={ui.danger} stroke-width={3} stroke-linecap="round" stroke-opacity={0.8} />
+        {ticks.map((t) => (
+          <Line key={t.t} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={ui.muted} stroke-width={1} />
+        ))}
+        <Line x1={cx} y1={cy} x2={nx} y2={ny} stroke={batteryTone(b)} stroke-width={2} stroke-linecap="round" />
+        <Circle cx={cx} cy={cy} r={2.5} fill={ui.text} stroke="none" />
+      </Svg>
+    );
     return (
-      <Tile gap={6} onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
+      // Minimal (side-edge column): the gauge alone.
+      <Tile icon={gauge} value={`${Math.round(b.percent)}%`} gap={6} onClick={openBatteryFlyout} preview={preview} tip={batteryTip(`tip:${ctx.instanceId}`, preview)}>
         <Text size={9} weight={700} color={ui.danger}>
           E
         </Text>
-        <Svg width={w} height={h} viewBox={[0, 0, w, h]}>
-          <Path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke={ui.track} stroke-width={3} stroke-linecap="round" />
-          <Path d={low} fill="none" stroke={ui.danger} stroke-width={3} stroke-linecap="round" stroke-opacity={0.8} />
-          {ticks.map((t) => (
-            <Line key={t.t} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={ui.muted} stroke-width={1} />
-          ))}
-          <Line x1={cx} y1={cy} x2={nx} y2={ny} stroke={batteryTone(b)} stroke-width={2} stroke-linecap="round" />
-          <Circle cx={cx} cy={cy} r={2.5} fill={ui.text} stroke="none" />
-        </Svg>
+        {gauge}
         <Text size={9} weight={700} color={ui.muted}>
           F
         </Text>

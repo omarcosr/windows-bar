@@ -5,7 +5,7 @@ import { exePathOf, foregroundWindow, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { devicePx, ui } from "../../theme";
 import { taskbarPrefs } from "../../services/taskbar-prefs";
-import { HitReach, WindowsLogo, iconHover } from "../ui";
+import { HitReach, WindowsLogo, axisBox, iconHover } from "../ui";
 import { defineWidget } from "../types";
 import { dockIndex, dockMetrics, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
@@ -155,8 +155,7 @@ export default defineWidget({
         onContextMenu={showStartMenu}
         style={{
           position: "relative",
-          width: ui.app.slot,
-          height: ui.tile.height,
+          ...axisBox(ui.app.slot, ui.tile.height),
           radius: 10,
           align: "center",
           justify: "center",

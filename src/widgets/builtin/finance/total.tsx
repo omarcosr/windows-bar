@@ -19,6 +19,7 @@ import {
 } from "../../../services/finance-providers";
 import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget, type WidgetSetting } from "../../types";
 import {
   Badge,
@@ -221,6 +222,8 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
     };
     return (
       <Tile
+        icon={<FluentGlyph code={0xe8c7} size={ui.app.icon - 4} color={ui.green} />}
+        value={money(goal ? mtd : periodSum(state.daily, asPeriod(c.period)), currency, "compact")}
         width={oneRow() ? 196 : 210}
         lead={oneRow() ? undefined : "round"}
         onClick={preview ? undefined : chartClick("panel", undefined, () => totalSource(ctx))}

@@ -1,10 +1,10 @@
 import { Column, Row, Text, View } from "@tarve/core";
 import { HoverTip } from "../../../menu/hover-tip";
 import { openNotificationCenter } from "../../../native/desktop";
-import { formatDate } from "../../../native/locale-format";
+import { formatDate, formatDayMonth } from "../../../native/locale-format";
 import { clockTip } from "../../../services/clock-tooltip";
 import { numeric, ui } from "../../../theme";
-import { Tile } from "../../ui";
+import { Tile, compactView } from "../../ui";
 import { defineWidget } from "../../types";
 import { Colon, SegmentDigit, clockMenu, clockParts, clockState, hourFormatSetting, monthName, timeText, weekdayName, type HourFormat } from "./shared";
 
@@ -53,17 +53,19 @@ export const clock = defineWidget({
   menu: clockMenu,
   View({ state, ctx, preview }) {
     const now = state.now;
-    const big = Math.round(ui.tile.height * (ctx.config.showDate ? 0.4 : 0.5));
+    // Compact (side-edge column): the time over day and month, as Windows' vertical taskbar clock.
+    const compact = compactView(preview);
+    const big = compact ? ui.tile.lines.primary : Math.round(ui.tile.height * (ctx.config.showDate ? 0.4 : 0.5));
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
         <Tile padding={{ left: 12, right: 12 }} onClick={openNotificationCenter}>
           <Column style={{ align: "center", gap: 0 }}>
             <Text size={big} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.05 }}>
-              {timeText(now, ctx.config.hourFormat as HourFormat, { seconds: ctx.config.showSeconds })}
+              {timeText(now, ctx.config.hourFormat as HourFormat, { seconds: ctx.config.showSeconds && !compact })}
             </Text>
             {ctx.config.showDate ? (
               <Text size={ui.tile.lines.secondary - 1} weight={500} color={ui.muted} style={{ ...numeric, lineHeight: 1.1 }}>
-                {dateText(now, String(ctx.config.dateStyle))}
+                {compact ? formatDayMonth(now) : dateText(now, String(ctx.config.dateStyle))}
               </Text>
             ) : null}
           </Column>
@@ -102,16 +104,23 @@ export const flip = defineWidget({
   View({ state, ctx, preview }) {
     const p = clockParts(state.now, ctx.config.hourFormat as HourFormat);
     const h = Math.round(ui.tile.height - 12);
-    const pair = (s: string) => (
+    const pair = (s: string, size = h) => (
       <Row style={{ gap: 2 }}>
         {s.padStart(2, " ").split("").map((c) => (
-          <Flap text={c} h={h} />
+          <Flap text={c} h={size} />
         ))}
       </Row>
     );
+    // Minimal (side-edge column): the hours over the minutes.
+    const stacked = (
+      <Column style={{ gap: 2, align: "center" }}>
+        {pair(p.hh, 16)}
+        {pair(p.mm, 16)}
+      </Column>
+    );
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
-        <Tile padding={{ left: 6, right: 6 }} gap={4} onClick={openNotificationCenter}>
+        <Tile icon={stacked} padding={{ left: 6, right: 6 }} gap={4} onClick={openNotificationCenter}>
           {pair(p.hh)}
           <Colon h={h} color={ui.muted} />
           {pair(p.mm)}
@@ -161,10 +170,17 @@ export const segment = defineWidget({
     const p = clockParts(now, ctx.config.hourFormat as HourFormat);
     const color = segmentColors[ctx.config.color as keyof typeof segmentColors] ?? ui.green;
     const h = Math.round(ui.tile.height * 0.56);
-    const digits = (s: string) => s.padStart(2, " ").split("").map((c) => <SegmentDigit digit={c} h={h} color={color} />);
+    const digits = (s: string, size = h) => s.padStart(2, " ").split("").map((c) => <SegmentDigit digit={c} h={size} color={color} />);
+    // Minimal (side-edge column): the hours over the minutes.
+    const stacked = (
+      <Column style={{ gap: 3, align: "center" }}>
+        <Row style={{ gap: 2 }}>{digits(p.hh, 15)}</Row>
+        <Row style={{ gap: 2 }}>{digits(p.mm, 15)}</Row>
+      </Column>
+    );
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
-        <Tile padding={{ left: 10, right: 10 }} gap={8} background="#0a0a0c" onClick={openNotificationCenter}>
+        <Tile icon={stacked} padding={{ left: 10, right: 10 }} gap={8} background="#0a0a0c" onClick={openNotificationCenter}>
           <Row style={{ gap: 3, align: "center" }}>
             {digits(p.hh)}
             <Colon h={h} color={color} on={!ctx.config.showSeconds || now.getSeconds() % 2 === 0} />

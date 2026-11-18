@@ -6,7 +6,7 @@ import { formatDate } from "../../../native/locale-format";
 import { clockTip } from "../../../services/clock-tooltip";
 import { weather, weatherLabel, weatherPoller } from "../../../services/weather";
 import { numeric, ui } from "../../../theme";
-import { Tile } from "../../ui";
+import { DayMark, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Caption, clockMenu, clockState, hourFormatSetting, monthName, timeText, weekdayName, type HourFormat } from "./shared";
 
@@ -38,7 +38,7 @@ export const date = defineWidget({
     const d = longDate(state.now);
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
-        <Tile padding={{ left: 12, right: 12 }} onClick={openNotificationCenter}>
+        <Tile icon={<DayMark now={state.now} />} padding={{ left: 12, right: 12 }} onClick={openNotificationCenter}>
           <Column style={{ gap: 0 }}>
             <Text size={ui.tile.lines.primary + 3} weight={700} color={ui.text} style={{ lineHeight: 1.1 }}>
               {d.head}
@@ -74,7 +74,7 @@ export const dayNumber = defineWidget({
     const weekday = ctx.config.showWeekday && h >= 34;
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={clockTip} disabled={preview}>
-        <Tile width={Math.round(h * 0.95)} padding={0} gap={0} background="#f5f5f7" onClick={openNotificationCenter} style={{ direction: "column", align: "stretch" }}>
+        <Tile icon={<DayMark now={now} />} width={Math.round(h * 0.95)} padding={0} gap={0} background="#f5f5f7" onClick={openNotificationCenter} style={{ direction: "column", align: "stretch" }}>
           <Row style={{ height: band, background: ui.red, align: "center", justify: "center" }}>
             <Text size={Math.max(7, Math.min(13, Math.round(band * 0.62)))} weight={700} color="#fff" style={{ lineHeight: 1 }}>
               {monthName(now).toUpperCase()}
@@ -114,7 +114,7 @@ export const today = defineWidget({
     const tip = () => [...clockTip(), weather.ready ? `${weather.city ? `${weather.city}: ` : ""}${weather.temperature}° · ${weatherLabel(weather.code)}` : ""];
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
-        <Tile padding={{ left: 12, right: 12 }} gap={12} onClick={openNotificationCenter}>
+        <Tile icon={<DayMark now={now} />} padding={{ left: 12, right: 12 }} gap={12} onClick={openNotificationCenter}>
           <Column style={{ gap: 0 }}>
             <Text size={ui.tile.lines.primary} weight={700} color={ui.text} style={{ lineHeight: 1.15 }}>
               {weekdayName(now, true)}

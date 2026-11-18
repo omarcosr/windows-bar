@@ -2,7 +2,10 @@ import { Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/cor
 import { config, type WidgetInstance } from "../config";
 import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
-import { dockAlign } from "../services/taskbar-prefs";
+import { COMPACT_PAD } from "../widgets/ui";
+import { setFullForm } from "../widgets/form";
+import { hidePeek, peekWidget } from "../menu/widget-peek";
+import { dockAlign, dockEdge, dockVertical } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
 import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./state";
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
@@ -22,7 +25,8 @@ const SWEEP_MS = 380;
 
 function followColor(color: string | null) {
   if (color === sweep.next) return;
-  if (!color || !sweep.next || !config.colorTransition) {
+  // The wipe runs down from the top edge of a bottom strip; on the other edges the colour switches at once.
+  if (!color || !sweep.next || !config.colorTransition || dockEdge() !== "bottom") {
     // From or to no colour: nothing to wipe over, switch at once.
     Object.assign(sweep, { base: color, next: color, n: sweep.n + 1 });
     return;
@@ -139,11 +143,22 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
   // cover over each widget makes the whole of it draggable.
   const side = dropSide(instance.id);
   const drag = widgetDragProps(instance.id);
+  // On a side edge a minimal widget shows in full beside the dock while the pointer rests on it.
+  // Not where the widget opens its own flyout on hover (now playing).
+  const peeks =
+    dockVertical() && !props.editing && !inDockGroup(instance.id) && widget.definition.sideForm !== "full" && instance.config.hoverFlyout !== true;
+  const peekProps = peeks
+    ? { onPointerMove: () => peekWidget(instance.id, true), onPointerLeave: () => peekWidget(instance.id, false) }
+    : {};
   return (
     <Pressable
       {...(props.editing ? {} : drag)}
-      onContextMenu={() => openWidgetMenu(widget)}
-      onSize={({ borderBox }) => noteSlotWidth(instance.id, borderBox.width)}
+      {...peekProps}
+      onContextMenu={() => {
+        hidePeek();
+        openWidgetMenu(widget);
+      }}
+      onSize={({ borderBox }) => noteSlotWidth(instance.id, dockVertical() ? borderBox.height : borderBox.width)}
       style={{
         position: "relative",
         shrink: 0,
@@ -172,7 +187,11 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
         />
       ) : null}
       {side ? (
-        <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [side]: -5, zIndex: 20 }} />
+        dockVertical() ? (
+            <View style={{ position: "absolute", left: 6, right: 6, height: 3, radius: 2, background: ui.blue, [side === "left" ? "top" : "bottom"]: -5, zIndex: 20 }} />
+        ) : (
+          <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [side]: -5, zIndex: 20 }} />
+        )
       ) : null}
       {props.editing ? <RemoveBadge onClick={() => removeWidget(instance.id)} /> : null}
       {props.editing && widget.definition.settings?.length ? <SettingsBadge onClick={() => openWidgetSettings(instance.id)} /> : null}
@@ -196,13 +215,25 @@ function reportSize() {
   const count = dockCount();
   const m = dockMetrics();
   const reserve = reserving ? maxExtra(count, m) : 0;
+  // Along the dock: its width in a row, its height down a side-edge column.
+  if (dockVertical()) {
+    const base = measured.height - (reserving ? currentExtra("dock", count, m.slot) : 0);
+    report(measured.width, base + reserve);
+    return;
+  }
   const base = measured.width - (reserving ? currentExtra("dock", count, m.slot) : 0);
   report(base + reserve, measured.height);
 }
 
 export function DockView(props: { onSize: (width: number, height: number) => void; onContextMenu: () => void }) {
+  // The dock draws its widgets in their dock form (see widgets/form.ts).
+  setFullForm(false);
   const editing = dockUi.editing;
   const full = config.mode === "full";
+  // The edge Windows' taskbar is set to: a row at the top or bottom, a column on the left or right.
+  const edge = dockEdge();
+  const vertical = edge === "left" || edge === "right";
+  const dir = vertical ? ("column" as const) : ("row" as const);
   // With reserveSpace the window is an AppBar spanning the whole strip. A floating dock then
   // sits inside it with its margins, over a strip painted in the colour of the app in front
   // (stripFollowsApp), so the app seems to continue under the dock.
@@ -234,23 +265,31 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   const run = (list: WidgetInstance[]) => {
     if (!config.joinWidgets || list.length === 0) return list.map(slot);
     return [
-      <Row
+      <View
         key={`join-${list[0]!.id}`}
-        style={{ align: "center", gap: 0, shrink: 0, radius: ui.tile.radius, background: ui.tile.background }}
+        style={{ direction: dir, align: "center", gap: 0, shrink: 0, radius: ui.tile.radius, background: ui.tile.background }}
       >
         {list.flatMap((w, i) =>
           i === 0
             ? [slot(w)]
             : [
-                <View key={`div-${w.id}`} style={{ width: 1, height: Math.round(ui.tile.height * 0.5), shrink: 0, background: "rgba(255,255,255,0.1)" }} />,
+                <View
+                    key={`div-${w.id}`}
+                    style={{
+                      width: vertical ? Math.round(ui.tile.height * 0.5) : 1,
+                      height: vertical ? 1 : Math.round(ui.tile.height * 0.5),
+                    shrink: 0,
+                    background: "rgba(255,255,255,0.1)",
+                  }}
+                />,
                 slot(w),
               ],
         )}
-      </Row>,
+      </View>,
     ];
   };
   const side = (list: WidgetInstance[], justify: "start" | "end") => (
-    <Row style={{ flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{run(list)}</Row>
+    <View style={{ direction: dir, flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{run(list)}</View>
   );
   // Start and the app icons share one row with no gap, so their 44 px slots space evenly.
   // macOS magnification follows the pointer over the whole group. A centred group grows on both
@@ -280,9 +319,9 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
     if (slots !== dockRoom.appSlots) queueMicrotask(() => (dockRoom.appSlots = slots));
   }
   const groupRow = group.length ? (
-    <Row key="group" {...magnify} style={{ align: "center", gap: 0, shrink: 0 }}>
+    <View key="group" {...magnify} style={{ direction: dir, align: "center", gap: 0, shrink: 0 }}>
       {group.map(slot)}
-    </Row>
+    </View>
   ) : null;
   const content = !full
     ? [...(left ? [groupRow] : []), ...run(before), ...(left ? [] : [groupRow]), ...run(after)]
@@ -305,7 +344,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       activation="normal"
       level="alwaysOnTop"
       backdrop="transparent"
-      position="bottom"
+      position={edge}
       theme={darkTheme}
     >
       {/* The whole window answers a right-click with the bar menu: the strip around a floating
@@ -316,30 +355,33 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
           // Invisible while the dock starts (sizes, place and icons still settling), then one
           // native fade and rise, run by the renderer: no intermediate frame is seen.
           opacity: dockUi.shown ? 1 : 0,
-          transform: dockUi.shown ? "translateY(0px)" : "translateY(12px)",
+          // Rises in from the screen edge it sits on.
+          transform: dockUi.shown
+            ? vertical ? "translateX(0px)" : "translateY(0px)"
+            : { bottom: "translateY(12px)", top: "translateY(-12px)", left: "translateX(-12px)", right: "translateX(12px)" }[edge],
           transition: { opacity: { duration: 180, easing: "easeOut" }, transform: { duration: 260, easing: "easeOut" } },
           ...(inStrip
             ? {
                 // Only right-click does something here: no hand cursor.
                 cursor: "default",
                 flex: 1,
-                direction: "row",
+                direction: dir,
                 align: "center",
                 justify: left ? "start" : "center",
-                // The window reaches 2 px over the app above (stripOverlap); the dock stays put.
+                // At the bottom the window reaches 2 px over the app above (stripOverlap); the dock stays put.
                 padding: {
                   left: stripMargin,
                   right: stripMargin,
                   bottom: stripMargin,
-                  top: stripMargin + (strip ? 2 : 0),
+                  top: stripMargin + (strip && edge === "bottom" ? 2 : 0),
                 },
                 background: strip ? (sweep.base ?? "rgba(0,0,0,0)") : undefined,
                 overflow: "hidden",
               }
-            : { flex: 1, align: "start", justify: reserving && !left ? "center" : "start", direction: "row", cursor: "default" }),
+            : { flex: 1, align: "start", justify: reserving && !left ? "center" : "start", direction: dir, cursor: "default" }),
         }}
       >
-        {strip ? <Sweep height={stripHeight} /> : null}
+        {strip && edge === "bottom" ? <Sweep height={stripHeight} /> : null}
         {/* A free dock's window hugs this box; the edit-mode room for the remove badges is its padding. */}
         <View
           onSize={({ borderBox }) => {
@@ -348,7 +390,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
             reportSize();
           }}
           style={{
-            ...(full ? { flex: 1 } : { shrink: 0 }),
+            ...(full ? { flex: 1, ...(vertical ? { width: "100%" } : {}) } : { shrink: 0 }),
             padding: {
               top: editing && !docked ? 9 : 0,
               left: editing && !full && !docked ? 9 : 0,
@@ -360,41 +402,49 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
             onContextMenu={props.onContextMenu}
             style={{
               cursor: "default",
-              direction: "row",
+              direction: dir,
               align: "center",
-              height: ui.dock.height,
+              // The bar's thickness across its edge: its height, or its width on a side edge.
+              ...(vertical ? { width: ui.dock.height, height: full ? "100%" : undefined } : { height: ui.dock.height, width: full ? "100%" : undefined }),
+              ...(full && vertical ? { flex: 1 } : {}),
               gap: 0,
               padding: 0,
               radius: full ? 0 : ui.dock.radius,
               background: dockBackground(config.opacity),
               boxSizing: "border-box",
-              width: full ? "100%" : undefined,
               shrink: 0,
             }}
           >
-            <Row style={{
+            <View style={{
               ...(full ? { flex: 1, basis: 0 } : { shrink: 0 }),
+              direction: dir,
               align: "center",
               gap: ui.dock.gap,
-              padding: full ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding } : ui.dock.padding,
+              // A side-edge column keeps 3 px across (COMPACT_PAD) so its compact tiles get the room.
+              padding: vertical
+                ? { top: full ? 8 : ui.dock.padding, bottom: full ? 8 : ui.dock.padding, left: COMPACT_PAD, right: COMPACT_PAD }
+                : full
+                  ? { left: 8, right: 8, top: ui.dock.padding, bottom: ui.dock.padding }
+                  : ui.dock.padding,
             }}>
               {content}
-            </Row>
+            </View>
             {config.showDesktop && !editing ? (
               <Pressable
                 aria-label="Mostrar área de trabalho"
                 onClick={() => { toggleDesktop(); }}
                 onContextMenu={props.onContextMenu}
                 style={{
-                  width: 8,
-                  height: ui.dock.height,
+                  width: vertical ? ui.dock.height : 8,
+                  height: vertical ? 8 : ui.dock.height,
                   shrink: 0,
                   justify: "center",
+                  align: "center",
                   cursor: "default",
                   hover: { background: ui.tile.hover },
                 }}
               >
-                <View style={{ width: 1, height: 16, background: ui.text, opacity: 0.2 }} />
+                <View style={{ width: vertical ? 16 : 1, height: vertical ? 1 : 16, background: ui.text, opacity: 0.2 }} />
               </Pressable>
             ) : null}
           </Pressable>

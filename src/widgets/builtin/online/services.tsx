@@ -4,6 +4,7 @@ import { graphql, postJson } from "../../../services/online-http";
 import { refreshWidget, remoteJson as getJson } from "../../../services/remote";
 import { numeric, ui } from "../../../theme";
 import { Meter, Sparkline, Tile } from "../../ui";
+import { BrandIcon, type BrandName } from "../../brand-icons";
 import { oneRow } from "../finance/shared";
 import { defineWidget } from "../../types";
 import type { DockMenuItem } from "../../../menu/dock-menu";
@@ -46,6 +47,8 @@ const periodOf = (value: unknown) => (String(value) === "30" ? 30 : 7);
 function MetricTile(props: {
   color: string;
   letter: string;
+  /** The tool's own mark for the minimal tile (brand-icons.tsx); the letter badge otherwise. */
+  logo?: BrandName;
   fg?: string;
   title: string;
   value: string;
@@ -59,7 +62,7 @@ function MetricTile(props: {
   preview: boolean;
 }) {
   return (
-    <Tile width={176} onClick={props.onClick} tip={props.tip} preview={props.preview}>
+    <Tile icon={props.logo ? <BrandIcon brand={props.logo} /> : <Badge color={props.color} letter={props.letter} fg={props.fg} size={ui.app.icon} />} value={props.value} width={176} onClick={props.onClick} tip={props.tip} preview={props.preview}>
       <Column style={{ flex: 1, gap: 2 }}>
         <Row style={{ align: "center", gap: 6 }}>
           <Badge color={props.color} letter={props.letter} fg={props.fg} size={14} />
@@ -161,7 +164,7 @@ const linear = defineWidget({
       ...sourceLines(state, "API do Linear (GraphQL)", "Clique para abrir o Linear; as issues ficam no botão direito"),
     ];
     return (
-      <Tile width={150} onClick={() => launch("https://linear.app")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="linear" />} value={String(state.issues.length)} width={150} onClick={() => launch("https://linear.app")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#5e6ad2" letter="L" size={14} />
@@ -283,6 +286,7 @@ const supabase = defineWidget({
       <MetricTile
         color="#1c1c1c"
         letter="S"
+        logo="supabase"
         fg="#3ecf8e"
         title={ok ? "Supabase" : `${state.services - state.healthy} com falha`}
         value={compact(state.requests)}
@@ -387,7 +391,7 @@ const resend = defineWidget({
       ...sourceLines(state, "API do Resend (lista de e-mails)", "Clique para abrir os e-mails no Resend"),
     ];
     return (
-      <Tile width={176} onClick={() => launch("https://resend.com/emails")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="resend" />} value={compact(state.sent)} width={176} onClick={() => launch("https://resend.com/emails")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 2 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#000" letter="R" size={14} />
@@ -491,6 +495,7 @@ const plausible = defineWidget({
         preview={preview}
         color="#5850ec"
         letter="P"
+        logo="plausibleanalytics"
         title={String(ctx.config.siteId || "Plausible")}
         value={compact(state.visitors)}
         series={state.series}

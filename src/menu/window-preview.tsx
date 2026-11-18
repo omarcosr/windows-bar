@@ -320,10 +320,8 @@ function layout() {
   const height = Math.ceil(
     (list ? (BORDER + PAD) * 2 + windows.length * ROW_H + 2 * (windows.length - 1) : CARD_H + (BORDER + PAD) * 2) * scale,
   );
-  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
   // Centred on the app's icon (anchorX, see centerOf), as the taskbar does, wherever on the icon the pointer was.
-  const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
-  const y = Math.max(area.y + gap, top - gap - height);
+  const { x, y } = DockWindow.placePopup(width, height, gap, area, anchorX, 80);
   const bounds = `${x},${y},${width},${height}`;
   if (bounds !== placed) {
     placed = bounds;
@@ -371,7 +369,7 @@ function checkPointer() {
  * the preview: it opens at the pointer and moves over the icon when the answer comes.
  */
 function centerOf(key: string, fresh = false): Promise<number | null> {
-  if (fresh || center?.key !== key) center = { key, at: DockWindow.nodeCenterXAsync("app:" + key).catch(() => null) };
+  if (fresh || center?.key !== key) center = { key, at: DockWindow.nodeCenterAsync("app:" + key).catch(() => null) };
   const at = center.at;
   return Promise.race([at, new Promise<null>((resolve) => setTimeout(() => resolve(null), 80))]).then((x) => {
     if (x === null)
@@ -412,6 +410,8 @@ export async function initWindowPreview(app: AppHandle) {
     // its own icon leaves it to clickApp, which closes it when that click arrives.
     if (focused || !pinned || (peeking && pointerInsidePreview())) return;
     if (change.to === "main" && DockWindow.pressedOn("app:" + preview.key, change.pointerTarget)) return;
+    // No target reported: the pointer on the app's icon is the same press.
+    if (!change.to && DockWindow.pointerOn("app:" + preview.key)) return;
     hidePreview(true);
   });
 }
@@ -427,7 +427,7 @@ async function showFor(key: string, still: () => boolean) {
     scale = screen.scale || 1;
     area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
   }
-  anchorX = iconX ?? cursor.x;
+  anchorX = iconX ?? DockWindow.along(cursor, area);
   if (preview.key !== key) clearThumbs();
   preview.key = key;
   // This app's cards render now, before the window moves and shows: no frame of the previous

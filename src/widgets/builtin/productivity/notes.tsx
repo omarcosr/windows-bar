@@ -2,6 +2,7 @@ import { HoverTip } from "../../../menu/hover-tip";
 import { Stack } from "./shared";
 import { ui } from "../../../theme";
 import { Tile } from "../../ui";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { openWidgetSettings } from "../../../dock/widget-menu";
 import type { DockMenuItem } from "../../../menu/dock-menu";
@@ -51,7 +52,7 @@ export default defineWidget<Config, object>({
     const count = demo ? 3 : notes.length;
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={() => (notes.length ? [...notes.slice(-5).reverse(), "Clique para editar"] : ["Clique para escrever uma nota"])} disabled={preview}>
-        <Tile width={168} background="#2a2614" onClick={preview ? undefined : () => openWidgetSettings(ctx.instanceId)}>
+        <Tile icon={<FluentGlyph code={0xe70b} size={ui.app.icon - 4} color={"#ffd60a"} />} value={count ? String(count) : undefined} width={168} background="#2a2614" onClick={preview ? undefined : () => openWidgetSettings(ctx.instanceId)}>
           <Stack label={count > 1 ? `Nota · ${count}` : "Nota"} labelColor="#c9b458" value={last ?? "Clique para escrever"} valueColor={last ? ui.text : ui.muted} valueWeight={600} valueSize={ui.tile.height < 32 ? 11 : ui.tile.height >= 46 ? 13 : 12} numericValue={false} />
           </Tile>
         </HoverTip>

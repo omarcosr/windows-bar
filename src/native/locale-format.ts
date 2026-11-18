@@ -42,6 +42,15 @@ export function formatDate(d: Date, style: "short" | "long" = "short"): string {
   return text(kernel32.symbols.GetDateFormatEx(null, flags, systemTime(d), null, new Uint8Array(out.buffer), out.length, null));
 }
 
+
+/**
+ * The short date without its year ("19/11"), in Windows' own order and separator: what its
+ * vertical taskbar's clock shows under the time.
+ */
+export function formatDayMonth(d: Date): string {
+  return formatDate(d, "short").replace(/^\d{4}[./-]|[./-]\d{2,4}$/, "");
+}
+
 /** A date picture in the user's language, e.g. "ddd" for the abbreviated weekday. */
 export function formatDatePicture(d: Date, picture: string): string {
   return text(kernel32.symbols.GetDateFormatEx(null, 0, systemTime(d), encodeWide(picture), new Uint8Array(out.buffer), out.length, null));

@@ -4,6 +4,7 @@ import type { DockMenuItem } from "../../../menu/dock-menu";
 import { acquireScreenTime, formatDuration, kindInfo, kindOf, usageOf, type AppKind, type DayUsage } from "../../../services/launcher-screen-time";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 
 /** The day in 20-minute cells, each colored by the kind of app used most in it. */
@@ -89,7 +90,7 @@ export default defineWidget({
       ];
       return (
         <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
-        <Tile width={BAR_WIDTH + 20} padding={{ left: 10, right: 10 }}>
+        <Tile icon={<FluentGlyph code={0xe787} size={ui.app.icon - 4} color={ui.text} />} value={formatDuration(day.total)} width={BAR_WIDTH + 20} padding={{ left: 10, right: 10 }}>
         <Column style={{ gap: scale ? Math.max(4, lines.gap + 3) : ui.tile.height < 32 ? 3 : 5, flex: 1, justify: "center" }}>
           <Row style={{ align: "center" }}>
             <Text size={lines.secondary} color={ui.muted} style={{ flex: 1, lineHeight: 1.2 }}>

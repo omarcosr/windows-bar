@@ -3,6 +3,7 @@ import { dockUi, widgetDrag } from "../dock/state";
 import { DockWindow } from "../native/dock-window";
 import { menuOpen } from "./dock-menu";
 import { previewOpen } from "./window-preview";
+import { dockVertical } from "../services/taskbar-prefs";
 
 /**
  * The small info popup the Windows taskbar shows over the clock, network, volume, battery,
@@ -78,10 +79,8 @@ function place() {
   const width = Math.ceil(size.width * scale);
   const height = Math.ceil(size.height * scale);
   const gap = Math.round(GAP * scale);
-  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(56 * scale);
-  const center = DockWindow.nodeCenterX(anchor) ?? cursorX;
-  const x = Math.max(area.x + gap, Math.min(Math.round(center - width / 2), area.x + area.width - width - gap));
-  handle.setBounds({ x, y: top - gap - height, width, height, physical: true });
+  const { x, y } = DockWindow.placePopup(width, height, gap, area, DockWindow.nodeCenter(anchor) ?? cursorX);
+  handle.setBounds({ x, y, width, height, physical: true });
 }
 
 function blocked() {
@@ -113,7 +112,7 @@ async function open(id: string, get: () => string[]) {
     scale = screen.scale || 1;
     area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
   }
-  cursorX = cursor?.x ?? area.x + area.width / 2;
+  cursorX = DockWindow.along(cursor, area);
   source = get;
   tip.lines = lines;
   // Let the new text lay out (onSize) before placing, so it never flashes at the old size.
@@ -192,10 +191,12 @@ function stopRefresh() {
 
 /**
  * Wraps a part of a widget with its hover tip. `id` must be unique in the dock (it anchors the
- * popup); `disabled` (the gallery preview) draws the child as is.
+ * popup); `disabled` (the gallery preview) draws the child as is. On a side edge a widget's
+ * details are its hover peek (menu/widget-peek.tsx), so only the taskbar's own items (`side`:
+ * tray and status icons) keep their tips there.
  */
-export function HoverTip(props: { id: string; tip: () => string[]; disabled?: boolean; children: Child }) {
-  if (props.disabled) return <>{props.children}</>;
+export function HoverTip(props: { id: string; tip: () => string[]; disabled?: boolean; side?: "full"; children: Child }) {
+  if (props.disabled || (dockVertical() && props.side !== "full")) return <>{props.children}</>;
   return (
     <View
       id={props.id}

@@ -2,7 +2,7 @@ import { Column, Text, store } from "@tarve/core";
 import { launch } from "../../../services/windows";
 import { parseIcs, type CalendarEvent } from "../../../services/online-ical";
 import { ui } from "../../../theme";
-import { Dot, Tile } from "../../ui";
+import { Dot, Tile , DayMark } from "../../ui";
 import { defineWidget } from "../../types";
 import { errorText, refreshNow, registerRefresh } from "./common";
 import { nextBoundary, onClock, type ClockSubscription } from "../../../services/clock";
@@ -160,7 +160,7 @@ export default defineWidget({
     const l = ui.tile.lines;
     const soon = next && !next.allDay && next.start - now < 15 * 60_000;
     return (
-      <Tile width={184} onClick={() => launch("outlookcal:")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<DayMark />} width={184} onClick={() => launch("outlookcal:")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Dot color={state.error ? ui.danger : soon ? ui.orange : ui.blue} size={8} />
         <Column style={{ flex: 1, gap: l.gap }}>
           <Text size={l.primary} weight={600} color={ui.text} style={{ ...line, lineHeight: l.lineHeight }}>

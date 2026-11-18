@@ -1,9 +1,10 @@
-import { Column, Row, Text, View, store } from "@tarve/core";
+import { Column, Row, Text, View, store, type Child } from "@tarve/core";
 import { launch } from "../../../services/windows";
 import { graphql } from "../../../services/online-http";
 import { nextLinkOf, refreshWidget, remoteJson as getJson } from "../../../services/remote";
 import { numeric, ui } from "../../../theme";
-import { Tile } from "../../ui";
+import { Tile, compactView, compactWidth } from "../../ui";
+import { BrandIcon } from "../../brand-icons";
 import { defineWidget } from "../../types";
 import { Badge, Stat, Title, compact, errorText, refreshNow, registerRefresh, sourceLines } from "./common";
 
@@ -83,7 +84,7 @@ const github = defineWidget({
       ...sourceLines(state, "API do GitHub (/notifications)", "Clique para abrir as notificações", "informe o token nas configurações"),
     ];
     return (
-      <Tile width={112} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="github" />} width={112} value={state.unread > 499 ? "500+" : String(state.unread)} valueColor={state.unread ? ui.text : ui.muted} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <GithubMark size={18} />
         <Column style={{ flex: 1, gap: l.gap }}>
           <Text size={l.primary} weight={700} color={state.unread ? ui.text : ui.muted} style={numeric}>
@@ -159,7 +160,7 @@ const overview = defineWidget({
       ...sourceLines(state, "API do GitHub", "Clique para abrir as notificações", "informe o token nas configurações"),
     ];
     return (
-      <Tile width={176} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="github" />} width={176} value={String(state.unread)} valueColor={state.unread ? ui.blue : ui.muted} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <GithubMark size={14} />
@@ -212,6 +213,11 @@ export function currentStreak(days: readonly Day[]) {
 }
 
 const CALENDAR = `query { viewer { login contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { contributionCount date } } } } } }`;
+
+/** The weeks side by side; its own component, so a compact tile keeps it a row (see compactTree). */
+function WeekGrid(props: { gap: number; children: Child }) {
+  return <Row style={{ gap: props.gap }}>{props.children}</Row>;
+}
 
 const activity = defineWidget({
   type: "online-github-activity",
@@ -269,9 +275,11 @@ const activity = defineWidget({
     ];
   },
   View({ state, ctx, preview }) {
-    const weeks = Math.max(4, Math.min(26, Number(ctx.config.weeks) || 16));
     const gap = 1;
     const cell = Math.max(3, Math.floor((ui.tile.height - 8 - gap * 6) / 7));
+    // Compact (side-edge column): the last weeks that fit the tile's width.
+    const fit = compactView(preview) ? Math.max(1, Math.floor((compactWidth() + gap) / (cell + gap))) : Infinity;
+    const weeks = Math.min(fit, Math.max(4, Math.min(26, Number(ctx.config.weeks) || 16)));
     // Align the grid on weeks (Sunday first, like GitHub): pad the last column after today.
     const days = state.days;
     const lastDow = days.length ? new Date(`${days[days.length - 1]!.date}T12:00:00`).getDay() : 6;
@@ -312,7 +320,7 @@ const activity = defineWidget({
         }}
         preview={preview}
       >
-        <Row style={{ gap }}>{columns}</Row>
+        <WeekGrid gap={gap}>{columns}</WeekGrid>
         <Column style={{ gap: l.gap }}>
           <Text size={l.primary} weight={700} color={streak ? ui.green : ui.muted} style={numeric}>
             {`${streak} ${streak === 1 ? "dia" : "dias"}`}

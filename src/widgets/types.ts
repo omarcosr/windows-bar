@@ -82,6 +82,11 @@ export interface WidgetDefinition<C extends object = Record<string, unknown>, S 
    * them in the gallery under "Seu dock". Each edits `config[key]` and saves.
    */
   settings?: WidgetSetting<C>[];
+  /**
+   * On a side edge: "full" for the taskbar's own items (tray, status icons, clock, language),
+   * drawn whole and stacked; others are minimal and show in full on hover (pass the same to Tile).
+   */
+  sideForm?: "full";
 }
 
 export function defineWidget<C extends object, S extends object>(definition: WidgetDefinition<C, S>) {

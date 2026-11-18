@@ -6,11 +6,11 @@ import { clickApp, hidePreview, hoverApp } from "../../menu/window-preview";
 import { activateApp, closeApp, desktop, endTask, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
 import { config } from "../../config";
 import { devicePx, ui } from "../../theme";
-import { taskbarPrefs } from "../../services/taskbar-prefs";
+import { dockVertical, taskbarPrefs } from "../../services/taskbar-prefs";
 import { taskbarPins, unpinFromTaskbar, watchTaskbarPins, type TaskbarPin } from "../../services/taskbar-pins";
 import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
 import { explorerStateFor } from "../../services/explorer-buttons";
-import { HitReach, iconHover } from "../ui";
+import { HitReach, axisBox, iconHover } from "../ui";
 import { appRoom, dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
 
@@ -52,14 +52,17 @@ function AppProgress(props: { exe: string }) {
   const indeterminate = !!(p.state & 1);
   // Along the plate's bottom edge, where the running indicator sits, on whole device pixels.
   const inset = devicePx(5);
-  const track = ui.app.plate - inset * 2;
+  const vertical = dockVertical();
+  // In a side-edge column the plate is as wide as the tile: the bar runs under the icon across it.
+  const track = (vertical ? ui.tile.height : ui.app.plate) - inset * 2;
   const height = devicePx(3);
   return (
     <View
       style={{
         position: "absolute",
-        bottom: indicatorBottom(),
-        left: (ui.app.slot - ui.app.plate) / 2 + inset,
+        ...(vertical
+          ? { bottom: (ui.app.slot - ui.app.plate) / 2 + devicePx(2), left: inset }
+          : { bottom: indicatorBottom(), left: (ui.app.slot - ui.app.plate) / 2 + inset }),
         width: track,
         height,
         radius: height / 2,
@@ -120,15 +123,23 @@ function AppBadge(props: { exe: string }) {
  * like the Windows 11 button), 4 px narrower so neighbouring plates keep a gap. Whole device px.
  */
 function plateBox() {
-  const width = ui.app.plate;
-  return {
-    position: "absolute" as const,
-    top: 0,
-    left: (ui.app.slot - width) / 2,
-    width,
-    height: ui.tile.height,
-    radius: devicePx(8),
-  };
+  const plate = ui.app.plate;
+  const inset = (ui.app.slot - plate) / 2;
+  // Narrower along the dock: across a row, down a side-edge column.
+  return dockVertical()
+    ? { position: "absolute" as const, left: 0, top: inset, width: ui.tile.height, height: plate, radius: devicePx(8) }
+    : { position: "absolute" as const, top: 0, left: inset, width: plate, height: ui.tile.height, radius: devicePx(8) };
+}
+
+/**
+ * Where the running indicator sits, as the taskbar draws it (measured on each edge): under the
+ * icon on a bar at the bottom or the top, left of it on a bar at either side. The pill lies
+ * along that side.
+ */
+function indicatorBox(): Record<string, unknown> {
+  const at = indicatorBottom();
+  if (dockVertical()) return { position: "absolute", left: at, top: 0, bottom: 0, justify: "center" };
+  return { position: "absolute", bottom: at, left: 0, right: 0, align: "center" };
 }
 
 /**
@@ -173,8 +184,7 @@ function AppIcon(props: {
       onHover={onHover}
       style={{
         position: "relative",
-        width: ui.app.slot,
-        height: ui.tile.height,
+        ...axisBox(ui.app.slot, ui.tile.height),
         align: "center",
         justify: "center",
         cursor: "pointer",
@@ -241,11 +251,12 @@ function AppIcon(props: {
       <AppProgress exe={item.exe} />
       {/* Out of the flow, so the icon stays centred like the Start button. */}
       {/* Running: a short grey pill; in front: a longer one in the accent colour. */}
-      <View style={{ position: "absolute", bottom: indicatorBottom(), left: 0, right: 0, align: "center", opacity: config.runningIndicator && !appProgress(item.exe) ? 1 : 0 }}>
+      <View style={{ ...indicatorBox(), opacity: config.runningIndicator && !appProgress(item.exe) ? 1 : 0 }}>
         <View
           style={{
-            width: devicePx(item.active || item.attention ? 16 : 6, true),
-            height: devicePx(3),
+            ...(dockVertical()
+              ? { height: devicePx(item.active || item.attention ? 16 : 6, true), width: devicePx(3) }
+              : { width: devicePx(item.active || item.attention ? 16 : 6, true), height: devicePx(3) }),
             radius: devicePx(3) / 2,
             background: !item.running
               ? "transparent"
@@ -254,7 +265,7 @@ function AppIcon(props: {
                 : item.active
                   ? taskbarPrefs.accent
                   : "rgba(255,255,255,0.55)",
-            transition: { width: { duration: 180, easing: "easeOut" } },
+            transition: { width: { duration: 180, easing: "easeOut" }, height: { duration: 180, easing: "easeOut" } },
           }}
         />
       </View>
@@ -304,8 +315,7 @@ function OverflowButton(props: { items: Item[]; dockIndex: number; onContextMenu
       onClick={open}
       style={{
         position: "relative",
-        width: ui.app.slot,
-        height: ui.tile.height,
+        ...axisBox(ui.app.slot, ui.tile.height),
         align: "center",
         justify: "center",
         cursor: "pointer",
@@ -458,7 +468,7 @@ export default defineWidget({
       });
     };
     return (
-      <Row style={{ height: ui.tile.height, align: "center", gap: 0, shrink: 0 }}>
+      <View style={{ direction: dockVertical() ? "column" : "row", ...(dockVertical() ? { width: ui.tile.height } : { height: ui.tile.height }), align: "center", gap: 0, shrink: 0 }}>
         {visible.map((item, index) => (
           <AppIcon
             key={item.key}
@@ -471,7 +481,7 @@ export default defineWidget({
         {overflow.length ? (
           <OverflowButton items={overflow} dockIndex={dockIndex(ctx.instanceId, visible.length)} onContextMenu={showMenu} />
         ) : null}
-      </Row>
+      </View>
     );
   },
 });

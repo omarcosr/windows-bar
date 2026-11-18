@@ -297,10 +297,9 @@ function place() {
   if (!handle) return;
   const width = Math.ceil(size.width * scale);
   const height = Math.ceil(size.height * scale);
-  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(80 * scale);
   const gap = Math.round(8 * scale);
-  const x = Math.max(area.x + gap, Math.min(Math.round(anchorX - width / 2), area.x + area.width - width - gap));
-  handle.setBounds({ x, y: top - gap - height, width, height, physical: true });
+  const { x, y } = DockWindow.placePopup(width, height, gap, area, anchorX, 80);
+  handle.setBounds({ x, y, width, height, physical: true });
 }
 
 /** True from an open until the new content's size is known (onSize only fires on a change). */
@@ -335,6 +334,8 @@ export async function initDockMenu(app: AppHandle) {
   handle.onFocusChange((focused, change) => {
     if (focused || pending || hold) return;
     if (change.to === "main" && menuAnchor && DockWindow.pressedOn(menuAnchor, change.pointerTarget)) return;
+    // No target reported: the pointer on the opening button is the same press.
+    if (!change.to && menuAnchor && DockWindow.pointerOn(menuAnchor)) return;
     closeDockMenu();
   });
 }
@@ -423,7 +424,7 @@ export function showDockMenu(spec: DockMenuSpec) {
       scale = screen.scale || 1;
       area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
     }
-    anchorX = cursor?.x ?? area.x + area.width / 2;
+    anchorX = DockWindow.along(cursor, area);
     // Shown at the old menu's size, the window jumped when the new size came in a frame later:
     // wait for it. A menu of the same size reports none, so a short timeout shows it anyway.
     const show = () => {

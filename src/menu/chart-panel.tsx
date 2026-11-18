@@ -703,10 +703,7 @@ function place() {
   const width = Math.ceil(size.width * scale);
   const height = Math.ceil(size.height * scale);
   const gap = Math.round(GAP * scale);
-  const top = DockWindow.topEdge() ?? area.y + area.height - Math.round(56 * scale);
-  const center = (src && DockWindow.nodeCenterX(src.anchor)) ?? cursorX;
-  const x = Math.max(area.x + gap, Math.min(Math.round(center - width / 2), area.x + area.width - width - gap));
-  const y = Math.max(area.y + gap, top - gap - height);
+  const { x, y } = DockWindow.placePopup(width, height, gap, area, (src && DockWindow.nodeCenter(src.anchor)) ?? cursorX);
   const key = `${x},${y},${width},${height}`;
   if (key === lastBounds) return;
   lastBounds = key;
@@ -733,7 +730,7 @@ export async function openChartPanel(source: ChartSource) {
     scale = screen.scale || 1;
     area = { x: screen.x, y: screen.y, width: screen.width, height: screen.height };
   }
-  cursorX = cursor?.x ?? area.x + area.width / 2;
+  cursorX = DockWindow.along(cursor, area);
   // Let the content lay out (onSize) before placing, so it never flashes at the old size.
   setTimeout(() => {
     if (ticket !== opening) return;
@@ -781,6 +778,8 @@ export async function initChartPanel(app: AppHandle) {
   handle.onFocusChange((focused, change) => {
     if (focused || !shown) return;
     if (change.to === "main" && src && DockWindow.pressedOn(src.anchor, change.pointerTarget)) return;
+    // No target reported: the pointer on the opening tile is the same press.
+    if (!change.to && src && DockWindow.pointerOn(src.anchor)) return;
     closeChartPanel();
   });
 }

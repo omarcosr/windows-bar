@@ -5,6 +5,7 @@ import { acquireScreenTime, formatDuration, topApps, usageOf } from "../../../se
 import { activateApp } from "../../../services/windows";
 import { numeric, ui } from "../../../theme";
 import { Sparkline, Tile } from "../../ui";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { shellMenuIcon, fluentGlyph } from "./shared";
 
@@ -56,7 +57,7 @@ export default defineWidget({
       ];
       return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
-      <Tile width={150} padding={{ left: 10, right: 10 }} gap={8}>
+      <Tile icon={<FluentGlyph code={0xe7f4} size={ui.app.icon - 4} color={ui.blue} />} value={formatDuration(total)} width={150} padding={{ left: 10, right: 10 }} gap={8}>
         <Column style={{ gap: lines.gap, width: 58 }}>
           <Text size={lines.secondary} color={ui.muted} style={{ lineHeight: lines.lineHeight }}>
             Hoje

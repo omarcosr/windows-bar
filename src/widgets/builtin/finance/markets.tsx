@@ -27,6 +27,7 @@ import {
 } from "../../../services/finance-providers";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import {
   QuoteTile,
@@ -504,8 +505,13 @@ export const watchlist = defineWidget<WatchConfig, WatchState>({
       state.demo ? "Dados de exemplo (Yahoo Finance ainda não respondeu)" : "Fonte: Yahoo Finance, pode atrasar até 15 min",
       c.click === "site" ? "Clique num ticker para abrir no Yahoo Finance" : "Clique num ticker para abrir o gráfico dele",
     ];
+    // Minimal tile: the first ticker's change.
+    const lead = tickers[0] ? state.quotes[tickers[0]] : undefined;
     return (
-      <Tile gap={4} tip={{ id: tileAnchor(ctx), lines: tip }} preview={preview}>
+      <Tile
+        icon={<FluentGlyph code={0xe9d2} size={ui.app.icon - 4} color={ui.blue} />}
+        value={lead ? `${lead.change >= 0 ? "+" : "−"}${Math.abs(lead.change).toFixed(1).replace(".", ",")}%` : undefined}
+        valueColor={lead ? (lead.change >= 0 ? ui.green : ui.danger) : undefined} gap={4} tip={{ id: tileAnchor(ctx), lines: tip }} preview={preview}>
         {tickers.map((t) => {
           const q = state.quotes[t]!;
           const up = q.change >= 0;

@@ -6,6 +6,7 @@ import { resetLabel } from "../../../services/ai-usage";
 import { rowGap, tight } from "../ai/shared";
 import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
+import { BrandIcon } from "../../brand-icons";
 import { defineWidget, type WidgetContext } from "../../types";
 import { Badge, Bars, Delta, TileTitle, oneRow, changeText, momentLabel, poll, refreshItem, refreshers } from "../finance/shared";
 
@@ -101,7 +102,7 @@ const deepseek = defineWidget({
       "Clique para abrir o uso no DeepSeek",
     ];
     return (
-      <Tile width={oneRow() ? 196 : 170} onClick={() => launch(DEEPSEEK_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="deepseek" />} value={money(b.total, b.currency)} valueColor={b.available ? ui.text : ui.danger} width={oneRow() ? 196 : 170} onClick={() => launch(DEEPSEEK_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 2 }}>
           <Title
             color="#4d6bfe"
@@ -196,7 +197,7 @@ const zai = defineWidget({
       const compact = !!q.mcp && ui.tile.height < 44;
       const reset = resetLabel(q.tokens?.resetsAt ?? null);
       return (
-        <Tile width={compact ? 228 : 196} lead={compact ? "round" : undefined} onClick={() => launch(zaiUrl(ctx.config.region))} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+        <Tile icon={<Badge color="#2d5bff" letter="Z" size={ui.app.icon} />} value={q.tokens ? `${q.tokens.used}%` : undefined} width={compact ? 228 : 196} lead={compact ? "round" : undefined} onClick={() => launch(zaiUrl(ctx.config.region))} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
           {compact ? <Badge color="#2d5bff" letter="Z" /> : null}
           <Column style={{ flex: 1, gap: compact ? rowGap(2) : 2 }}>
           {compact ? null : (
@@ -258,7 +259,7 @@ const datafast = defineWidget({
       "Clique para abrir o DataFast",
     ];
     return (
-      <Tile width={196} onClick={() => launch("https://datafa.st/dashboard")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<Badge color="#e7663b" letter="D" size={ui.app.icon} />} value={compact.format(week)} width={196} onClick={() => launch("https://datafa.st/dashboard")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: 2 }}>
           <Row style={{ align: "center", gap: 6 }}>
             <Badge color="#e7663b" letter="D" />

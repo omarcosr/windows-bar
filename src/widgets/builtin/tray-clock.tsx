@@ -3,15 +3,17 @@ import { openNotificationCenter } from "../../native/desktop";
 import { launch } from "../../services/windows";
 import { numeric, ui } from "../../theme";
 import { Tile } from "../ui";
+import { dockVertical } from "../../services/taskbar-prefs";
 import { clockTip } from "../../services/clock-tooltip";
 import { defineWidget } from "../types";
-import { clockShowsSeconds, formatDate, formatTime } from "../../native/locale-format";
+import { clockShowsSeconds, formatDate, formatDayMonth, formatTime } from "../../native/locale-format";
 import { onWatchChange } from "../../native/shell-events";
 import { every, onClock } from "../../services/clock";
 
 /** Time over date, right-aligned, as at the end of the Windows 11 taskbar. */
 export default defineWidget({
   type: "tray-clock",
+  sideForm: "full",
   name: "Relógio da barra",
   description: "Hora e data nos formatos regionais do Windows. Clique abre a central de notificações.",
   category: "clock",
@@ -48,10 +50,12 @@ export default defineWidget({
   View({ state, ctx, preview }) {
     const now = state.now;
     const time = formatTime(now, { seconds: state.seconds });
-    const date = formatDate(now, "short");
+    // A side-edge column is narrow: the date without its year ("19/11"), as Windows' vertical taskbar shows it.
+    const vertical = dockVertical() && !preview;
+    const date = vertical ? formatDayMonth(now) : formatDate(now, "short");
     return (
-      <Tile onClick={openNotificationCenter} preview={preview} tip={{ id: `tip:${ctx.instanceId}`, lines: clockTip }}>
-        <Column style={{ align: "end", gap: ui.tile.lines.gap }}>
+      <Tile onClick={openNotificationCenter} preview={preview} side="full" tip={{ id: `tip:${ctx.instanceId}`, lines: clockTip }}>
+        <Column style={{ align: vertical ? "center" : "end", gap: ui.tile.lines.gap }}>
           <Text size={ui.tile.lines.primary} weight={400} color={ui.text} style={{ ...numeric, lineHeight: ui.tile.lines.lineHeight }}>
             {time}
           </Text>

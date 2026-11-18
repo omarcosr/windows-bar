@@ -5,6 +5,7 @@ import { aiUsage, opencodePoller, refreshOpencode, resetLabel, tokensLabel } fro
 import { gemini, geminiDemo, geminiPoller, refreshGemini } from "../../../services/providers2-gemini";
 import { numeric, ui } from "../../../theme";
 import { Meter, Tile } from "../../ui";
+import { BrandIcon } from "../../brand-icons";
 import { defineWidget, type WidgetContext } from "../../types";
 import { Badge } from "../finance/shared";
 import { StatusLine, demo, rowGap, short, showsData, tight, tone, whenLabel } from "../ai/shared";
@@ -64,7 +65,7 @@ const geminiWidget = defineWidget({
       "Clique para abrir o uso no Google AI Studio",
     ];
     return (
-      <Tile width={196} onClick={() => launch(GEMINI_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="googlegemini" />} value={u.status === "ok" && rows[0] ? `${rows[0].used}%` : undefined} valueColor={rows[0] ? tone(rows[0].used) : undefined} width={196} onClick={() => launch(GEMINI_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Column style={{ flex: 1, gap: rowGap(3) }}>
           {u.status === "ok" && rows.length ? (
             rows.map((m) => (
@@ -147,7 +148,7 @@ const opencodePlan = defineWidget({
       preview ? "Dados de exemplo" : `Fonte: banco local do OpenCode${u.updated ? `, lido ${whenLabel(u.updated)}` : ""}`,
     ];
     return (
-      <Tile width={short() ? 176 : 214} gap={10} lead={short() ? "round" : undefined} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="opencode" />} value={showsData(u) ? tokensLabel(u.tokens5h) : undefined} width={short() ? 176 : 214} gap={10} lead={short() ? "round" : undefined} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         {/* Badge and model are 30 px tall: on a 28 px tile the model is in the tip. */}
         {short() ? (
           <Badge color="#3b3b40" letter="O" />

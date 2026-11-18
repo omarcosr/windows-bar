@@ -1,7 +1,7 @@
 import { store, type Style } from "@tarve/core";
 import { config, type WidgetInstance } from "../config";
-import { taskbarPrefs } from "../services/taskbar-prefs";
-import { ui } from "../theme";
+import { dockEdge, dockVertical, taskbarPrefs } from "../services/taskbar-prefs";
+import { COMPACT_PAD, ui } from "../theme";
 import { cursorPos, topWindowAt } from "../native/win32";
 import { onShellEvent, watchPointerLeave } from "../native/shell-events";
 
@@ -69,6 +69,9 @@ export interface MagnifyRow {
 
 export const magnifying = () => config.hoverEffect === "macos";
 
+/** The dock row runs down a column on a side edge: the effect works along y and grows across x. */
+const columnRow = (id: MagnifyRowId) => id === "dock" && dockVertical();
+
 /** Radius of the bell, in slots: like the Dock, about three icons each side react. */
 const RANGE = 3;
 
@@ -94,11 +97,13 @@ export function peakSize(m: MagnifyMetrics) {
 /** Props for the row: tracks the pointer while it is over the row. */
 export function magnifyRowProps(id: MagnifyRowId, row: () => MagnifyRow, onResize?: () => void) {
   return {
-    onSize: ({ borderBox }: { borderBox: { width: number } }) => {
-      widths[id] = borderBox.width;
+    onSize: ({ borderBox }: { borderBox: { width: number; height: number } }) => {
+      // The row's length along the dock.
+      widths[id] = columnRow(id) ? borderBox.height : borderBox.width;
       onResize?.();
     },
-    onPointerMove: ({ x }: { x: number }) => {
+    onPointerMove: (point: { x: number; y: number }) => {
+      const x = columnRow(id) ? point.y : point.x;
       const r = row();
       const base = r.count * r.slot;
       // What the magnification added to the row; with a centred row half of it lies left of the
@@ -188,6 +193,22 @@ export function magnifyStyles(id: MagnifyRowId, index: number, m: MagnifyMetrics
   const size = Math.round(m.icon * s * 10) / 10;
   const grow = (m.slot * (s - 1)) / 2;
   const rise = size - m.icon;
+  if (columnRow(id)) {
+    // Down a side-edge column: the slot grows in height, the icon grows away from the screen edge
+    // (its outer side stays put, as its bottom does in a row), centred along the column.
+    const right = dockEdge() === "right";
+    const outer = (m.height - m.icon) / 2;
+    const along = Math.round(m.slot * s * 10) / 10;
+    return {
+      slot: { height: along, transition: { height: t } },
+      box: { position: "absolute", top: 0, bottom: 0, [right ? "right" : "left"]: outer, width: size, justify: "center", transition: { width: t } },
+      icon: { width: size, height: size, transition: { width: t, height: t } },
+      size,
+      grow,
+      // The badge follows the icon's top-right corner.
+      corner: { position: "absolute", top: (along - size) / 2 - (m.slot - m.icon) / 2, left: right ? 0 : rise, width: m.height, height: m.slot, transition: { top: t, left: t } },
+    };
+  }
   return {
     slot: { width: Math.round(m.slot * s * 10) / 10, transition: { width: t } },
     box: {
@@ -301,7 +322,8 @@ export function dockIndex(instanceId: string, local: number) {
 /** The dock's slots: the icon may grow over the dock padding and, in the strip, its margin. */
 export function dockMetrics(): MagnifyMetrics {
   const strip = config.reserveSpace && config.mode !== "full" ? Number(config.bottomMargin) || 0 : 0;
-  return { slot: ui.app.slot, icon: ui.app.icon, height: ui.tile.height, headroom: ui.dock.padding + strip };
+  // Across a side-edge column the bar pads its tiles by COMPACT_PAD only.
+  return { slot: ui.app.slot, icon: ui.app.icon, height: ui.tile.height, headroom: (dockVertical() ? COMPACT_PAD : ui.dock.padding) + strip };
 }
 
 export function dockCount() {

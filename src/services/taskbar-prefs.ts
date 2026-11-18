@@ -17,7 +17,35 @@ export const taskbarPrefs = store({
   search: 1 as 0 | 1 | 2 | 3,
   /** System > For developers > End task: "Encerrar tarefa" in the taskbar's right-click menu. */
   endTask: false,
+  /** Taskbar behaviors > Taskbar location: the screen edge the bar sits on. */
+  edge: "bottom" as TaskbarEdge,
 });
+
+export type TaskbarEdge = "left" | "top" | "right" | "bottom";
+const EDGES: readonly TaskbarEdge[] = ["left", "top", "right", "bottom"];
+
+/**
+ * Where Windows puts its taskbar: Explorer\Advanced\TaskbarLocation (0 left, 1 top, 2 right,
+ * 3 bottom, the ABE_* numbers), else byte 12 of StuckRects3\Settings, where older builds keep it.
+ */
+function readEdge(): TaskbarEdge {
+  const v = readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "TaskbarLocation", "dword");
+  if (typeof v === "number" && EDGES[v]) return EDGES[v]!;
+  const stuck = readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StuckRects3", "Settings", "binary");
+  if (stuck instanceof Uint8Array && stuck.length > 12 && EDGES[stuck[12]!]) return EDGES[stuck[12]!]!;
+  return "bottom";
+}
+
+/** The edge the dock sits on: the one Windows' taskbar is set to. */
+export function dockEdge(): TaskbarEdge {
+  return taskbarPrefs.edge;
+}
+
+/** A dock on the left or right edge: a column instead of a row. */
+export function dockVertical() {
+  const edge = taskbarPrefs.edge;
+  return edge === "left" || edge === "right";
+}
 
 function readEndTask(): boolean {
   return readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings", "TaskbarEndTask", "dword") === 1;
@@ -29,14 +57,16 @@ function readSearchMode(): 0 | 1 | 2 | 3 {
 }
 
 /**
- * The height Windows gives its taskbar, measured on Explorer's own taskbar window (it keeps its
- * size while the dock hides it). An auto-hidden taskbar is a sliver: then the last height stands.
+ * The thickness Windows gives its taskbar (height, or width on a side edge), measured on Explorer's
+ * own taskbar window (it keeps its size while the dock hides it). An auto-hidden taskbar is a
+ * sliver: then the last thickness stands.
  */
-function readTaskbarHeight(): number | null {
+function readTaskbarHeight(edge: TaskbarEdge): number | null {
   const tray = explorerTray();
   if (!tray || taskbarState() & ABS_AUTOHIDE) return null;
   const rect = windowRect(tray);
-  const height = Math.round((rect.bottom - rect.top) / systemScale());
+  const side = edge === "left" || edge === "right";
+  const height = Math.round((side ? rect.right - rect.left : rect.bottom - rect.top) / systemScale());
   return height >= 32 && height <= 120 ? height : null;
 }
 
@@ -80,7 +110,8 @@ export function watchTaskbarPrefs() {
     };
     try {
       set("align", readAlignment());
-      set("height", readTaskbarHeight());
+      set("edge", readEdge());
+      set("height", readTaskbarHeight(taskbarPrefs.edge));
       set("accent", readAccent());
       set("search", readSearchMode());
       set("endTask", readEndTask());

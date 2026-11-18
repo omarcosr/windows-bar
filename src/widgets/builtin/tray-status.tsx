@@ -81,6 +81,7 @@ function batteryTip() {
 /** Network, volume and battery in one block, as Windows groups them; a click opens Quick Settings. */
 export default defineWidget({
   type: "tray-status",
+  sideForm: "full",
   name: "Rede, volume e bateria",
   description: "Status da conexão, do volume e da bateria. Clique abre as configurações rápidas (Win+A).",
   category: "system",
@@ -103,16 +104,16 @@ export default defineWidget({
     // Each icon has its own tip, as on the taskbar.
     const id = (part: string) => `tip:${ctx.instanceId}:${part}`;
     return (
-      <Tile padding={{ left: 12, right: 12 }} onClick={openQuickSettings}>
+      <Tile padding={{ left: 12, right: 12 }} onClick={openQuickSettings} side="full">
         <Row style={{ align: "center", gap: 10 }}>
-          <HoverTip id={id("net")} tip={networkTip} disabled={preview}>
+          <HoverTip id={id("net")} tip={networkTip} disabled={preview} side="full">
             <NetworkGlyph />
           </HoverTip>
-          <HoverTip id={id("volume")} tip={volumeTip} disabled={preview}>
+          <HoverTip id={id("volume")} tip={volumeTip} disabled={preview} side="full">
             <VolumeGlyph />
           </HoverTip>
           {status.hasBattery ? (
-            <HoverTip id={id("battery")} tip={batteryTip} disabled={preview}>
+            <HoverTip id={id("battery")} tip={batteryTip} disabled={preview} side="full">
               <BatteryGlyph />
             </HoverTip>
           ) : null}

@@ -99,7 +99,7 @@ const nowCompact = defineWidget({
   View({ state, preview }) {
     const t = track(preview, state.progress);
     return (
-      <Tile width={176} padding={{ left: 10, right: (ui.tile.height - ui.tile.control) / 2 }}>
+      <Tile icon={<RoundButton onClick={mediaControls.playPause} background={ui.blue}>{t.playing ? glyphs.pause(14) : glyphs.play(14)}</RoundButton>} width={176} padding={{ left: 10, right: (ui.tile.height - ui.tile.control) / 2 }}>
         <TrackText title={t.title} artist={t.artist} open={t.active && !preview ? () => openPlayer() : undefined} />
         <RoundButton onClick={mediaControls.playPause} background={ui.blue}>
           {t.playing ? glyphs.pause(14) : glyphs.play(14)}
@@ -175,7 +175,7 @@ const nowBar = defineWidget({
       </Text>
     );
     return (
-      <Tile width={250} padding={{ left: 10, right: (ui.tile.height - ui.tile.control) / 2 }} gap={6}>
+      <Tile icon={<RoundButton onClick={mediaControls.playPause} background={ui.blue}>{t.playing ? glyphs.pause(14) : glyphs.play(14)}</RoundButton>} width={250} padding={{ left: 10, right: (ui.tile.height - ui.tile.control) / 2 }} gap={6}>
         <Column style={{ flex: 1, gap: 4, minWidth: 0 }}>
           {open ? (
             <Pressable onClick={open} focusable={false} style={{ minWidth: 0, cursor: "pointer", opacity: 1, hover: { opacity: 0.75 }, transition: { opacity: { duration: 120, easing: "easeOut" } } }}>

@@ -2,6 +2,8 @@ import { Column, Row, Text, View } from "@tarve/core";
 import { launch } from "../../../services/windows";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
+import { BrandIcon } from "../../brand-icons";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import {
   aiUsage,
@@ -18,7 +20,7 @@ import {
   type LimitUsage,
 } from "../../../services/ai-usage";
 import { gemini, geminiLimits, geminiPoller } from "../../../services/providers2-gemini";
-import { LimitRow, Logo, StatusLine, brand, demo, limitTip, rowGap, short, showsData, ticker, whenLabel, type Brand } from "./shared";
+import { LimitRow, Logo, StatusLine, brand, demo, limitTip, rowGap, short, showsData, ticker, tone, whenLabel, type Brand } from "./shared";
 
 const CLAUDE_SOURCE = "API de uso da Anthropic, com o login do Claude Code";
 const CODEX_SOURCE = "limites que o Codex CLI recebeu na última sessão";
@@ -74,7 +76,7 @@ const claude = defineWidget({
     const u = limitsOf("claude", preview);
     const tip = () => limitTip({ name: "Claude", usage: u, source: CLAUDE_SOURCE, preview, click: "Clique para abrir o uso no claude.ai" });
     return (
-      <Tile width={164} lead={short() ? "round" : undefined} onClick={() => launch(CLAUDE_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
+      <Tile icon={<BrandIcon brand="claude" />} {...usedValue(u, u.session)} width={164} lead={short() ? "round" : undefined} onClick={() => launch(CLAUDE_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         {short() ? (
           // One row on a 28 px tile: the brand, the 5 h meter and its share; the plan and the reset are in the tip.
           <>
@@ -135,7 +137,7 @@ const claudePlan = defineWidget({
       return lines;
     };
     return (
-      <Tile width={short() ? 204 : 226} gap={10} lead={short() ? "round" : undefined} onClick={() => launch(CLAUDE_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
+      <Tile icon={<BrandIcon brand="claude" />} {...usedValue(u, u.session)} width={short() ? 204 : 226} gap={10} lead={short() ? "round" : undefined} onClick={() => launch(CLAUDE_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         {short() ? (
           // The logo and the model under it are 30 px tall: on a 28 px tile the model is in the tip.
           <Logo brand="claude" />
@@ -184,7 +186,7 @@ const codex = defineWidget({
     const u = limitsOf("codex", preview);
     const tip = () => limitTip({ name: "ChatGPT (Codex)", usage: u, source: CODEX_SOURCE, preview, click: "Clique para abrir o uso no ChatGPT" });
     return (
-      <Tile width={196} onClick={() => launch(CODEX_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
+      <Tile icon={<Logo brand="codex" size={ui.app.icon} />} {...usedValue(u, u.session)} width={196} onClick={() => launch(CODEX_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         <Column style={{ flex: 1, gap: rowGap(3) }}>
           {showsData(u) ? (
             <>
@@ -250,7 +252,7 @@ const opencode = defineWidget({
       preview ? "Dados de exemplo" : `Fonte: banco local do OpenCode${u.updated ? `, lido ${whenLabel(u.updated)}` : ""}`,
     ];
     return (
-      <Tile width={168} lead={short() ? "round" : undefined} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
+      <Tile icon={<BrandIcon brand="opencode" />} value={showsData(u) ? tokensLabel(tokens) : undefined} width={168} lead={short() ? "round" : undefined} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         {short() ? (
           // One row on a 28 px tile (finance's oneRow): the brand and the tokens; the cost and the period are in the tip.
           <>
@@ -297,6 +299,12 @@ const providerOptions = [
   { value: "codex", label: "ChatGPT (Codex)" },
   { value: "gemini", label: "Gemini CLI (cota diária)" },
 ] as const;
+/** The session's share used, for a minimal tile's value: "37%" in the colour of its meter. */
+function usedValue(u: Parameters<typeof showsData>[0], w: { used: number } | null | undefined) {
+  if (!showsData(u) || !w) return {};
+  return { value: `${w.used}%`, valueColor: tone(w.used) };
+}
+
 const asProvider = (value: string, fallback: Provider): Provider => (value === "claude" || value === "codex" || value === "gemini" ? value : fallback);
 const windowOptions = [
   { value: "session", label: "Sessão de 5 h" },
@@ -363,8 +371,11 @@ const limits = defineWidget({
       return provider === "gemini" ? all.map((l) => l.replace("Sessão de 5 h", "Cota do dia")) : all;
     };
     const tip = () => [...lines(first, ctx.config.firstWindow), "", ...lines(second, ctx.config.secondWindow)];
+    // Minimal tile: the first line's share.
+    const fu = first === "gemini" ? geminiLimits(preview) : limitsOf(first, preview);
+    const fw = ctx.config.firstWindow === "weekly" && first !== "gemini" ? fu.weekly : fu.session;
     return (
-      <Tile width={206} lead="round" tip={tipOf(ctx.instanceId, tip)} preview={preview}>
+      <Tile icon={<FluentGlyph code={0xec4a} size={ui.app.icon - 4} color={ui.text} />} {...usedValue(fu, fw)} width={206} lead="round" tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         <Column style={{ flex: 1, gap: rowGap(4) }}>
           <ProviderLine provider={first} window={ctx.config.firstWindow} preview={preview} />
           <ProviderLine provider={second} window={ctx.config.secondWindow} preview={preview} />

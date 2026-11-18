@@ -3,6 +3,7 @@ import { launch } from "../../../services/windows";
 import { graphql } from "../../../services/online-http";
 import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
+import { BrandIcon } from "../../brand-icons";
 import { defineWidget } from "../../types";
 import { Badge, errorText, refreshNow, registerRefresh, sourceLines } from "./common";
 import { refreshWidget } from "../../../services/remote";
@@ -104,7 +105,7 @@ export default defineWidget({
       ...sourceLines(state, "perfil público do LeetCode", "Clique para abrir o perfil", "informe o usuário nas configurações"),
     ];
     return (
-      <Tile width={168} onClick={() => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
+      <Tile icon={<BrandIcon brand="leetcode" />} value={String(state.solved)} width={168} onClick={() => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
         <Badge color="#ffa116" letter="L" fg="#1a1a1a" size={18} />
         <Column style={{ flex: 1, gap: 1 }}>
           <Row style={{ align: "center", gap: 4 }}>

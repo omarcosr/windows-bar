@@ -4,6 +4,7 @@ import { windowPidOf } from "../../native/tray-host";
 import { acquireTaskbarHost, clickTrayIcon, tray, type TrayIcon } from "../../services/taskbar-host";
 import { launch, prettyName } from "../../services/windows";
 import { config } from "../../config";
+import { dockEdge, dockVertical } from "../../services/taskbar-prefs";
 import { ui } from "../../theme";
 import { HitReach, iconHover, Tile } from "../ui";
 import { HoverTip, hideTip } from "../../menu/hover-tip";
@@ -26,15 +27,16 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
   };
   // The app's own tip text, shown by the taskbar on hover.
   return (
-    <HoverTip id={`tip:tray:${icon.key}`} tip={() => icon.tip.split("\n").map((l) => l.trim())} disabled={props.preview}>
+    <HoverTip id={`tip:tray:${icon.key}`} tip={() => icon.tip.split("\n").map((l) => l.trim())} disabled={props.preview} side="full">
     <Pressable
       focusable={false}
       onClick={onClick}
       onContextMenu={onContextMenu}
       style={{
         position: "relative",
+        // Stacked in a side-edge column: as wide as before, shorter along the column.
         width: 30,
-        height: 36,
+        height: dockVertical() && !props.preview ? 28 : 36,
         radius: 7,
         align: "center",
         justify: "center",
@@ -43,7 +45,7 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
         ...iconHover(),
       }}
     >
-      <HitReach height={36} onClick={onClick} onContextMenu={onContextMenu} />
+      <HitReach height={dockVertical() && !props.preview ? 30 : 36} onClick={onClick} onContextMenu={onContextMenu} />
       <Image src={icon.image} width={trayIcon()} height={trayIcon()} fit="contain" />
     </Pressable>
     </HoverTip>
@@ -53,6 +55,9 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
 const label = (icon: TrayIcon) => icon.tip.split("\n")[0]!.trim() || (icon.exe ? prettyName(icon.exe) : "Ícone");
 
 const OVERFLOW_MENU = "tray-overflow";
+
+/** The overflow arrow's Fluent glyph per dock edge: ChevronUp, ChevronDown, ChevronRight, ChevronLeft. */
+const ARROWS = { bottom: 0xe70e, top: 0xe70d, left: 0xe76c, right: 0xe76b } as const;
 
 /** The icons the open flyout shows; it is refreshed only when this changes (no render loop). */
 let shownOverflow = "";
@@ -86,6 +91,7 @@ function overflowSpec(icons: TrayIcon[]): DockMenuSpec & { id: string } {
  */
 export default defineWidget({
   type: "tray",
+  sideForm: "full",
   name: "Bandeja do sistema",
   description: "Ícones dos apps em segundo plano. A seta mostra os ocultos.",
   category: "system",
@@ -113,6 +119,7 @@ export default defineWidget({
     ];
   },
   View({ ctx, preview }) {
+    const vertical = dockVertical() && !preview;
     const icons = tray.icons.filter((i) => !i.hidden && i.image);
     const mode = ctx.config.inline;
     const inline = mode === "all" ? icons : mode === "none" ? [] : icons.filter((i) => i.promoted);
@@ -127,13 +134,13 @@ export default defineWidget({
       queueMicrotask(() => updateDockMenu(OVERFLOW_MENU, overflow.length ? overflowSpec(overflow) : null));
     }
     return (
-      <Tile padding={{ left: 4, right: 4 }} gap={0}>
+      <Tile padding={{ left: 4, right: 4 }} gap={0} side="full">
         <Pressable
           id={preview ? undefined : arrow}
           onClick={() => overflow.length && openOverflow(overflow, arrow)}
           style={{
-            width: 26,
-            height: 36,
+            width: vertical ? 30 : 26,
+            height: vertical ? 24 : 36,
             radius: 7,
             align: "center",
             justify: "center",
@@ -144,14 +151,15 @@ export default defineWidget({
           }}
         >
           {/* The taskbar's "Mostrar ícones ocultos" arrow (ChevronUp glyph). */}
-          <FluentGlyph code={0xe70e} size={12} color={ui.text} />
+          {/* Pointing to where the flyout opens: up, or down / right / left on the other edges. */}
+          <FluentGlyph code={preview ? 0xe70e : ARROWS[dockEdge()]} size={12} color={ui.text} />
         </Pressable>
         {inline.length ? (
-          <Row style={{ align: "center", gap: 0 }}>
+          <View style={{ direction: vertical ? "column" : "row", align: "center", gap: 0 }}>
             {inline.map((icon) => (
               <TrayButton key={icon.key} icon={icon} preview={preview} />
             ))}
-          </Row>
+          </View>
         ) : (
           <View />
         )}

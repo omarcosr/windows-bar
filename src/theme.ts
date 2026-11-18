@@ -9,8 +9,17 @@ import { taskbarPrefs } from "./services/taskbar-prefs";
 export const BAR_HEIGHT_MIN = 40;
 export const BAR_HEIGHT_MAX = 80;
 
-/** config.barHeight, or (0, the default) the height of the Windows taskbar. */
+/**
+ * config.barHeight, or (0, the default) the height of the Windows taskbar. Off the bottom edge
+ * the hidden taskbar keeps its strip reserved (Windows auto-hides it only at the bottom) and the
+ * dock covers that strip, so there the bar is the taskbar's own thickness, less the strip margins.
+ */
 function barHeight() {
+  const hidden = config.hideNativeTaskbar || config.mode === "full";
+  if (taskbarPrefs.edge !== "bottom" && hidden) {
+    const margins = config.mode === "floating" && config.reserveSpace ? 2 * (Number(config.bottomMargin) || 0) : 0;
+    return Math.max(32, Math.min(BAR_HEIGHT_MAX, Math.floor((taskbarPrefs.height - margins) / 2) * 2));
+  }
   const h = Number(config.barHeight) || taskbarPrefs.height;
   return Math.max(BAR_HEIGHT_MIN, Math.min(BAR_HEIGHT_MAX, Math.round(h / 2) * 2));
 }
@@ -25,6 +34,9 @@ export function devicePx(logical: number, even = false) {
   const px = even ? Math.round((logical * scale) / 2) * 2 : Math.round(logical * scale);
   return px / scale;
 }
+
+/** A side-edge column's padding across it, in logical px: its compact tiles get the room. */
+export const COMPACT_PAD = 3;
 
 export const ui = {
   dock: {

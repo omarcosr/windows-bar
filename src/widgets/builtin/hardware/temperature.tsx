@@ -3,7 +3,7 @@ import { system, systemPoller } from "../../../services/system";
 import { gpuThermal, hottestSensor, thermal, zoneThermal, type GpuTemperature, type Hottest } from "../../../services/thermal";
 import { launch } from "../../../services/windows";
 import { numeric, ui } from "../../../theme";
-import { Sparkline, Tile } from "../../ui";
+import { Sparkline, Tile, compactView } from "../../ui";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { Metric, amber } from "./shared";
@@ -112,10 +112,13 @@ export const temperature = defineWidget({
             {degrees(hot.celsius)}
           </Text>
         </ArcGauge>
-        <View style={{ direction: "column", justify: "center", gap: ui.tile.lines.gap + 2, width: 112 }}>
-          <LoadBar label="CPU" value={cpu} />
-          <LoadBar label="RAM" value={ram} />
-        </View>
+        {/* Compact: the ring alone; the loads stay in the hover tip. */}
+          {compactView(preview) ? null : (
+          <View style={{ direction: "column", justify: "center", gap: ui.tile.lines.gap + 2, width: 112 }}>
+              <LoadBar label="CPU" value={cpu} />
+            <LoadBar label="RAM" value={ram} />
+          </View>
+        )}
       </Tile>
     );
   },

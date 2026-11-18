@@ -8,6 +8,7 @@ import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type Galler
 import { initChartPanel } from "./menu/chart-panel";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { initHoverTip } from "./menu/hover-tip";
+import { hidePeek, initWidgetPeek } from "./menu/widget-peek";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { DockWindow } from "./native/dock-window";
@@ -19,7 +20,7 @@ import { watchAppColor } from "./services/app-color";
 import { readAutostart, setAutostart } from "./services/autostart";
 import { exitApp } from "./services/exit";
 import { pauseExplorerButtonsWhile } from "./services/explorer-buttons";
-import { dockAlign, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
+import { dockAlign, dockEdge, dockVertical, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
 import { checkNow, restartToUpdate, startUpdater, updateNow, updater } from "./services/updater";
 import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, windowGone, windowShown } from "./services/windows";
 import { ui } from "./theme";
@@ -110,6 +111,7 @@ function openSettings() {
 /** Right-click on the bar itself, outside any widget. */
 function openBarMenu() {
   hidePreview(true);
+  hidePeek();
   const full = config.mode === "full";
   showDockMenu({
     title: "WindowsBar",
@@ -188,7 +190,7 @@ watchTaskbarPrefs();
  * Covers the 1–2 px frame line of the app above the strip. Constant while the strip is on, also
  * while no colour is known yet, so the dock never shifts when the colour comes and goes.
  */
-export const stripOverlap = () => (config.mode === "floating" && config.reserveSpace && config.stripFollowsApp ? 2 : 0);
+export const stripOverlap = () => (config.mode === "floating" && config.reserveSpace && config.stripFollowsApp && dockEdge() === "bottom" ? 2 : 0);
 
 const nativeOptions = () => ({
   mode: config.mode,
@@ -198,12 +200,13 @@ const nativeOptions = () => ({
   bottomMargin: config.bottomMargin,
   barHeight: ui.dock.height,
   stripOverlap: stripOverlap(),
+  edge: dockEdge(),
 });
 dockWindow = DockWindow.attach(app, nativeOptions());
-// The logical width of the dock's monitor: the room the dock may take.
+// The logical length of the dock's edge of its monitor (its width, or height on a side edge): the room the dock may take.
 const followScreen = () =>
   void app.screen().then((screen) => {
-    const width = screen ? screen.width / screen.scale : 0;
+    const width = screen ? (dockVertical() ? screen.height : screen.width) / screen.scale : 0;
     if (width && Math.abs(dockRoom.screen - width) > 0.5) dockRoom.screen = width;
   });
 followScreen();
@@ -267,6 +270,7 @@ pauseExplorerButtonsWhile(() => previewOpen() || menuOpen() || mediaFlyoutOpen()
 await initDockMenu(app);
 await initWindowPreview(app);
 await initHoverTip(app);
+await initWidgetPeek(app);
 await initMediaFlyout(app);
 await initChartPanel(app);
 
@@ -281,6 +285,8 @@ const applyNative = () => {
 };
 onConfigSaved(applyNative);
 onTaskbarPrefsChange(applyNative);
+// A new edge turns the room along it from the screen's width to its height or back.
+onTaskbarPrefsChange(followScreen);
 
 app.tray({
   tooltip: "WindowsBar",

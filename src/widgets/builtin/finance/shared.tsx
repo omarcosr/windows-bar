@@ -30,7 +30,8 @@ import {
   type Revenue,
 } from "../../../services/finance-providers";
 import { numeric, ui } from "../../../theme";
-import { Sparkline, Tile } from "../../ui";
+import { Sparkline, Tile, compactView } from "../../ui";
+import { BrandIcon, type BrandName } from "../../brand-icons";
 import { defineWidget, type WidgetContext, type WidgetSetting } from "../../types";
 
 /**
@@ -496,6 +497,8 @@ interface RevenueSpec<C extends { label: string }> {
   name: string;
   description: string;
   brand: { color: string; letter: string };
+  /** The provider's own mark for the minimal tile of a side-edge dock (brand-icons.tsx). */
+  logo?: BrandName;
   dashboard: string;
   /** Where the numbers come from, for the tip ("API do Stripe, transações do saldo"). */
   source?: string;
@@ -562,6 +565,22 @@ export function revenueWidget<C extends { label: string }>(spec: RevenueSpec<C>)
           error: state.error,
           click: c.click === "site" ? "Clique para abrir o site do provedor" : "Clique para abrir o gráfico",
         });
+      // Compact (side-edge column): the brand's badge over the period's total.
+      if (compactView(preview))
+        return (
+          <Tile
+            icon={spec.logo ? <BrandIcon brand={spec.logo} /> : <Badge {...spec.brand} size={ui.app.icon} />}
+            value={money(periodSum(state.daily, asPeriod(c.period)), state.currency, "compact")}
+            onClick={preview ? undefined : chartClick(c.click, spec.dashboard, () => providerSource(spec, ctx))}
+            tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}
+            preview={preview}
+          >
+            <Badge {...spec.brand} size={BIG_BADGE} />
+            <Text size={11} weight={700} color={ui.text} style={numeric}>
+              {money(periodSum(state.daily, asPeriod(c.period)), state.currency, "compact")}
+            </Text>
+          </Tile>
+        );
       return (
         <Tile width={oneRow() ? 196 : 210} lead={oneRow() ? undefined : "round"} onClick={preview ? undefined : chartClick(c.click, spec.dashboard, () => providerSource(spec, ctx))} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
           <BadgeRows {...spec.brand}>
@@ -721,6 +740,28 @@ export function QuoteTile(props: {
   const delta = props.delta !== false;
   const color = !delta ? ui.blue : up ? ui.green : ui.danger;
   const second = !oneRow() && (chart !== "none" || delta);
+  // Compact (side-edge column): the badge, the price and the change under it.
+  if (compactView(props.preview ?? false))
+    return (
+      <Tile
+        icon={<Badge color={props.color} letter={props.letter} size={ui.app.icon} />}
+        value={props.currency ? priceIn(state.price, props.currency, props.digits) : `${props.prefix ?? ""}${price(state.price, props.digits)}`}
+        valueColor={delta ? color : undefined}
+        onClick={props.onClick}
+        tip={props.tip && props.tipId ? { id: props.tipId, lines: props.tip } : undefined}
+        preview={props.preview}
+      >
+        <Badge color={props.color} letter={props.letter} size={BIG_BADGE} />
+        <Text size={11} weight={700} color={ui.text} style={numeric}>
+          {props.currency ? priceIn(state.price, props.currency, props.digits) : `${props.prefix ?? ""}${price(state.price, props.digits)}`}
+        </Text>
+        {delta ? (
+          <Text size={9} weight={700} color={color} style={numeric}>
+            {`${up ? "▲" : "▼"} ${Math.abs(state.change).toFixed(1).replace(".", ",")}%`}
+          </Text>
+        ) : null}
+      </Tile>
+    );
   const tile = (
     <Tile width={oneRow() ? 176 : 190} lead={oneRow() ? undefined : "round"} onClick={props.onClick} tip={props.tip && props.tipId ? { id: props.tipId, lines: props.tip } : undefined} preview={props.preview}>
       <BadgeRows color={props.color} letter={props.letter}>

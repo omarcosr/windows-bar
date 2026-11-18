@@ -1,8 +1,12 @@
 import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type Style } from "@tarve/core";
-import { hoverShade, numeric, ui } from "../theme";
+import { Fragment } from "@tarve/core/jsx-runtime";
+import { COMPACT_PAD, hoverShade, numeric, ui } from "../theme";
 import { config, type GlowColor, type HoverEffect } from "../config";
-import { taskbarPrefs } from "../services/taskbar-prefs";
+import { dockEdge, dockVertical, taskbarPrefs } from "../services/taskbar-prefs";
 import { hideTip, hoverTip } from "../menu/hover-tip";
+import { hidePeek } from "../menu/widget-peek";
+import { fullForm } from "./form";
+import { formatDatePicture } from "../native/locale-format";
 
 /**
  * The graphite card every dock widget sits on. Its content is one row, centred vertically, padded
@@ -26,13 +30,31 @@ export function Tile(props: {
   tip?: { id: string; lines: () => string[] };
   /** The gallery preview: no tip. */
   preview?: boolean;
+  /**
+   * On a side edge: "full" keeps everything the tile shows, stacked (the taskbar's own items:
+   * tray, status icons, clock, language); by default the tile is minimal (see minimalTree) and
+   * the dock shows the whole widget beside it on hover (menu/widget-peek.tsx).
+   */
+  side?: "full";
+  /** The minimal tile's icon (a tool's mark, see brand-icons.tsx) instead of the tile's first element. */
+  icon?: Child;
+  /** The data under the minimal tile's icon: the percentage, the count, the balance. */
+  value?: string;
+  valueColor?: string;
   style?: Style;
   children?: Child;
 }) {
   // Joined widgets sit on one shared card (the dock draws it); a tile with its own colour keeps it.
   const joined = config.joinWidgets === true;
-  const tip = props.preview ? undefined : props.tip;
-  const style: Style = {
+  // On a side edge the dock's own tiles take their compact form (see compactTile); the gallery's
+  // previews and the hover peek keep the full one.
+  const compact = compactView(!!props.preview);
+  const minimal = compact && props.side !== "full";
+  // A minimal tile's details are the peek; the peek itself shows no tips over it.
+  const tip = props.preview || minimal || fullForm() ? undefined : props.tip;
+  // A minimal tile with its own icon sits on the dock's tile colour (a white calendar page would hide it).
+  const own_bg = minimal && props.icon ? undefined : props.background;
+  const style: Style = compact ? compactTile(own_bg ?? (joined ? "rgba(0,0,0,0)" : ui.tile.background), joined, minimal) : {
     width: props.width,
     height: ui.tile.height,
     radius: ui.tile.radius,
@@ -49,6 +71,24 @@ export function Tile(props: {
     whiteSpace: "nowrap",
     shrink: 0,
   };
+  // A widget's own sizes and padding are made for the row; the compact tile keeps its own.
+  const own = compact ? withoutBox(props.style) : props.style;
+  const children = minimal
+    ? props.icon
+      ? compactTree(
+          <View style={{ align: "center", gap: 3 }}>
+            {props.icon}
+            {props.value ? (
+              <Text size={11} weight={700} color={props.valueColor ?? ui.text} style={{ ...numeric, lineHeight: 1 }}>
+                {props.value}
+              </Text>
+            ) : null}
+          </View>,
+        )
+      : minimalTree(props.children)
+    : compact
+      ? compactTree(props.children)
+      : props.children;
   const tipProps = tip
     ? {
         id: tip.id,
@@ -58,8 +98,8 @@ export function Tile(props: {
     : {};
   if (!props.onClick && !props.onContextMenu)
     return (
-      <View {...tipProps} style={{ ...style, ...props.style }}>
-        {props.children}
+      <View {...tipProps} style={{ ...style, ...own }}>
+        {children}
       </View>
     );
   const clickable = !!props.onClick;
@@ -72,6 +112,7 @@ export function Tile(props: {
         props.onClick
           ? () => {
               hideTip();
+              hidePeek();
               props.onClick!();
             }
           : undefined
@@ -85,12 +126,165 @@ export function Tile(props: {
         active: clickable ? { transform: "scale(0.97)" } : undefined,
         transition: { background: { duration: 140, easing: "easeOut" }, transform: { duration: 90, easing: "easeOut" } },
         // A widget's own hover/active (style) wins over the defaults above.
-        ...props.style,
+        ...own,
       }}
     >
-      {props.children}
+      {children}
     </Pressable>
   );
+}
+
+/**
+ * The compact tile of a dock on a side edge, the way Windows draws its vertical taskbar: as wide
+ * as the bar's tiles, its content (icon, ring, the number) stacked and centred, as tall as it needs.
+ * Text that is still wider is cut at the tile's edge.
+ */
+function compactTile(background: string, joined: boolean, minimal: boolean): Style {
+  return {
+    width: compactTileWidth(),
+    // Minimal: a square, like the app icons' slots around it.
+    ...(minimal ? { height: compactTileWidth() } : { minHeight: ui.tile.height }),
+    radius: ui.tile.radius,
+    background,
+    borderWidth: joined ? 0 : 1,
+    borderColor: ui.tile.border,
+    padding: { top: 6, bottom: 6, left: 2, right: 2 },
+    gap: 3,
+    direction: "column",
+    align: "center",
+    justify: "center",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    shrink: 0,
+  };
+}
+
+/**
+ * The tile's content for the compact tile, rewritten before it renders (elements are plain
+ * { type, props } until then): Lines, Meter and Sparkline get `compact` (the value alone; tracks
+ * and charts no wider than the tile); rows become centred columns, so what sat side by side
+ * stacks; a box wider than the tile narrows to it; text ends in an ellipsis at the tile's edge
+ * instead of being cut through a letter. Components a widget defines itself are left as they are.
+ */
+function compactTree(node: Child): Child {
+  if (Array.isArray(node)) return node.map((n) => compactTree(n as Child)) as Child;
+  if (!node || typeof node !== "object" || !("type" in node)) return node;
+  const vnode = node as { type: unknown; props: Record<string, unknown>; key?: unknown };
+  const props = vnode.props ?? {};
+  const kids = props.children === undefined ? undefined : compactTree(props.children as Child);
+  const next: Record<string, unknown> = { ...props, ...(kids !== undefined ? { children: kids } : {}) };
+  let type = vnode.type;
+  const room = compactWidth();
+  const style = (props.style ?? {}) as Style;
+  if (type === Lines || type === Meter || type === Sparkline) next.compact = true;
+  else if (type === Text) {
+    next.style = { ...style, maxWidth: room, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" };
+    // Smaller type where the text would not fit the tile (about 0.58 em per character), down
+    // to 8 px; past that it ends in an ellipsis.
+    const text = typeof props.children === "string" || typeof props.children === "number" ? String(props.children) : null;
+    const size = typeof props.size === "number" ? props.size : 13;
+    const fit = text ? Math.floor(room / (Math.max(1, text.length) * 0.58)) : size;
+    const capped = size > 13 ? Math.max(13, Math.min(size, Math.round(room * 0.4))) : size;
+    if (Math.min(capped, fit) !== size) next.size = Math.max(8, Math.min(capped, fit));
+  } else if (type === Row || type === View || type === Pressable) {
+    const row = type === Row || style.direction === "row";
+    const wide = typeof style.width === "number" && style.width > room;
+    if (row || wide) {
+      if (type === Row) type = View;
+      next.style = {
+        ...style,
+        ...(row ? { direction: "column", align: "center", gap: Math.min(2, Number(style.gap ?? 2)) } : {}),
+        ...(wide ? { width: room } : {}),
+      };
+    }
+  }
+  return { ...vnode, type, props: next } as unknown as Child;
+}
+
+/**
+ * The minimal tile of a side-edge dock: its first element alone (the icon, ring, badge or the
+ * time), in its compact form; the rest is in the hover peek.
+ */
+function minimalTree(node: Child): Child {
+  const first = (n: Child): Child => {
+    if (Array.isArray(n)) {
+      for (const item of n) {
+        const hit = first(item as Child);
+        if (hit !== null && hit !== undefined && hit !== false) return hit;
+      }
+      return null;
+    }
+    if (n === null || n === undefined || n === false || n === true || n === "") return null;
+    if (typeof n === "object" && "type" in n && ((n as { type: unknown }).type === Fragment || (n as { type: unknown }).type === "fragment")) return first((n as { props: { children?: Child } }).props.children);
+    // A row lays things side by side (art, then title and artist): its first one is the essential.
+    // A column (the time over the date) stays whole.
+    if (typeof n === "object" && "type" in n) {
+      const v = n as { type: unknown; props: { style?: Style; children?: Child } };
+      if (v.type === Row || ((v.type === View || v.type === Pressable) && v.props.style?.direction === "row")) {
+        const inner = first(v.props.children);
+        // A pressable row keeps its press (the media tile's click) around the one element.
+        if (inner !== null) return v.type === Pressable ? ({ ...v, props: { ...v.props, children: inner } } as unknown as Child) : inner;
+      }
+    }
+    return n;
+  };
+  return compactTree(first(node));
+}
+
+/** A widget's style without the box it sets for the row (size, padding, direction). */
+function withoutBox(style: Style | undefined): Style | undefined {
+  if (!style) return style;
+  const { width: _w, height: _h, minWidth: _mw, padding: _p, direction: _d, gap: _g, ...rest } = style as Style & Record<string, unknown>;
+  return rest as Style;
+}
+
+/**
+ * A calendar's mark for the minimal tile of a side-edge dock: the weekday over the day of the
+ * month, in Windows' own weekday abbreviation.
+ */
+export function DayMark(props: { now?: Date }) {
+  const now = props.now ?? new Date();
+  return (
+    <View style={{ align: "center", gap: 0 }}>
+      <Text size={9} weight={700} color={ui.red} style={{ lineHeight: 1.1, textTransform: "uppercase" }}>
+        {formatDatePicture(now, "ddd").replace(/\.$/, "")}
+      </Text>
+      <Text size={16} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.1 }}>
+        {String(now.getDate())}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Whether a widget draws its compact form: in the dock (not a gallery preview) on a side edge,
+ * where its tile is as wide as the bar's tiles. Widgets show the essential there: icon and number.
+ */
+export function compactView(preview: boolean) {
+  return !preview && !fullForm() && dockVertical();
+}
+
+/**
+ * A compact tile's width: the side-edge bar less 3 px each side (the column's padding, see
+ * Dock.tsx), so the time and numbers get the room Windows gives them on its 60 px vertical taskbar.
+ */
+export function compactTileWidth() {
+  return ui.dock.height - 2 * COMPACT_PAD;
+}
+
+export { COMPACT_PAD };
+
+/** Room inside a compact tile (see compactTile), for text, meters and charts. */
+export function compactWidth() {
+  return compactTileWidth() - 6;
+}
+
+/**
+ * A slot's box from its length along the dock and its thickness across it: width x height in a
+ * row, the other way round in the column of a side-edge dock.
+ */
+export function axisBox(along: number, across: number): { width: number; height: number } {
+  return dockVertical() ? { width: across, height: along } : { width: along, height: across };
 }
 
 /**
@@ -107,8 +301,18 @@ export function Lines(props: {
   align?: "start" | "end" | "center";
   width?: number;
   flex?: number;
+  /** In a compact tile (set by Tile, see compactTree). */
+  compact?: boolean;
 }) {
   const l = ui.tile.lines;
+  // The compact tile of a side-edge dock shows the essential: the value alone, centred.
+  if (props.compact) {
+    return (
+      <Text size={l.secondary} weight={650} color={props.valueColor ?? ui.text} style={{ ...numeric, lineHeight: l.lineHeight }}>
+        {props.value}
+      </Text>
+    );
+  }
   const label = (
     <Text size={l.secondary} weight={500} color={props.labelColor ?? ui.muted} style={{ ...numeric, lineHeight: l.lineHeight }}>
       {props.label}
@@ -139,8 +343,9 @@ export function Lines(props: {
 }
 
 /** A line chart scaled into width x height with a dot on the latest value. */
-export function Sparkline(props: { values: readonly number[]; width: number; height: number; color: string }) {
-  const { values, width, height, color } = props;
+export function Sparkline(props: { values: readonly number[]; width: number; height: number; color: string; compact?: boolean }) {
+  const { values, height, color } = props;
+  const width = props.compact ? Math.min(props.width, compactWidth()) : props.width;
   if (values.length < 2) return <View style={{ width, height }} />;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -164,11 +369,12 @@ export function Sparkline(props: { values: readonly number[]; width: number; hei
 }
 
 /** A thin rounded progress track. */
-export function Meter(props: { value: number; width: number; color?: string; height?: number }) {
+export function Meter(props: { value: number; width: number; color?: string; height?: number; compact?: boolean }) {
   const h = props.height ?? 5;
-  const fill = Math.max(0, Math.min(1, props.value)) * props.width;
+  const width = props.compact ? Math.min(props.width, compactWidth()) : props.width;
+  const fill = Math.max(0, Math.min(1, props.value)) * width;
   return (
-    <View style={{ width: props.width, height: h, radius: h / 2, background: ui.track, overflow: "hidden", shrink: 0 }}>
+    <View style={{ width, height: h, radius: h / 2, background: ui.track, overflow: "hidden", shrink: 0 }}>
       <View
         style={{
           width: Math.max(fill, h),
@@ -312,6 +518,8 @@ const alpha = (a: number) =>
 export function HitReach(props: { height: number; onClick?: () => void; onContextMenu?: () => void; onHover?: (hovered: boolean) => void }) {
   const reach = Math.max(0, (ui.dock.height - props.height) / 2);
   if (!reach) return null;
+  // Across the bar: up and down in a row, left and right in the column of a side-edge dock.
+  const box = dockVertical() ? { left: -reach, right: -reach, top: 0, bottom: 0 } : { top: -reach, bottom: -reach, left: 0, right: 0 };
   return (
     <Pressable
       aria-hidden
@@ -319,7 +527,7 @@ export function HitReach(props: { height: number; onClick?: () => void; onContex
       onClick={props.onClick}
       onContextMenu={props.onContextMenu}
       onHover={props.onHover}
-      style={{ position: "absolute", top: -reach, bottom: -reach, left: 0, right: 0, cursor: "pointer" }}
+      style={{ position: "absolute", ...box, cursor: "pointer" }}
     />
   );
 }
@@ -340,16 +548,18 @@ export function iconHover(options?: { magnified?: boolean }): Style {
   };
   const active = config.pressEffect === false ? undefined : { transform: "scale(0.9)" };
   const px = (n: number) => Math.round(n * k * 10) / 10;
+  // Away from the screen edge the dock sits on: up from the bottom, right from the left edge…
+  const inward = (n: number) => ({ bottom: `translateY(-${n}px)`, top: `translateY(${n}px)`, left: `translateX(${n}px)`, right: `translateX(-${n}px)` })[dockEdge()];
   if (effect === "macos" && options?.magnified) return { active };
   switch (effect) {
     case "macos":
     case "zoom":
-      return { transition, hover: { transform: `translateY(-${px(2)}px) scale(${(1 + 0.14 * k).toFixed(3)})` }, active };
+      return { transition, hover: { transform: `${inward(px(2))} scale(${(1 + 0.14 * k).toFixed(3)})` }, active };
     case "lift":
       return {
         transition,
         hover: {
-          transform: `translateY(-${px(4)}px)`,
+          transform: inward(px(4)),
           background: `rgba(255,255,255,${(0.05 * k).toFixed(3)})`,
           boxShadow: { y: px(6), blur: px(12), color: `#000000${alpha(0.5 * k)}` },
         },

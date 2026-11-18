@@ -18,6 +18,7 @@ function switchLanguage() {
 /** The input language indicator ("POR / PTB2"); a click switches layouts like Win+Space. */
 export default defineWidget({
   type: "tray-language",
+  sideForm: "full",
   name: "Idioma do teclado",
   description: "Idioma e layout do teclado da janela em foco. Clique alterna o layout (Win+Espaço).",
   category: "system",
@@ -37,7 +38,7 @@ export default defineWidget({
   View({ ctx, preview }) {
     const tip = () => [status.languageName || status.language, status.layout ? `Teclado ${status.layout}` : "", "Para alternar, pressione Windows + Espaço"];
     return (
-      <Tile onClick={switchLanguage} preview={preview} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}>
+      <Tile onClick={switchLanguage} preview={preview} side="full" tip={{ id: `tip:${ctx.instanceId}`, lines: tip }}>
         <Column style={{ align: "center", gap: ui.tile.lines.gap }}>
           <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ lineHeight: ui.tile.lines.lineHeight }}>
             {status.language || "–"}

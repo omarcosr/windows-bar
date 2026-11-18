@@ -2,6 +2,7 @@ import { Row, Text, store, toRaw } from "@tarve/core";
 import { ui } from "../../../theme";
 import { HoverTip } from "../../../menu/hover-tip";
 import { RoundButton, Tile, glyphs } from "../../ui";
+import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { showDockMenu } from "../../../menu/dock-menu";
 import { Stack, buttonSize, clockTenths } from "./shared";
@@ -101,7 +102,7 @@ export default defineWidget({
       };
       return (
         <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
-          <Tile width={156} onClick={a?.toggle}>
+          <Tile icon={<FluentGlyph code={0xe916} size={ui.app.icon - 4} color={ui.text} />} value={clockTenths(ms)} valueColor={ms || state.running ? ui.text : ui.muted} width={156} onClick={a?.toggle}>
             <Stack
               label={laps ? `Volta ${laps} · ${clockTenths(lapTime)}` : state.running ? "Cronômetro" : ms ? "Pausado" : "Cronômetro"}
             value={clockTenths(ms)}
