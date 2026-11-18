@@ -1,7 +1,7 @@
 import { store } from "@tarve/core";
 import { programOfAppId } from "../native/shell-item";
-import { readExplorerButtons, type ExplorerButton } from "../native/taskbar-buttons";
-import { HSHELL, onShellEvent, onWatchChange } from "../native/shell-events";
+import { readExplorerButtons, watchExplorerButtons, type ExplorerButton } from "../native/taskbar-buttons";
+import { onShellEvent } from "../native/shell-events";
 import { dockCovered, onDockCoveredChange } from "./poller";
 
 /**
@@ -21,25 +21,19 @@ export interface ButtonState {
 export const explorerButtons = store({ list: [] as ExplorerButton[] });
 
 /**
- * A UIA search of Explorer's taskbar costs 15–20 ms in the app (130 ms under Bun). Explorer has no
- * event this runtime can take yet: UIA change handlers call back on UIA's own threads, which the
- * JS runtime's FFI cannot take (TODO: UIA property-change events with threadsafeComObject from the
- * next @tarve/core). Meanwhile what usually comes with a new badge or progress triggers a read at
- * once (debounced, never closer than FAST to the last one): an app's button redrawn or flashing
- * (HSHELL_REDRAW, HSHELL_FLASH), windows opening, closing or coming forward, a toast arriving (the
- * notifications folder). Between them it reads every 2 s while a button shows progress (it moves by
- * the second, with no event), every 15 s while one shows a badge, and otherwise backs off
- * (doubling) to 2 min. Nothing runs while the dock cannot be seen (covered, locked, screen off).
+ * Explorer's UIA events (a button's HelpText changed, buttons added or removed) trigger a read of
+ * the buttons, one cross-process UIA search (15–20 ms in the app). A burst of events (a progress
+ * bar moving, a window opening) is one read, never closer than GAP to the last one. Nothing is
+ * read while the dock cannot be seen (covered, locked, screen off): the change waits until it can.
  */
-const FAST = 2000;
-const BADGES = 15_000;
-const SLOW = 120_000;
-const SETTLE = 400;
-let delay = FAST;
+const GAP = 1000;
+const SETTLE = 250;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let users = 0;
 let lastRead = 0;
-let offEvents: (() => void) | undefined;
+let stopWatch: (() => void) | null = null;
+let offShell: (() => void) | undefined;
+let retry: ReturnType<typeof setTimeout> | undefined;
 
 /** True while a flyout is open (set by main.tsx): the blocking UIA read waits, so it never stalls it. */
 let busy: () => boolean = () => false;
@@ -47,40 +41,37 @@ export function pauseExplorerButtonsWhile(check: () => boolean) {
   busy = check;
 }
 
-/** A read skipped while the dock could not be seen; done when it can again. */
+/** A change that came while the dock could not be seen; read when it can again. */
 let waiting = false;
 onDockCoveredChange(() => {
   if (dockCovered() || !waiting || !users) return;
   waiting = false;
   clearTimeout(timer);
-  tick();
+  timer = undefined;
+  read();
 });
 
-const TRIGGERS: number[] = [HSHELL.REDRAW, HSHELL.FLASH, HSHELL.WINDOWCREATED, HSHELL.WINDOWDESTROYED];
-
-/** Something that often changes a button happened: read soon instead of at the next period. */
-function soon() {
-  if (!users || waiting) return;
-  clearTimeout(timer);
-  timer = setTimeout(tick, Math.max(SETTLE, FAST - (Date.now() - lastRead)));
+/** Explorer changed a button: read once the burst settles. */
+function changed() {
+  if (!users || waiting || timer) return;
+  timer = setTimeout(read, Math.max(SETTLE, GAP - (Date.now() - lastRead)));
 }
 
-function tick() {
+function read() {
+  timer = undefined;
   if (dockCovered()) {
     waiting = true;
     return;
   }
   if (busy()) {
-    if (users) timer = setTimeout(tick, 1000);
+    // The flyout closes on the next click elsewhere; try again then.
+    if (users) timer = setTimeout(read, 1000);
     return;
   }
   lastRead = Date.now();
   try {
     const buttons = readExplorerButtons();
     const list = buttons ? buttons.filter((b) => b.help.trim()) : [];
-    // Progress moves by the second; a count changes now and then; nothing shown, back off.
-    const progress = list.some((b) => parse(b.help).progress !== undefined);
-    delay = progress ? FAST : list.length ? BADGES : Math.min(SLOW, delay * 2);
     if (buttons && JSON.stringify(list) !== JSON.stringify(explorerButtons.list)) {
       if (process.env.TRAY_DEBUG) console.log("[explorer-buttons]", buttons.length, JSON.stringify(list));
       explorerButtons.list = list;
@@ -88,23 +79,33 @@ function tick() {
   } catch (error) {
     console.error("[explorer-buttons]", error);
   }
-  if (users) timer = setTimeout(tick, delay);
+}
+
+/** Subscribes to Explorer's taskbar (again after Explorer restarts) and reads it once. */
+function watch(tries = 0) {
+  clearTimeout(retry);
+  stopWatch?.();
+  try {
+    stopWatch = watchExplorerButtons(changed);
+  } catch (error) {
+    stopWatch = null;
+    console.error("[explorer-buttons]", error);
+  }
+  // A restarted Explorer announces TaskbarCreated before its XAML taskbar is up.
+  if (!stopWatch && tries < 5) retry = setTimeout(() => users && watch(tries + 1), 2000);
+  clearTimeout(timer);
+  timer = undefined;
+  waiting = false;
+  read();
 }
 
 /** Starts reading Explorer's buttons; returns the release function. */
 export function acquireExplorerButtons(): () => void {
   if (users++ === 0) {
-    delay = FAST;
-    waiting = false;
-    const offShell = onShellEvent((event) => {
-      if ((event.type === "shell" && TRIGGERS.includes(event.code)) || event.type === "foreground") soon();
+    offShell = onShellEvent((event) => {
+      if (event.type === "explorerRestarted") watch();
     });
-    const offToasts = onWatchChange(["notifications"], soon, 300);
-    offEvents = () => {
-      offShell();
-      offToasts();
-    };
-    tick();
+    watch();
   }
   let released = false;
   return () => {
@@ -112,8 +113,12 @@ export function acquireExplorerButtons(): () => void {
     released = true;
     if (--users === 0) {
       clearTimeout(timer);
-      offEvents?.();
-      offEvents = undefined;
+      clearTimeout(retry);
+      timer = undefined;
+      offShell?.();
+      offShell = undefined;
+      stopWatch?.();
+      stopWatch = null;
     }
   };
 }

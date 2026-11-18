@@ -14,7 +14,7 @@ import type { ReadonlyDatabase } from "../runtime/sqlite";
  *   Apps that were running before the dock keep talking to Explorer only; their count is read
  *   from Explorer's own button (services/explorer-buttons.ts).
  * - Packaged apps (WhatsApp, Teams, Mail) post a badge notification; Windows keeps it in the
- *   notification database, read here every few seconds.
+ *   notification database, read here again whenever Windows writes to its folder.
  */
 
 export interface Badge {
@@ -57,7 +57,7 @@ async function refreshBadges() {
   try {
     await readPackageBadges();
   } catch (error) {
-    // The database is busy now and then (Windows writes to it); try again next tick.
+    // The database is busy now and then (Windows writes to it); read again on its next write.
     db?.close();
     db = null;
     if (!String(error).includes("locked")) console.error("[badges]", error);
@@ -70,11 +70,11 @@ async function refreshBadges() {
 export function acquireBadges(): () => void {
   const host = acquireTaskbarHost();
   void refreshBadges();
-  const poll = onWatchChange(["notifications"], () => void refreshBadges(), 300);
+  const offWrites = onWatchChange(["notifications"], () => void refreshBadges(), 300);
   const explorer = acquireExplorerButtons();
   return () => {
     host();
-    poll();
+    offWrites();
     explorer();
   };
 }

@@ -1,3 +1,4 @@
+import { threadsafeCallback, threadsafeComObject } from "@tarve/core";
 import { CFunction, dlopen, read, toArrayBuffer, FfiUnsupported, type Pointer } from "./ffi";
 import { decodeWide, encodeWide } from "./wide";
 import { explorerTray } from "./win32";
@@ -9,6 +10,9 @@ import { explorerTray } from "./win32";
  * before the dock keep sending overlay badges and progress to Explorer only. Explorer exposes
  * both on each button's HelpText ("1 Unread Notification", "Operação 30 porcentagem
  * concluída"), which is what this returns, keyed by the button's AppUserModelID.
+ *
+ * Explorer raises UIA HelpText property-change events on the button when either changes and
+ * structure-change events when buttons come and go; watchExplorerButtons() takes them.
  */
 
 export interface ExplorerButton {
@@ -82,6 +86,14 @@ const put_AutomationElementMode = 11;
 const UIA_NamePropertyId = 30005;
 const UIA_AutomationIdPropertyId = 30011;
 const UIA_HelpTextPropertyId = 30013;
+// IUIAutomation event registration slots.
+const AddPropertyChangedEventHandlerNativeArray = 34;
+const AddStructureChangedEventHandler = 37;
+const RemovePropertyChangedEventHandler = 36;
+const RemoveStructureChangedEventHandler = 38;
+const TreeScope_Subtree = 7;
+const IID_PropertyChangedEventHandler = "{40cd37d4-c756-4b0c-8c6f-bddfeeb13b50}";
+const IID_StructureChangedEventHandler = "{e81d1b4e-11c5-42f8-9754-e7036c79f054}";
 // IUIAutomationElementArray slots.
 const get_Length = 3;
 const GetElement = 4;
@@ -198,4 +210,55 @@ export function readExplorerButtons(tray: Pointer | null = taskbarRoot()): Explo
     }
     throw error;
   }
+}
+
+/**
+ * Calls `changed` (on the JS thread) whenever Explorer changes a button's HelpText (badge,
+ * progress) or adds or removes buttons. UIA calls its handlers on its own threads, so they are
+ * threadsafe COM sinks. The element UIA hands the handler lives only for that call, which
+ * returns before `changed` runs, so the caller reads the buttons again (readExplorerButtons, one
+ * cross-process call) instead of the sender. Returns the stop function, or null when Explorer's
+ * taskbar or UIA is not there (watch again once Explorer restarts).
+ */
+export function watchExplorerButtons(changed: () => void, tray: Pointer | null = taskbarRoot()): (() => void) | null {
+  if (unsupported) return null;
+  try {
+    return watch(changed, tray);
+  } catch (error) {
+    if (error instanceof FfiUnsupported) {
+      unsupported = true;
+      return null;
+    }
+    throw error;
+  }
+}
+
+function watch(changed: () => void, tray: Pointer | null): (() => void) | null {
+  if (!tray || !init()) return null;
+  out[0] = 0n;
+  if (com(automation!, ElementFromHandle, ["ptr", "ptr"], tray, out) !== 0 || !out[0]) return null;
+  const root = outPtr()!;
+  const args = ["ptr", "ptr", "i32", "ptr"] as const;
+  const onProperty = threadsafeCallback(changed, { args });
+  const onStructure = threadsafeCallback(changed, { args });
+  const propertySink = threadsafeComObject({ iids: [IID_PropertyChangedEventHandler], methods: [onProperty] });
+  const structureSink = threadsafeComObject({ iids: [IID_StructureChangedEventHandler], methods: [onStructure] });
+  const stop = () => {
+    com(automation!, RemovePropertyChangedEventHandler, ["ptr", "ptr"], root, propertySink.pointer);
+    com(automation!, RemoveStructureChangedEventHandler, ["ptr", "ptr"], root, structureSink.pointer);
+    onProperty.close();
+    onStructure.close();
+    propertySink.release();
+    structureSink.release();
+    release(root);
+  };
+  const properties = new Int32Array([UIA_HelpTextPropertyId]);
+  const hr =
+    com(automation!, AddPropertyChangedEventHandlerNativeArray, ["ptr", "i32", "ptr", "ptr", "ptr", "i32"], root, TreeScope_Subtree, null, propertySink.pointer, properties, properties.length) ||
+    com(automation!, AddStructureChangedEventHandler, ["ptr", "i32", "ptr", "ptr"], root, TreeScope_Subtree, null, structureSink.pointer);
+  if (hr !== 0) {
+    stop();
+    return null;
+  }
+  return stop;
 }
