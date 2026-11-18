@@ -3,32 +3,22 @@ import { bunBackend } from "./ffi-bun.ts";
 import { nodeBackend } from "./ffi-node.ts";
 import { txikiBackend } from "./ffi-tjs.ts";
 import { pointerFunction, PluginFfiUnsupportedError } from "@tarve/core";
+import { normalizePointer, pointerNumber, type Backend, type FfiType, type NativeFunction, type Pointer, type Signature } from "./ffi-common.ts";
+export { normalizePointer, pointerNumber, type Backend, type FfiType, type NativeFunction, type Pointer, type PointerArgument, type Signature } from "./ffi-common.ts";
 
-export type Pointer = number;
-export type FfiType = "void" | "ptr" | "function" | "bool" | "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "f32" | "f64";
-export interface Signature { args?: readonly FfiType[]; returns?: FfiType }
-export type NativeFunction = ((...args: any[]) => any) & { close(): void };
-export interface Backend {
-  open(path: string, symbols: Record<string, Signature>): { symbols: Record<string, (...args: any[]) => any>; close(): void };
-  callback(fn: (...args: any[]) => any, signature: Signature): { ptr: any; close(): void };
-  pointer(value: PointerArgument): any;
-  address(value: any): number | null;
-  read(type: string, pointer: any, offset: number): any;
-  buffer(pointer: any, offset: number, length: number): ArrayBuffer;
-}
 export const runtime: "bun" | "node" | "txiki" = typeof globalThis.tjs !== "undefined" || globalThis.__tarveTxikiFfi ? "txiki" : globalThis.process?.versions?.bun ? "bun" : "node";
 export class FfiUnsupported extends Error {
   constructor(message = "Raw function pointers are not supported by this FFI backend") { super(message); this.name = "FfiUnsupported"; }
 }
-export function pointerNumber(value: bigint | number | null): number | null {
-  if (value === null || value === 0 || value === 0n) return null;
-  // Win32 also returns sign-extended handles (for example HDC), not only addresses.
-  const number = Number(typeof value === "bigint" ? BigInt.asIntN(64, value) : value);
-  if (!Number.isSafeInteger(number)) throw new RangeError("FFI pointer exceeds the safe integer range");
-  return number;
-}
 const require = createRequire(import.meta.url);
-const backend: Backend = runtime === "txiki" ? txikiBackend(globalThis.__tarveTxikiFfi ?? await import("tjs:ffi").catch(error => { throw error; })) : runtime === "bun" ? bunBackend(require("bun:ffi")) : nodeBackend(require("node:ffi"));
+// No top-level await here: in an app-pack host build every module is a lazy initializer, and an
+// awaiting ffi.ts inside an import cycle never settled, so the executable ended at start-up.
+const backend: Backend = runtime === "txiki" ? txikiBackend(txikiFfi()) : runtime === "bun" ? bunBackend(require("bun:ffi")) : nodeBackend(require("node:ffi"));
+function txikiFfi(): typeof import("tjs:ffi") {
+  const ffi = globalThis.__tarveTxikiFfi;
+  if (!ffi) throw new Error("tjs:ffi is not available: run through a Tarve txiki.js build");
+  return ffi;
+}
 const signatureOf = (signature: Signature): Signature => ({ args: (signature.args ?? []).map(type => type === "bool" ? "i32" : type), returns: signature.returns === "bool" ? "i32" : signature.returns ?? "void" });
 function input(type: FfiType, value: any): any {
   if (type === "function") {
@@ -100,11 +90,4 @@ export function ptr(buffer: ArrayBufferView | ArrayBuffer): Pointer { return bac
 export function toArrayBuffer(pointer: Pointer | bigint, offset: number, length: number): ArrayBuffer { return backend.buffer(backend.pointer(pointer), offset, length); }
 const reader = <T>(type: string) => (pointer: Pointer | bigint, offset = 0): T => output(type as FfiType, backend.read(type, backend.pointer(pointer), offset));
 export const read = { i8: reader<number>("i8"), u8: reader<number>("u8"), i16: reader<number>("i16"), u16: reader<number>("u16"), i32: reader<number>("i32"), u32: reader<number>("u32"), i64: reader<bigint>("i64"), u64: reader<bigint>("u64"), f32: reader<number>("f32"), f64: reader<number>("f64"), ptr: reader<Pointer | null>("ptr") };
-
-export type PointerArgument = Pointer | bigint | ArrayBufferView | ArrayBuffer | null;
-export function normalizePointer(value: PointerArgument): number | bigint | Uint8Array | null {
-  const normalized = ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : value instanceof ArrayBuffer ? new Uint8Array(value) : value;
-  if (normalized === null || typeof normalized === "number" || typeof normalized === "bigint" || normalized instanceof Uint8Array) return normalized;
-  throw new TypeError("FFI ptr expects a number, bigint, null, ArrayBuffer or ArrayBufferView");
-}
 

@@ -1,4 +1,4 @@
-import { pointerNumber, type Backend, type Signature, normalizePointer, type PointerArgument } from "./ffi.ts";
+import { pointerNumber, type Backend, type Signature, normalizePointer, type PointerArgument } from "./ffi-common.ts";
 
 export function txikiBackend(ffi: typeof import("tjs:ffi")): Backend {
   const integer64 = (signed: boolean) => new ffi.AdvancedType(ffi.types[signed ? "sint64" : "uint64"], {

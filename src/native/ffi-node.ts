@@ -1,4 +1,4 @@
-import { pointerNumber, type Backend, type Signature, normalizePointer } from "./ffi.ts";
+import { pointerNumber, type Backend, type Signature, normalizePointer } from "./ffi-common.ts";
 
 export function nodeBackend(ffi: typeof import("node:ffi")): Backend {
   const types: Record<string, string> = { void: "void", ptr: "pointer", function: "function", i8: "int8", u8: "uint8", i16: "int16", u16: "uint16", i32: "int32", u32: "uint32", i64: "int64", u64: "uint64", f32: "float", f64: "double" };

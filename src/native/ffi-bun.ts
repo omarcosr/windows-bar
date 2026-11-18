@@ -1,4 +1,4 @@
-import { pointerNumber, type Backend, normalizePointer } from "./ffi.ts";
+import { pointerNumber, type Backend, normalizePointer } from "./ffi-common.ts";
 
 export function bunBackend(ffi: typeof import("bun:ffi")): Backend {
   return {
