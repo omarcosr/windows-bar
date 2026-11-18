@@ -4,6 +4,24 @@ Uma barra de tarefas com widgets para o Windows 11, inspirada no [Luma Bar](http
 
 Feito com [Tarve](https://tarve.dev) 0.13.2: interface desenhada nativamente, sem navegador embutido.
 
+![WindowsBar no lugar da barra de tarefas: música e CPU/RAM à esquerda, apps no centro, bandeja, relógio e cotação à direita](docs/screenshots/bar.png)
+
+[Instalação](#instalação) · [Como usar](#como-usar) · [Widgets](#widgets-incluídos) · [Configurações](#configurações) · [Criando widgets](#criando-widgets)
+
+### Um olhar de perto
+
+**Esquerda — tocando agora, clima e CPU/RAM**
+
+![Widget Tocando agora com controles, temperatura e uso de CPU e RAM](docs/screenshots/bar-left.png)
+
+**Centro — Iniciar e apps**, com indicador de janela aberta e contador de notificações vindo do próprio app
+
+![Botão Iniciar e apps fixados com indicadores e badges](docs/screenshots/bar-apps.png)
+
+**Direita — rede, volume, bateria, bandeja, relógio e um widget de cotação**
+
+![Ícones do sistema, bandeja, relógio e widget de cotação USD/BRL](docs/screenshots/bar-right.png)
+
 ## Instalação
 
 1. Baixe o `WindowsBar-Setup-<versão>-win32-x64.exe` em [Releases](https://github.com/omarcosr/windows-bar/releases/latest).
