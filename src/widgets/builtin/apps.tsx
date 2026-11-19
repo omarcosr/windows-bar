@@ -14,7 +14,7 @@ import { HitReach, axisBox, iconHover } from "../ui";
 import { appRoom, dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
 import { dropFilesOn } from "../../native/drop-target";
-import { cursorPos, mouseHoverTime } from "../../native/win32";
+import { cursorPos, mouseHoverTime, windowRect } from "../../native/win32";
 import type { AppHandle, ImageRgbaSource } from "@tarve/core";
 import { DockWindow } from "../../native/dock-window";
 import { appIdForShortcut, appIdForWindow, defaultAppIdForProgram, readJumpList, type JumpCategory, linkIconPixels } from "../../native/jump-list";
@@ -241,7 +241,8 @@ function AppIcon(props: {
   onContextMenu: () => void;
   /** Drag sideways to reorder (appDragProps), and where a dragged button lands on this one. */
   drag: ReturnType<typeof appDragProps>;
-  dropSide: "before" | "after" | null;
+      /** How far this button's look slides along the bar while another is dragged (appShifts). */
+    shift: number;
 }) {
   const { item } = props;
   // Sharp when magnified: the bitmap is read once at the largest size the icon reaches.
@@ -286,7 +287,8 @@ function AppIcon(props: {
       }}
     >
       <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} onHover={onHover} drag={props.drag} />
-      <DropMark side={props.dropSide} />
+      {/* The look slides while a button is dragged; the slot (and its hit area) stays put. */}
+      <View style={shiftStyle(props.shift)}>
       {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;
           an app asking for attention gets an orange plate until its window is activated. */}
       {/* The macOS effect draws no plate, as on the Dock: the grown icon would spill over it. The
@@ -361,8 +363,9 @@ function AppIcon(props: {
             transition: { width: { duration: 180, easing: "easeOut" }, height: { duration: 180, easing: "easeOut" } },
           }}
         />
+        </View>
       </View>
-    </Pressable>
+      </Pressable>
   );
 }
 
@@ -487,7 +490,7 @@ function WindowButton(props: {
   slots: number;
   onContextMenu: () => void;
   drag: ReturnType<typeof appDragProps>;
-  dropSide: "before" | "after" | null;
+      shift: number;
 }) {
   const { item, win } = props;
   const icon = iconFor(item.pin?.path ?? item.exe, ui.app.icon);
@@ -520,7 +523,7 @@ function WindowButton(props: {
         style={{ position: "relative", width, height: ui.tile.height, cursor: "pointer", radius: 10, ...iconHover({ magnified: true }), opacity: appDrag.source === item.orderKey ? 0.4 : 1 }}
       >
       <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} drag={props.drag} />
-      <DropMark side={props.dropSide} />
+      <View style={shiftStyle(props.shift)}>
       {attention || active ? (
         <View
           style={{
@@ -557,8 +560,9 @@ function WindowButton(props: {
             transition: { width: { duration: 180, easing: "easeOut" } },
           }}
         />
+        </View>
       </View>
-    </Pressable>
+      </Pressable>
   );
 }
 /** The AppUserModelID Explorer keeps the app's jump list under: asked of a window, else of the pin. */
@@ -641,36 +645,71 @@ function appDragProps(instance: string, item: Item, onMove: (source: string, tar
     onDragEnter: () => {
       if (appDrag.source && appDrag.instance === instance) appDrag.over = key;
     },
-    onDragLeave: () => {
-      if (appDrag.over === key) appDrag.over = "";
-    },
+    // Leaving a button keeps it as the target: past the last (or first) one the dragged button
+    // stays at that end, as on the taskbar; entering another button retargets it.
     onDrop: () => {
-      if (appDrag.source && appDrag.instance === instance) onMove(appDrag.source, key);
-    },
-    onDragEnd: () => {
+      const source = appDrag.instance === instance ? appDrag.source : "";
+      // Cleared first: the new order renders with no slide left to ease back.
       appDrag.instance = "";
       appDrag.source = "";
       appDrag.over = "";
+      if (source) onMove(source, key);
+    },
+    onDragEnd: () => {
+      // Not dropped on a button (released past the end of the group): it lands where it was
+      // shown, if still on the bar; released off the bar, it goes back, as on the taskbar.
+      const source = appDrag.instance === instance ? appDrag.source : "";
+      const over = appDrag.over;
+      appDrag.instance = "";
+      appDrag.source = "";
+      appDrag.over = "";
+      if (source && over && source !== over && pointerOnDock()) onMove(source, over);
     },
   };
 }
 
-/** Which side of the button the dragged one lands on, or null when it is not under the pointer. */
-function appDropSide(instance: string, item: Item, items: readonly Item[]): "before" | "after" | null {
-  if (appDrag.instance !== instance || !appDrag.source || appDrag.over !== item.orderKey || appDrag.source === item.orderKey) return null;
-  const from = items.findIndex((i) => i.orderKey === appDrag.source);
-  const to = items.findIndex((i) => i.orderKey === item.orderKey);
-  return from < to ? "after" : "before";
+/**
+ * How far each visible button's look slides while one is dragged, in px along the bar: the dragged
+ * one moves to where it will land and the ones it passes make room, as the taskbar's icons do.
+ * The slots themselves stay put, so the button under the pointer is the place it lands on.
+ */
+function appShifts(instance: string, keys: readonly string[], slots: readonly number[]): number[] {
+  const shifts = keys.map(() => 0);
+  if (appDrag.instance !== instance || !appDrag.source || !appDrag.over || appDrag.source === appDrag.over) return shifts;
+  const source = keys.flatMap((k, i) => (k === appDrag.source ? [i] : []));
+  const target = keys.flatMap((k, i) => (k === appDrag.over ? [i] : []));
+  if (!source.length || !target.length) return shifts;
+  const px = (i: number) => slots[i]! * ui.app.slot;
+  const width = source.reduce((a, i) => a + px(i), 0);
+  let passed = 0;
+  if (source[0]! < target[0]!) {
+    // Moving forward: it lands after the target; the buttons in between step back.
+    for (let i = source[source.length - 1]! + 1; i <= target[target.length - 1]!; i++) {
+      shifts[i] = -width;
+      passed += px(i);
+    }
+    for (const i of source) shifts[i] = passed;
+  } else {
+    for (let i = target[0]!; i < source[0]!; i++) {
+      shifts[i] = width;
+      passed += px(i);
+    }
+    for (const i of source) shifts[i] = -passed;
+  }
+  return shifts;
 }
 
-/** The blue bar marking where a dragged button will land, as for widgets. */
-function DropMark(props: { side: "before" | "after" | null }) {
-  if (!props.side) return null;
-  return dockVertical() ? (
-    <View style={{ position: "absolute", left: 6, right: 6, height: 3, radius: 2, background: ui.blue, [props.side === "before" ? "top" : "bottom"]: -1, zIndex: 20 }} />
-  ) : (
-    <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [props.side === "before" ? "left" : "right"]: -1, zIndex: 20 }} />
-  );
+/** A button's look, slid by `shift` px along the bar; it eases only while a drag is going on, so the drop lands without a jump. */
+function shiftStyle(shift: number) {
+  return {
+    position: "absolute" as const,
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    transform: dockVertical() ? `translateY(${shift}px)` : `translateX(${shift}px)`,
+    ...(appDrag.source ? { transition: { transform: { duration: 200, easing: "easeOut" as const } } } : {}),
+  };
 }
 
 /** `items` in the saved order: known buttons take the saved sequence, unknown ones keep their place. */
@@ -796,6 +835,8 @@ export default defineWidget({
     const { visible, overflow, slots } = layoutButtons(ctx.instanceId, ordered);
     // Slot offsets along the group, for the magnification and the group's room.
     const offsets = slots.map((_, i) => slots.slice(0, i).reduce((a, b) => a + b, 0));
+    // While a button is dragged, the looks slide to show the order it would leave.
+    const shifts = appShifts(ctx.instanceId, visible.map((b) => b.item.orderKey), slots);
     const used = slots.reduce((a, b) => a + b, 0);
     setAppCount(ctx.instanceId, used + (overflow.length ? 1 : 0));
     middleTargets.set(
@@ -889,7 +930,7 @@ export default defineWidget({
       <View style={{ direction: dockVertical() ? "column" : "row", ...(dockVertical() ? { width: ui.tile.height } : { height: ui.tile.height }), align: "center", gap: 0, shrink: 0 }}>
         {visible.map(({ item, win }, index) =>
           win ? (
-            <WindowButton key={"win:" + Number(win.hwnd)} item={item} win={win} slots={slots[index]!} onContextMenu={() => showMenu(item)} drag={appDragProps(ctx.instanceId, item, moveApp)} dropSide={appDropSide(ctx.instanceId, item, ordered)} />
+            <WindowButton key={"win:" + Number(win.hwnd)} item={item} win={win} slots={slots[index]!} onContextMenu={() => showMenu(item)} drag={appDragProps(ctx.instanceId, item, moveApp)} shift={shifts[index]!} />
           ) : (
           <AppIcon
             key={item.key}
@@ -898,7 +939,7 @@ export default defineWidget({
             onClick={() => activateApp(item.key, item.launch)}
             onContextMenu={() => showMenu(item)}
               drag={appDragProps(ctx.instanceId, item, moveApp)}
-            dropSide={appDropSide(ctx.instanceId, item, ordered)}
+            shift={shifts[index]!}
           />
           ),
         )}
@@ -921,4 +962,12 @@ function modifiedClick(item: Item): boolean {
   else if (press.shift) launch(item.launch);
   else cycleApp(item.key, item.launch);
   return true;
+}
+/** The pointer is on the dock's window (the bar), in physical screen px. */
+function pointerOnDock(): boolean {
+  const hwnd = DockWindow.handle();
+  if (!hwnd) return false;
+  const r = windowRect(hwnd);
+  const p = cursorPos();
+  return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
 }
