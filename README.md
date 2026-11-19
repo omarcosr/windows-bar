@@ -109,8 +109,8 @@ Instale txiki com `winget install Saghul.TxikiJS` e reabra o terminal. O runner 
 **Resultados automatizados:** txiki, Bun, Node e `bun run dev` passaram nos modos flutuante e completo: reserva de área útil, ocultação do Explorer, `--quit` e restauração após saída normal ou kill, sem recuperação emergencial. `--autostart on/off` passou nos três exes; `--update` foi somente encaminhamento para feed indisponível, não instalação real.
 
 **Limitações restantes:**
-- **gap do Tarve — AppBar:** a API pública não oferece o roteamento para a `Shell_TrayWnd` do WindowsBar nem posicionamento independente para `stripOverlap`; a reserva continua via Win32.
-- **gap do Tarve — shim txiki:** PID ausente e UTF-16LE de `Buffer` exigem os adaptadores locais (`GetCurrentProcessId` e `encodeWide`/`decodeWide`).
+- **AppBar:** a reserva do dock usa `app.appBar(edge, { size, overlap })` (Tarve 0.13.3+). Só o estado da barra do Explorer (`ABM_GETSTATE`/`ABM_SETSTATE`) continua via Win32, encaminhado ao Explorer quando o tray host está ativo.
+- **gap do Tarve — shim txiki:** o `Buffer` não implementa UTF-16LE; o adaptador local `encodeWide`/`decodeWide` continua necessário. `spawn` com `windowsHide` sem `detached` derruba o processo (0xC0000005), então `output()` usa `CreateProcessW` próprio. (`process.pid` e o `spawn` detached já vêm do Tarve.)
 - **gap do Tarve — APIs específicas do Windows:** thumbnails DWM, Aero Peek e exclusão do preview do Peek continuam via FFI, não por uma API de alto nível do Tarve.
 - **Validação pendente, não gap comprovado do Tarve:** aparência e interações da GUI (incluindo volume, ícones, Peek, bandeja, badges e seleção de thumbnails), shell-events, fullscreen, multimonitor e atualização real/entre runtimes ainda requerem homologação. `DockVisible=false` nos ensaios não permite aprovar a apresentação.
 

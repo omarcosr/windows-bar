@@ -218,7 +218,12 @@ setTimeout(() => (dockUi.shown = true), 1500);
 // last move, so the final size of an F11 or a game switching to full screen is never missed.
 let moveTimer: ReturnType<typeof setTimeout> | undefined;
 let movePending = false;
+// One more check once the moves have settled: an app going full screen from maximized (Tauri,
+// Electron) may drop its title bar after its last move, and a style change sends no event.
+let settleTimer: ReturnType<typeof setTimeout> | undefined;
 const onForegroundMoved = () => {
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => dockWindow?.checkFullscreen(), 300);
   if (moveTimer) {
     movePending = true;
     return;

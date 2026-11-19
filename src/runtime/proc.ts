@@ -44,8 +44,8 @@ function inheritable(path: string, write: boolean): bigint {
  * Runs a console program with no console window and returns its stdout. Tarve's txiki spawn
  * (tjs.spawn) ignores windowsHide, so every reg/netsh call would flash a console; CreateProcessW
  * with CREATE_NO_WINDOW never creates one. stdout goes to a temporary file, read once it exits.
- * TODO: the next @tarve/core (after 0.13.2) honours windowsHide in the txiki spawn (CreateProcessW
- * + CREATE_NO_WINDOW, async pipes): then spawn can be used here and this workaround removed.
+ * Still needed with @tarve/core 0.13.4: its txiki spawn with windowsHide (not detached) crashes
+ * the process with an access violation (0xC0000005) for any stdio; measured with .empryo/tmp/spawn-probe.ts.
  */
 async function hiddenOutput(args: readonly string[], timeout = 15_000): Promise<{ code: number; stdout: string }> {
   kernel ??= loadKernel();
@@ -76,6 +76,8 @@ async function hiddenOutput(args: readonly string[], timeout = 15_000): Promise<
     const pinfo = new DataView(processInfo.buffer);
     const process_ = pinfo.getBigUint64(0, true);
     handles.push(process_, pinfo.getBigUint64(8, true));
+    // Polled: txiki has no event for a process handle Tarve did not spawn, and Tarve's own hidden
+    // spawn (which waits natively) crashes. Only for the dock's one-off watchdog launch.
     const deadline = Date.now() + timeout;
     while (k.WaitForSingleObject(process_, 0) === WAIT_TIMEOUT) {
       if (Date.now() > deadline) {
@@ -102,24 +104,12 @@ function quoteArgument(value: string): string {
   return '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1') + '"';
 }
 
-let shell: ReturnType<typeof dlopen> | undefined;
-
-/** Starts a hidden process without keeping the dock alive. */
+/**
+ * Starts a hidden process without keeping the dock alive. On txiki, Tarve's detached spawn (0.13.3+)
+ * starts it with DETACHED_PROCESS (no console window) outside the dock's job object.
+ */
 export function run(args: readonly string[]): void {
   if (!args.length) throw new Error("Missing executable");
-  if (runtime === "txiki") {
-    // Tarve's tjs.spawn shim drops windowsHide; ShellExecuteW honors SW_HIDE.
-    shell ??= dlopen("shell32.dll", { ShellExecuteW: { args: ["ptr", "ptr", "ptr", "ptr", "ptr", "i32"], returns: "i64" } });
-    const wide = (value: string) => {
-      const bytes = new Uint8Array((value.length + 1) * 2);
-      const view = new DataView(bytes.buffer);
-      for (let i = 0; i < value.length; i++) view.setUint16(i * 2, value.charCodeAt(i), true);
-      return bytes;
-    };
-    const result = shell.symbols.ShellExecuteW!(null, null, wide(args[0]!), wide(args.slice(1).map(quoteArgument).join(" ")), null, 0);
-    if (Number(result) <= 32) throw new Error(`ShellExecuteW failed: ${result}`);
-    return;
-  }
   const child = spawn(args[0]!, args.slice(1), { windowsHide: true, detached: true, stdio: "ignore" });
   child.on("error", (error) => console.error("[process]", error));
   child.unref();

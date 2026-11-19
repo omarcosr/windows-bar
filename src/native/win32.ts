@@ -100,22 +100,6 @@ export function explorerTray(): HWND | null {
   return null;
 }
 
-export const HWND_TOPMOST = -1;
-const SWP_NOACTIVATE = 0x0010;
-const SWP_NOSIZE = 0x0001;
-
-/**
- * Drops a topmost window to the bottom of the z-order (or back on top with false), without hiding it:
- * what Explorer's taskbar does while a full-screen ("rude") app owns its screen (CTray::_ResetZorder
- * uses HWND_BOTTOM). Inserting after the full-screen window instead fails with ERROR_ACCESS_DENIED
- * when that window runs elevated (many games and anti-cheats), and the dock stayed above it.
- */
-export function setBehind(hwnd: HWND, behind: boolean) {
-  const HWND_BOTTOM = 1;
-  const flags = SWP_NOACTIVATE | SWP_NOSIZE | 0x2; /* SWP_NOMOVE */
-  U.SetWindowPos(hwnd, behind ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0, flags);
-}
-
 function readRect(view: DataView, offset: number): Rect {
   return {
     left: view.getInt32(offset, true),

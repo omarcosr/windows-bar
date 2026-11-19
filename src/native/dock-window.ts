@@ -10,8 +10,10 @@ import {
   setTaskbarState,
   showWindow,
   showWindowAsync,
-  setBehind,
   foregroundWindow,
+  exePathOf,
+  windowClass,
+  windowPid,
   SW_HIDE,
   SW_SHOWNA,
   taskbarState,
@@ -31,6 +33,36 @@ import type { TaskbarEdge } from "../services/taskbar-prefs";
 const dwmapi = dlopen("dwmapi.dll", {
   DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
 });
+
+/**
+ * Hides the window through DWM (DWMWA_CLOAK) or shows it again: it is not drawn and takes no
+ * pointer input, but stays where it is in the z-order and keeps its AppBar.
+ */
+function cloak(hwnd: HWND, on: boolean) {
+  const DWMWA_CLOAK = 13;
+  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, new Uint8Array(new Uint32Array([on ? 1 : 0]).buffer), 4);
+}
+
+/** Processes that draw the shell's own surfaces: Start, Search and the taskbar's flyouts. */
+const SHELL_HOSTS = /\\(StartMenuExperienceHost|SearchHost|SearchApp|ShellExperienceHost|ShellHost)\.exe$/i;
+/** Explorer's own shell windows (the taskbar, Task View / Alt+Tab), not its File Explorer windows. */
+const EXPLORER_SHELL = new Set(["Shell_TrayWnd", "Shell_SecondaryTrayWnd", "XamlExplorerHostIslandWindow", "MultitaskingViewFrame"]);
+const shellHosts = new Map<number, boolean>();
+
+/** Whether the window in front is part of the shell (Start, Search, a flyout, Task View). */
+function shellSurfaceInFront() {
+  const fg = foregroundWindow();
+  if (!fg) return false;
+  if (EXPLORER_SHELL.has(windowClass(fg))) return true;
+  const pid = windowPid(fg);
+  let host = shellHosts.get(pid);
+  if (host === undefined) {
+    host = SHELL_HOSTS.test(exePathOf(pid));
+    if (shellHosts.size > 64) shellHosts.clear();
+    shellHosts.set(pid, host);
+  }
+  return host;
+}
 
 /** Stays visible while a window is peeked from the preview, like the real taskbar. */
 function excludeFromPeek(hwnd: HWND) {
@@ -419,22 +451,27 @@ export class DockWindow {
   }
 
   /**
-   * Steps behind a full-screen window as soon as one takes the screen. Driven by shell events
-   * (full-screen notice, foreground change, foreground window resized), with a slow safety check.
+   * Gets out of the way of a full-screen window as soon as one takes the screen, and comes back
+   * over it while Start, Search, a taskbar flyout or Task View is in front, as Explorer's taskbar
+   * does. Driven by shell events (full-screen notice, foreground change, foreground window resized).
+   *
+   * Explorer drops its taskbar to the bottom of the z-order and raises it again for Start; raising
+   * a window above the app in front takes foreground rights only the shell has (measured: the
+   * dock's HWND_TOPMOST was ignored, it stayed under the app and lost "always on top" for good).
+   * So the dock stays on top and is cloaked instead (not drawn, no input, AppBar kept: a hidden
+   * AppBar loses its strip, windows grow over it and look full-screen themselves).
    */
   checkFullscreen() {
     if (this.#disposed) return false;
-    const fullscreen = (this.#shellFullscreen && this.#foregroundOnOwnScreen()) || fullscreenAppActive(this.#hwnd);
+    const fullscreen = !shellSurfaceInFront() && ((this.#shellFullscreen && this.#foregroundOnOwnScreen()) || fullscreenAppActive(this.#hwnd));
     if (fullscreen !== this.#hiddenForFullscreen) {
       this.#hiddenForFullscreen = fullscreen;
       // Nothing the dock draws can be seen now: pollers and timers rest until it returns.
       setDockCovered(fullscreen);
-      // Drop to the bottom of the z-order, as Explorer's taskbar does, instead of hiding: a hidden
-      // AppBar loses its reserved strip, windows then grow over it, look full-screen themselves and
-      // the dock never returns.
-      setBehind(this.#hwnd, fullscreen);
-      // Explorer may have shown its taskbar meanwhile (not hidden again during full screen).
-      if (!fullscreen) this.#rehideTaskbar();
+      cloak(this.#hwnd, fullscreen);
+      // With the dock still on top, Explorer does not take the app for full screen and shows its
+      // own taskbar over it: it stays hidden in full screen too.
+      this.#rehideTaskbar();
     }
     return fullscreen;
   }
@@ -477,7 +514,7 @@ export class DockWindow {
 
   /** Explorer shows the taskbar again on its own (Start menu, notifications, Explorer restart). */
   #rehideTaskbar(force = false) {
-    if (!this.#taskbar || this.#hiddenForFullscreen) return;
+    if (!this.#taskbar) return;
     const tray = explorerTray();
     if (tray && tray !== this.#taskbar.hwnd) this.#taskbar.hwnd = tray;
     if (tray && (force || isWindowVisible(tray))) {

@@ -100,6 +100,8 @@ Evidências por amostra: `results.json` e logs nos três diretórios dos comando
 
 Gaps restantes, com adaptações locais: **gap do Tarve — AppBar** (roteamento para nossa `Shell_TrayWnd` e posicionamento independente de `stripOverlap`); **gap do Tarve — shim txiki** (PID e UTF-16LE de `Buffer`); **gap do Tarve — APIs DWM específicas** (thumbnails, Peek e exclusão do preview continuam em FFI). Node mantém o requisito de FFI experimental. `tarve dev` não suporta txiki; o desenvolvimento usa Bun ou Node.
 
+> **Atualização (Tarve 0.13.4):** os gaps de AppBar e de PID foram fechados pelo Tarve 0.13.3: a reserva usa `app.appBar(edge, { size, overlap })` e o app usa `process.pid`. No txiki, `run()` de `src/runtime/proc.ts` passou a usar o `spawn` detached do Tarve (probe: `shutdown.exe /a` executou, saída 1116, sem console) e o contorno `ShellExecuteW` foi removido. O `spawn` com `windowsHide` **não** detached ainda derruba o processo txiki com 0xC0000005 em qualquer `stdio` (`.empryo/tmp/spawn-probe.ts`), então `output()` mantém o contorno `CreateProcessW`. Continuam locais também o UTF-16LE do `Buffer` no txiki e as APIs DWM (thumbnails, Peek).
+
 ### Revalidação — limpeza e watchdog
 
 - Removida a manipulação de `Symbol.for("tarve.packHost")`/`<version>.boot`. O `pack-host.js` instalado confirma o pack em saída 0 e preserva rollback em saída não zero. `exitApp` delega a `process.exit`; `onExit` usa `process.once("exit")`, com cancelamento via `process.off`, em todos os runtimes.
