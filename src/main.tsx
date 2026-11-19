@@ -161,6 +161,8 @@ const app = createApp(
   ),
   {
     renderer: "auto",
+    // The button and Shift/Ctrl of each press: the taskbar's modified clicks on app buttons (apps.tsx).
+    pointerEvents: true,
     appIdentity: { id: "WindowsBar.Dock", name: "WindowsBar", icon: appIcon },
     icon: appIcon,
     closeBehavior: "exit",

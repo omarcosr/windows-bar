@@ -31,7 +31,7 @@ function Art() {
   if (icon) {
     return (
       <View style={{ width: size, height: size, radius: 9, shrink: 0, background: ui.tile.hover, align: "center", justify: "center" }}>
-        <Image src={icon} width={Math.round(size * 0.74)} height={Math.round(size * 0.74)} fit="contain" />
+        <Image src={icon} width={Math.round(size * 0.74)} height={Math.round(size * 0.74)} fit="contain" style={{ radius: 0 }} />
       </View>
     );
   }

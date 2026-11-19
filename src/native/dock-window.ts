@@ -29,6 +29,7 @@ import { exitApp, onExit } from "../services/exit";
 import { onShellEvent, type ShellEvent } from "./shell-events";
 import { setDockCovered } from "../services/poller";
 import type { TaskbarEdge } from "../services/taskbar-prefs";
+import { setWindowPeek } from "@tarve/core";
 
 const dwmapi = dlopen("dwmapi.dll", {
   DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
@@ -66,8 +67,7 @@ function shellSurfaceInFront() {
 
 /** Stays visible while a window is peeked from the preview, like the real taskbar. */
 function excludeFromPeek(hwnd: HWND) {
-  const DWMWA_EXCLUDED_FROM_PEEK = 12;
-  dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_EXCLUDED_FROM_PEEK, new Uint8Array(new Uint32Array([1]).buffer), 4);
+    setWindowPeek(hwnd, { excluded: true });
 }
 
 export interface DockWindowOptions {

@@ -10,14 +10,12 @@ import {
   broadcastTaskbarCreated,
   clickIcon,
   encodePng,
-  iconPixels,
   startTrayHost,
   stopTrayHost,
   windowAlive,
   windowPidOf,
   type NotifyIconMessage,
-  type TaskbandMessage,
-} from "../native/tray-host";
+  type TaskbandMessage, type ThumbBarCall } from "../native/tray-host";
 import { hash } from "../runtime/proc";
 import { onShellEvent, onWatchChange, watchDestroyed } from "../native/shell-events";
 import { encodeWide, decodeWide } from "../native/wide";
@@ -71,13 +69,46 @@ export function progressFor(exe: string): ButtonProgress | undefined {
   return Object.values(progress).find((p) => p.key === key);
 }
 
+
+/** A thumbnail toolbar button (ITaskbarList3::ThumbBarAddButtons), with its picture resolved to a PNG. */
+export interface ThumbButton {
+  id: number;
+  /** PNG of hIcon (THB_ICON), or "" to use the image list's picture at bitmap. */
+  icon: string;
+  /** hIcon's width in pixels. */
+  iconSize: number;
+  bitmap: number;
+  tip: string;
+  /** THBF_*: 1 disabled, 2 dismiss on click, 4 no background, 8 hidden, 0x10 non-interactive. */
+  flags: number;
+}
+
+/** What an app set for its window's thumbnail: toolbar, image list, tooltip, clip (client coordinates). */
+export interface ThumbBar {
+  buttons: ThumbButton[];
+  images: string[];
+  /** The image list's image width in pixels. */
+  imageSize: number;
+  tooltip: string;
+  clip: { left: number; top: number; right: number; bottom: number } | null;
+}
+
+/** Thumbnail toolbars, tooltips and clips by window handle. */
+export const thumbBars = store<Record<string, ThumbBar>>({});
+
+/** The picture a thumbnail button shows: its own icon, else its image list entry. */
+export function thumbButtonImage(bar: ThumbBar, button: ThumbButton): { src: string; size: number } | null {
+  if (button.icon) return { src: button.icon, size: button.iconSize };
+  const src = bar.images[button.bitmap];
+  return src ? { src, size: bar.imageSize } : null;
+}
+
 const cacheDir = join(configDir, "tray");
 mkdirSync(cacheDir, { recursive: true });
 
 const written = new Set<string>();
 
-function iconFile(hicon: number): string {
-  const px = iconPixels(hicon);
+function iconFile(px: { width: number; height: number; rgba: Uint8Array } | undefined): string {
   if (!px) return "";
   const name = `${hash(px.rgba).toString(16)}-${px.width}.png`;
   const path = join(cacheDir, name);
@@ -168,7 +199,7 @@ function onNotifyIcon(m: NotifyIconMessage) {
     callback: m.flags & 0x1 ? m.callback : (prev?.callback ?? 0),
     version: m.message === 4 ? m.version : (prev?.version ?? 0),
     tip: m.flags & NIF_TIP ? m.tip : (prev?.tip ?? ""),
-    image: m.flags & NIF_ICON ? iconFile(m.hicon) || prev?.image || "" : (prev?.image ?? ""),
+    image: m.flags & NIF_ICON ? iconFile(m.icon) || prev?.image || "" : (prev?.image ?? ""),
     hidden: m.flags & NIF_STATE && m.stateMask & NIS_HIDDEN ? !!(m.state & NIS_HIDDEN) : (prev?.hidden ?? false),
     exe,
     promoted: isPromoted(exe),
@@ -201,8 +232,40 @@ function onProgress(hwnd: number, msg: number, lParam: number) {
   progress[id] = { key: prev?.key ?? exePathOf(windowPidOf(hwnd)).toLowerCase(), state, value };
 }
 
+function onThumbBar(hwnd: number, call: ThumbBarCall) {
+  const id = String(hwnd);
+  const prev: ThumbBar = thumbBars[id] ?? { buttons: [], images: [], imageSize: 0, tooltip: "", clip: null };
+  const next: ThumbBar = { ...prev };
+  if (call.kind === "images") {
+    next.images = call.images.map((px) => iconFile(px ?? undefined));
+    next.imageSize = call.images.find((px) => px)?.width ?? 0;
+  }
+  else if (call.kind === "tooltip") next.tooltip = call.text ?? "";
+  else if (call.kind === "clip") next.clip = call.rect;
+  else if (call.kind === "add") {
+    // Explorer takes the toolbar once per window; a second add replaces it here.
+    next.buttons = call.buttons.map((b) => ({ id: b.id, icon: b.mask & 0x2 ? iconFile(b.icon ?? undefined) : "", iconSize: b.icon?.width ?? 0, bitmap: b.mask & 0x1 ? b.bitmap : 0, tip: b.mask & 0x4 ? b.tip : "", flags: b.mask & 0x8 ? b.flags : 0 }));
+  } else {
+    next.buttons = prev.buttons.map((old) => {
+      const b = call.buttons.find((u) => u.id === old.id);
+      if (!b) return old;
+      return {
+        id: old.id,
+        icon: b.mask & 0x2 ? iconFile(b.icon ?? undefined) : old.icon,
+        iconSize: b.mask & 0x2 ? (b.icon?.width ?? 0) : old.iconSize,
+        bitmap: b.mask & 0x1 ? b.bitmap : old.bitmap,
+        tip: b.mask & 0x4 ? b.tip : old.tip,
+        flags: b.mask & 0x8 ? b.flags : old.flags,
+      };
+    });
+  }
+  if (JSON.stringify(prev) === JSON.stringify(next) && thumbBars[id]) return;
+  thumbBars[id] = next;
+}
+
 function onTaskband(m: TaskbandMessage) {
   const hwnd = Number(m.wParam);
+  if (m.thumbBar) return onThumbBar(hwnd, m.thumbBar);
   if (m.msg === TBL_SET_PROGRESS_VALUE || m.msg === TBL_SET_PROGRESS_STATE) return onProgress(hwnd, m.msg, m.lParam);
   if (m.msg !== TBL_SET_OVERLAY_ICON) return;
   const id = String(hwnd);
@@ -210,7 +273,7 @@ function onTaskband(m: TaskbandMessage) {
     delete overlays[id];
     return;
   }
-  const image = iconFile(m.lParam);
+  const image = iconFile(m.icon);
   if (!image) return;
   overlays[id] = { key: exePathOf(windowPidOf(hwnd)).toLowerCase(), image };
 }
@@ -227,6 +290,7 @@ function prune() {
   if (alive.length !== tray.icons.length) tray.icons = alive;
   for (const id of Object.keys(overlays)) if (!windowAlive(Number(id))) delete overlays[id];
   for (const id of Object.keys(progress)) if (!windowAlive(Number(id))) delete progress[id];
+  for (const id of Object.keys(thumbBars)) if (!windowAlive(Number(id))) delete thumbBars[id];
 }
 
 /** "Mostrar na barra de tarefas" changed in Settings: the registry key's change notification. */
@@ -238,7 +302,7 @@ function applyPromoted() {
 
 /** The windows behind icons, badges and progress: shell-events reports their destruction (watchDestroyed). */
 function syncWatched() {
-  watchDestroyed([...tray.icons.map((i) => i.hwnd), ...Object.keys(overlays).map(Number), ...Object.keys(progress).map(Number)]);
+  watchDestroyed([...tray.icons.map((i) => i.hwnd), ...Object.keys(overlays).map(Number), ...Object.keys(progress).map(Number), ...Object.keys(thumbBars).map(Number)]);
 }
 
 /** A watched window was destroyed: drop what it owned, hidden tray windows included. */
@@ -247,6 +311,7 @@ function dropWindow(hwnd: number) {
   if (icons.length !== tray.icons.length) tray.icons = icons;
   delete overlays[String(hwnd)];
   delete progress[String(hwnd)];
+  delete thumbBars[String(hwnd)];
 }
 
 function start() {
@@ -297,7 +362,8 @@ export function acquireTaskbarHost(): () => void {
       stopTrayHost();
       tray.icons = [];
       for (const id of Object.keys(overlays)) delete overlays[id];
-      for (const id of Object.keys(progress)) delete progress[id];
+              for (const id of Object.keys(progress)) delete progress[id];
+        for (const id of Object.keys(thumbBars)) delete thumbBars[id];
     }
   };
 }

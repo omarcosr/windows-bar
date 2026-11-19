@@ -5,6 +5,16 @@ import { ABS_AUTOHIDE, explorerTray, taskbarState, windowRect } from "../native/
 import { systemScale } from "../native/shell-icon";
 import { onShellEvent, onWatchChange, SPI_SETWORKAREA } from "../native/shell-events";
 
+/** How the taskbar combines buttons: 0 always, 1 when the taskbar is full, 2 never. */
+export type GlomLevel = 0 | 1 | 2;
+
+/** TaskbarGlomLevel / MMTaskbarGlomLevel in Explorer\Advanced; missing means 0 (always combine). */
+function readGlom(name: "TaskbarGlomLevel" | "MMTaskbarGlomLevel"): GlomLevel {
+  const v = readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", name, "dword");
+  return v === 1 || v === 2 ? v : 0;
+}
+
+
 /** Windows taskbar settings the dock mirrors (Settings > Personalization > Taskbar). */
 export const taskbarPrefs = store({
   /** Taskbar behaviors > Taskbar alignment. */
@@ -19,6 +29,26 @@ export const taskbarPrefs = store({
   endTask: false,
   /** Taskbar behaviors > Taskbar location: the screen edge the bar sits on. */
   edge: "bottom" as TaskbarEdge,
+  /**
+   * Taskbar behaviors > "Show my taskbar apps on": all desktops (VirtualDesktopTaskbarFilter 0)
+   * or only the desktop in use (1, or missing: the default).
+   */
+  allDesktops: false,
+  /** Multiple displays > Show my taskbar on all displays (MMTaskbarEnabled). */
+  mmEnabled: false,
+  /**
+   * Multiple displays > When using multiple displays, show my taskbar apps on (MMTaskbarMode):
+   * 0 all taskbars, 1 the main taskbar and the one where the window is open, 2 only the taskbar
+   * where the window is open.
+   */
+  mmMode: 0 as 0 | 1 | 2,
+  /**
+   * Taskbar behaviors > Combine taskbar buttons and hide labels (TaskbarGlomLevel): 0 always
+   * (one icon per app, the default), 1 when the taskbar is full, 2 never (one labelled button per window).
+   */
+  glom: 0 as GlomLevel,
+  /** The same, for the taskbars on the other displays (MMTaskbarGlomLevel). */
+  mmGlom: 0 as GlomLevel,
 });
 
 export type TaskbarEdge = "left" | "top" | "right" | "bottom";
@@ -115,6 +145,11 @@ export function watchTaskbarPrefs() {
       set("accent", readAccent());
       set("search", readSearchMode());
       set("endTask", readEndTask());
+      set("allDesktops", readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "VirtualDesktopTaskbarFilter", "dword") === 0);
+      set("mmEnabled", readMultiMonEnabled());
+      set("mmMode", readMultiMonMode());
+      set("glom", readGlom("TaskbarGlomLevel"));
+      set("mmGlom", readGlom("MMTaskbarGlomLevel"));
     } catch (error) {
       console.error("[taskbar-prefs]", error);
     }
@@ -138,4 +173,22 @@ export function watchTaskbarPrefs() {
 /** The dock's alignment: the user's choice, or Windows' own when set to follow it. */
 export function dockAlign(): "center" | "left" {
   return config.align === "center" || config.align === "left" ? config.align : taskbarPrefs.align;
+}
+/** Explorer\Advanced\MMTaskbarEnabled: 1 shows Explorer's taskbar on every display (Windows 11 default on). */
+function readMultiMonEnabled(): boolean {
+  return readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "MMTaskbarEnabled", "dword") === 1;
+}
+/** Explorer\Advanced\MMTaskbarMode (0 missing = all taskbars). */
+function readMultiMonMode(): 0 | 1 | 2 {
+  const v = readUserValue("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "MMTaskbarMode", "dword");
+  return v === 1 || v === 2 ? v : 0;
+}
+/**
+ * The dock stands in for the main taskbar, which Explorer keeps on the primary display; the other
+ * displays keep Explorer's secondary taskbars. With "only the taskbar where the window is open"
+ * (MMTaskbarEnabled=1, MMTaskbarMode=2) the main taskbar lists only the windows on its display,
+ * so the dock does the same. Modes 0 and 1 list every window on the main taskbar.
+ */
+export function buttonsOnOwnDisplayOnly(): boolean {
+  return taskbarPrefs.mmEnabled && taskbarPrefs.mmMode === 2;
 }

@@ -108,6 +108,17 @@ function bitmapRgba(hbm: Pointer): Pixels | null {
  * the Store app's targetsize asset) for the size and scales it with the shell's own filter.
  */
 function factoryIcon(path: string, size: number): Pixels | null {
+  // The shell scales its nearest frame to the size asked for with a coarse filter: a 32 px frame
+  // drawn at 30 px (24 px icons at 125 %) keeps stair-stepped edges. Asked at a standard frame
+  // at least 1.5x as large (48 for 30) and area-filtered down here, edges come out smooth and the
+  // small-size designs (cmd's prompt) are kept, which the 256 px frame would lose.
+  const source = SOURCE_FRAMES.find((frame) => frame === size || frame >= size * 1.5) ?? 256;
+  const px = factoryImage(path, source);
+  return px && px.width > size ? downscale(px, size) : px;
+}
+/** Shell icon frame sizes (what .ico files carry and the shell renders without scaling). */
+const SOURCE_FRAMES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
+function factoryImage(path: string, size: number): Pixels | null {
   ensureCom();
   const out = new BigUint64Array(1);
   if (shell32.symbols.SHCreateItemFromParsingName(encodeWide(path), null, IID_IShellItemImageFactory, new Uint8Array(out.buffer)) !== 0 || !out[0]) return null;
@@ -120,8 +131,7 @@ function factoryIcon(path: string, size: number): Pixels | null {
     // GDI handles are sign-extended; the low 32 bits are the handle.
     const hbm = Number(out[0] & 0xffffffffn) as unknown as Pointer;
     try {
-      const px = bitmapRgba(hbm);
-      return px && px.width > size ? downscale(px, size) : px;
+      return bitmapRgba(hbm);
     } finally {
       gdi32.symbols.DeleteObject(hbm);
     }

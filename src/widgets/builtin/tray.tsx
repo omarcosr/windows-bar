@@ -46,7 +46,7 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean }) {
       }}
     >
       <HitReach height={dockVertical() && !props.preview ? 30 : 36} onClick={onClick} onContextMenu={onContextMenu} />
-      <Image src={icon.image} width={trayIcon()} height={trayIcon()} fit="contain" />
+      <Image src={icon.image} width={trayIcon()} height={trayIcon()} fit="contain" style={{ radius: 0 }} />
     </Pressable>
     </HoverTip>
   );

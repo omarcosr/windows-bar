@@ -1,4 +1,4 @@
-import { Pressable, Row, Text, View, Window, darkTheme, store } from "@tarve/core";
+import { Pressable, Row, Text, View, Window, darkTheme, store, type Child } from "@tarve/core";
 import { config, type WidgetInstance } from "../config";
 import { dockBackground, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
@@ -72,57 +72,70 @@ function Sweep(props: { height: number }) {
   );
 }
 
-function SettingsBadge(props: { onClick: () => void }) {
+// Edit-mode controls: one small bar centred on the widget's edge facing away from the screen
+// edge (above the tiles of a bottom dock). Centred, the controls of two neighbours are a whole
+// widget apart instead of meeting in the gap between them, as corner badges did.
+// How far the controls may stick out of the widget without leaving the window, set by DockView:
+// the dock's own padding plus whatever room the window leaves on that side. A docked or full bar
+// has only the padding, so the controls overlap the widget's edge instead of being cut off.
+let badgeOut = 9;
+
+function EditBadges(props: { onRemove: () => void; onSettings?: () => void }) {
+  const edge = dockEdge();
+  const vertical = dockVertical();
+  const out = -badgeOut;
+  const place =
+    edge === "bottom" ? { top: out, left: 0, right: 0 }
+    : edge === "top" ? { bottom: out, left: 0, right: 0 }
+    : edge === "left" ? { right: out, top: 0, bottom: 0 }
+    : { left: out, top: 0, bottom: 0 };
   return (
-    <Pressable
-      onClick={props.onClick}
+    <View
       style={{
-        // Top-right, outside the content like the remove badge on the left, so it never covers
-        // the widget's own buttons or numbers.
         position: "absolute",
-        top: -7,
-        right: -7,
-        width: 18,
-        height: 18,
-        radius: 9,
-        background: "rgba(58,58,64,0.92)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
+        ...place,
+        direction: vertical ? "column" : "row",
         align: "center",
         justify: "center",
-        cursor: "pointer",
+        gap: 6,
         zIndex: 10,
-        boxShadow: { y: 1, blur: 3, color: "#0008" },
-        hover: { transform: "scale(1.1)", background: ui.blue },
+        // The strip spans the widget; only the buttons take the pointer, the rest drags as before.
+        pointerEvents: "none",
       }}
     >
-      {/* Settings gear, the glyph Windows uses for settings. */}
-      <FluentGlyph code={0xe713} size={11} color="#ffffff" />
-    </Pressable>
+      <EditBadge label="remove" background={ui.danger} hoverBackground={ui.danger} onClick={props.onRemove}>
+        <View style={{ width: 8, height: 2, radius: 1, background: "#fff" }} />
+      </EditBadge>
+      {props.onSettings ? (
+        <EditBadge label="settings" background="rgba(58,58,64,0.92)" hoverBackground={ui.blue} onClick={props.onSettings}>
+          {/* Settings gear, the glyph Windows uses for settings. */}
+          <FluentGlyph code={0xe713} size={11} color="#ffffff" />
+        </EditBadge>
+      ) : null}
+    </View>
   );
 }
 
-function RemoveBadge(props: { onClick: () => void }) {
+function EditBadge(props: { label: string; background: string; hoverBackground: string; onClick: () => void; children: Child }) {
   return (
     <Pressable
       onClick={props.onClick}
       style={{
-        position: "absolute",
-        top: -7,
-        left: -7,
+        pointerEvents: "auto",
         width: 18,
         height: 18,
         radius: 9,
-        background: ui.danger,
+        background: props.background,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.18)",
         align: "center",
         justify: "center",
         cursor: "pointer",
-        zIndex: 10,
         boxShadow: { y: 1, blur: 3, color: "#0008" },
-        hover: { transform: "scale(1.12)" },
+        hover: { transform: "scale(1.12)", background: props.hoverBackground },
       }}
     >
-      <View style={{ width: 8, height: 2, radius: 1, background: "#fff" }} />
+      {props.children}
     </Pressable>
   );
 }
@@ -193,8 +206,12 @@ function WidgetSlot(props: { instance: WidgetInstance; editing: boolean }) {
           <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [side]: -5, zIndex: 20 }} />
         )
       ) : null}
-      {props.editing ? <RemoveBadge onClick={() => removeWidget(instance.id)} /> : null}
-      {props.editing && widget.definition.settings?.length ? <SettingsBadge onClick={() => openWidgetSettings(instance.id)} /> : null}
+      {props.editing ? (
+        <EditBadges
+          onRemove={() => removeWidget(instance.id)}
+          onSettings={widget.definition.settings?.length ? () => openWidgetSettings(instance.id) : undefined}
+        />
+      ) : null}
     </Pressable>
   );
 }
@@ -302,6 +319,10 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   // Read at render (effect, intensity, bar height), so changing them sizes the window again.
   reserving = magnifying() && !editing && !docked && !full;
   if (reserving) maxExtra(1, dockMetrics());
+  // Room past the widgets' edge facing away from the screen edge, for the edit controls.
+  const windowRoom = editing && !docked ? ({ bottom: 9, top: 0, left: full ? 0 : 2, right: full ? 0 : 9 })[edge] : 0;
+  const barRoom = vertical ? COMPACT_PAD : ui.dock.padding;
+  badgeOut = Math.max(0, Math.min(9, barRoom + (inStrip ? stripMargin : windowRoom) - 1));
   report = props.onSize;
   queueMicrotask(reportSize);
   // Room left for the group's app icons; the rest go behind the apps widget's "•••" button.

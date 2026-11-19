@@ -24,7 +24,7 @@ const DEMO_RAM: TopProcess[] = [
 function ProcessIcon(props: { item: TopProcess }) {
   const size = devicePx(16, true);
   const icon = props.item.path ? iconFor(props.item.path, size) : undefined;
-  if (icon) return <Image src={icon} width={size} height={size} fit="contain" style={{ shrink: 0 }} />;
+  if (icon) return <Image src={icon} width={size} height={size} fit="contain" style={{ shrink: 0, radius: 0 }} />;
   return (
     <View style={{ width: size, height: size, radius: 4, background: ui.track, align: "center", justify: "center", shrink: 0 }}>
       <Text size={9} weight={700} color={ui.muted}>

@@ -1,4 +1,4 @@
-import { threadsafeCallback, threadsafeComObject } from "@tarve/core";
+import { releaseCom, threadsafeCallback, threadsafeComObject, type ThreadsafeVariant } from "@tarve/core";
 import { CFunction, dlopen, read, toArrayBuffer, FfiUnsupported, type Pointer } from "./ffi";
 import { decodeWide, encodeWide } from "./wide";
 import { explorerTray } from "./win32";
@@ -74,6 +74,7 @@ const CreatePropertyCondition = 23;
 const FindAll = 6;
 const get_CurrentName = 23;
 const get_CurrentAutomationId = 29;
+const get_CurrentClassName = 30;
 const get_CurrentHelpText = 31;
 const CreateCacheRequest = 20;
 const FindAllBuildCache = 8;
@@ -212,18 +213,32 @@ export function readExplorerButtons(tray: Pointer | null = taskbarRoot()): Explo
   }
 }
 
+const BUTTON_CLASS = "Taskbar.TaskListButtonAutomationPeer";
+
+/** The button a HelpText event came from, with the new HelpText; null when the sender is no task list button. */
+function buttonOf(sender: Pointer, help: string): ExplorerButton | null {
+  if (stringProp(sender, get_CurrentClassName) !== BUTTON_CLASS) return null;
+  const id = stringProp(sender, get_CurrentAutomationId);
+  if (!id) return null;
+  return { appId: id.replace(/^Appid:\s*/i, ""), name: stringProp(sender, get_CurrentName), help };
+}
+
 /**
- * Calls `changed` (on the JS thread) whenever Explorer changes a button's HelpText (badge,
- * progress) or adds or removes buttons. UIA calls its handlers on its own threads, so they are
- * threadsafe COM sinks. The element UIA hands the handler lives only for that call, which
- * returns before `changed` runs, so the caller reads the buttons again (readExplorerButtons, one
- * cross-process call) instead of the sender. Returns the stop function, or null when Explorer's
- * taskbar or UIA is not there (watch again once Explorer restarts).
+ * Calls `helpChanged` (on the JS thread) with the button whose HelpText (badge, progress) Explorer
+ * changed, and `changed` when buttons come and go or a change cannot be pinned to one button. UIA
+ * calls its handlers on its own threads, so they are threadsafe COM sinks; the sender is kept
+ * (AddRef'd) and the new value copied during the call (Tarve 0.13.4), so a progress tick costs three
+ * property reads of that one button instead of a search of the whole taskbar. Returns the stop
+ * function, or null when Explorer's taskbar or UIA is not there (watch again once Explorer restarts).
  */
-export function watchExplorerButtons(changed: () => void, tray: Pointer | null = taskbarRoot()): (() => void) | null {
+export function watchExplorerButtons(
+  changed: () => void,
+  helpChanged: (button: ExplorerButton) => void,
+  tray: Pointer | null = taskbarRoot(),
+): (() => void) | null {
   if (unsupported) return null;
   try {
-    return watch(changed, tray);
+    return watch(changed, helpChanged, tray);
   } catch (error) {
     if (error instanceof FfiUnsupported) {
       unsupported = true;
@@ -233,14 +248,28 @@ export function watchExplorerButtons(changed: () => void, tray: Pointer | null =
   }
 }
 
-function watch(changed: () => void, tray: Pointer | null): (() => void) | null {
+function watch(changed: () => void, helpChanged: (button: ExplorerButton) => void, tray: Pointer | null): (() => void) | null {
   if (!tray || !init()) return null;
   out[0] = 0n;
   if (com(automation!, ElementFromHandle, ["ptr", "ptr"], tray, out) !== 0 || !out[0]) return null;
   const root = outPtr()!;
-  const args = ["ptr", "ptr", "i32", "ptr"] as const;
-  const onProperty = threadsafeCallback(changed, { args });
-  const onStructure = threadsafeCallback(changed, { args });
+  // HandlePropertyChangedEvent(this, sender, propertyId, newValue).
+  const onProperty = threadsafeCallback(
+    (_self: bigint, sender: bigint | null, _property: number, value: ThreadsafeVariant) => {
+      try {
+        const button = sender && (typeof value === "string" || value === null) ? buttonOf(Number(sender) as Pointer, value ?? "") : null;
+        if (button) helpChanged(button);
+        else changed();
+      } catch (error) {
+        console.error("[taskbar-buttons]", error);
+        changed();
+      } finally {
+        releaseCom(sender);
+      }
+    },
+    { args: ["ptr", { type: "ptr", keep: "com" }, "i32", { type: "ptr", copy: "variant" }] },
+  );
+  const onStructure = threadsafeCallback(changed, { args: ["ptr", "ptr", "i32", "ptr"] });
   const propertySink = threadsafeComObject({ iids: [IID_PropertyChangedEventHandler], methods: [onProperty] });
   const structureSink = threadsafeComObject({ iids: [IID_StructureChangedEventHandler], methods: [onStructure] });
   const stop = () => {

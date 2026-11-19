@@ -1,9 +1,9 @@
-import { Image, Pressable, Row, Text, View } from "@tarve/core";
+import { Image, Pressable, Row, Text, View, store } from "@tarve/core";
 import { acquireBadges, badgeFor } from "../../services/badges";
 import { iconFor } from "../../services/icons";
-import { glyph, showDockMenu, type DockMenuItem } from "../../menu/dock-menu";
-import { clickApp, hidePreview, hoverApp } from "../../menu/window-preview";
-import { activateApp, closeApp, desktop, endTask, focusWindow, launch, openFileLocation, prettyName, windowsPoller } from "../../services/windows";
+import { glyph, showDockMenu, type DockMenuItem, updateDockMenu, type DockMenuSpec } from "../../menu/dock-menu";
+import { clickApp, hidePreview, hoverApp, dragOverApp } from "../../menu/window-preview";
+import { activateApp, closeApp, desktop, endTask, focusWindow, launch, openFileLocation, prettyName, windowsPoller, cycleApp, launchAsAdmin, minimizeApp, restoreApp, showWindowSystemMenu, activateWindowButton, type AppWindow } from "../../services/windows";
 import { config } from "../../config";
 import { devicePx, ui } from "../../theme";
 import { dockVertical, taskbarPrefs } from "../../services/taskbar-prefs";
@@ -13,9 +13,91 @@ import { explorerStateFor } from "../../services/explorer-buttons";
 import { HitReach, axisBox, iconHover } from "../ui";
 import { appRoom, dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
+import { dropFilesOn } from "../../native/drop-target";
+import { cursorPos, mouseHoverTime } from "../../native/win32";
+import type { AppHandle, ImageRgbaSource } from "@tarve/core";
+import { DockWindow } from "../../native/dock-window";
+import { appIdForShortcut, appIdForWindow, defaultAppIdForProgram, readJumpList, type JumpCategory, linkIconPixels } from "../../native/jump-list";
+import { popupSystemMenu } from "../../native/system-menu";
+import { systemScale } from "../../native/shell-icon";
+
+/** The last mouse press on the dock: its button and the Shift/Ctrl state Tarve reports with it (pointerEvents). */
+let lastPress: { button: number; shift: boolean; ctrl: boolean; at: number } | null = null;
+/** Each Apps instance's buttons, for the middle click (released over one of them). */
+const middleTargets = new Map<string, { id: string; launch: string }[]>();
+let pressWatchers = 0;
+let stopPresses: (() => void) | null = null;
+
+/** The press that led to this click or context menu, if it was made with `button`. */
+function pressWith(button: number) {
+  const p = lastPress;
+  return p && p.button === button && Date.now() - p.at < 5000 ? p : null;
+}
+
+/** Follows the dock's mouse presses while an Apps widget is shown (one listener for all of them). */
+function watchPresses(app: AppHandle): () => void {
+  if (pressWatchers++ === 0) {
+    stopPresses = app.onEvent((event) => {
+      if (event.type !== "pointer" || event.phase === "wheel") return;
+      if (event.phase === "down") {
+        lastPress = { button: event.button ?? 0, shift: event.shiftKey, ctrl: event.ctrlKey, at: Date.now() };
+        return;
+      }
+      // Middle button released over an app's button: a new instance, as on the taskbar.
+      if (event.button !== 1 || !pressWith(1)) return;
+      for (const items of middleTargets.values()) {
+        const target = items.find((t) => DockWindow.pointerOn(t.id));
+        if (!target) continue;
+        hidePreview(true);
+        launch(target.launch);
+        return;
+      }
+    });
+  }
+  return () => {
+    if (--pressWatchers === 0) {
+      stopPresses?.();
+      stopPresses = null;
+    }
+  };
+}
+
+let dragTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Files dragged over a button, as on the taskbar: once they rest there for the system hover time
+ * (SPI_GETMOUSEHOVERTIME, what Explorer waits), the app's most recent window comes forward so the
+ * files can be dropped into it; an app with several windows opens its thumbnails instead, and the
+ * files go on to one of them. Never minimizes, unlike a click.
+ */
+function dragHoverApp(key: string, hovered: boolean) {
+  clearTimeout(dragTimer);
+  if (!hovered) return dragOverApp(key, false);
+  dragTimer = setTimeout(() => {
+    const app = desktop.apps.find((a) => a.key === key);
+    if (!app?.windows.length) return;
+    if (app.windows.length > 1) return dragOverApp(key, true);
+    const minimized = new Set(app.windows.filter((w) => w.minimized).map((w) => w.hwnd));
+    const target = app.recent.find((h) => !minimized.has(h)) ?? app.recent[0];
+    if (target) focusWindow(target as never);
+  }, mouseHoverTime());
+}
+
+/** Files dropped on a button open with that app: the shell drop handler of its pin, .lnk or program. */
+function dropOnApp(item: Item, paths: string[]) {
+  clearTimeout(dragTimer);
+  dragOverApp(item.key, false);
+  // After Tarve's own Drop has returned to the drag source.
+  setTimeout(() => {
+    if (!dropFilesOn(item.launch, paths, cursorPos())) console.error("[apps] O app não aceitou os arquivos", item.launch);
+  }, 0);
+}
+
 
 interface Item {
   key: string;
+  /** Its place in the dock's own order (`order` in the widget's config): the pin's key, else the app's. */
+  orderKey: string;
   exe: string;
   /** What a click starts when the app is not running: the pinned shortcut, as the taskbar does. */
   launch: string;
@@ -90,7 +172,7 @@ function AppBadge(props: { exe: string }) {
   const badge = badgeFor(props.exe);
   if (!badge) return null;
   if (badge.image && !badge.text) {
-    return <Image src={badge.image} width={16} height={16} fit="contain" style={{ position: "absolute", top: 4, right: 2 }} />;
+    return <Image src={badge.image} width={16} height={16} fit="contain" style={{ position: "absolute", top: 4, right: 2, radius: 0 }} />;
   }
   return (
     <View
@@ -157,6 +239,9 @@ function AppIcon(props: {
   dockIndex: number;
   onClick: () => void;
   onContextMenu: () => void;
+  /** Drag sideways to reorder (appDragProps), and where a dragged button lands on this one. */
+  drag: ReturnType<typeof appDragProps>;
+  dropSide: "before" | "after" | null;
 }) {
   const { item } = props;
   // Sharp when magnified: the bitmap is read once at the largest size the icon reaches.
@@ -166,13 +251,15 @@ function AppIcon(props: {
   const magnify = magnifyStyles("dock", props.dockIndex, dockMetrics());
   // Several windows: the list of them opens, as on the Windows taskbar.
   const onClick = () => {
+    if (modifiedClick(item)) return;
     if (!clickApp(item.key)) props.onClick();
   };
   const onContextMenu = () => {
     hidePreview(true);
     props.onContextMenu();
   };
-  const onHover = (hovered: boolean) => hoverApp(item.key, hovered);
+  // No preview while a button is being dragged to a new place.
+  const onHover = (hovered: boolean) => hoverApp(item.key, hovered && !appDrag.source);
   return (
     <Pressable
       // The window preview anchors above the icon by this id.
@@ -182,6 +269,10 @@ function AppIcon(props: {
       onClick={onClick}
       onContextMenu={onContextMenu}
       onHover={onHover}
+      {...props.drag}
+      onFileDragEnter={() => dragHoverApp(item.key, true)}
+      onFileDragLeave={() => dragHoverApp(item.key, false)}
+      onFileDrop={(event) => dropOnApp(item, event.paths)}
       style={{
         position: "relative",
         ...axisBox(ui.app.slot, ui.tile.height),
@@ -191,9 +282,11 @@ function AppIcon(props: {
         radius: 10,
         ...iconHover({ magnified: true }),
         ...magnify.slot,
+        opacity: appDrag.source === item.orderKey ? 0.4 : 1,
       }}
     >
-      <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} onHover={onHover} />
+      <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} onHover={onHover} drag={props.drag} />
+      <DropMark side={props.dropSide} />
       {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;
           an app asking for attention gets an orange plate until its window is activated. */}
       {/* The macOS effect draws no plate, as on the Dock: the grown icon would spill over it. The
@@ -231,11 +324,11 @@ function AppIcon(props: {
               height={ui.app.icon}
               fit="contain"
               // 3 px up and right of the icon, whatever the bar height.
-              style={{ position: "absolute", top: -3, left: 3, opacity: 0.4, ...magnify.icon }}
+              style={{ position: "absolute", top: -3, left: 3, opacity: 0.4, radius: 0, ...magnify.icon }}
             />
           ) : null}
           {icon ? (
-            <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" style={magnify.icon} />
+            <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" style={{ radius: 0, ...magnify.icon }} />
           ) : (
             <View style={{ radius: 8, background: "#3a3a40", align: "center", justify: "center", ...magnify.icon }}>
               <Text size={14} weight={700} color="#fff">
@@ -331,18 +424,290 @@ function OverflowButton(props: { items: Item[]; dockIndex: number; onContextMenu
     </Pressable>
   );
 }
+/** Width of a labelled button, in app slots: at most LABEL_MAX, never below LABEL_MIN (then the taskbar combines or overflows). */
+const LABEL_MAX = 4;
+const LABEL_MIN = 2;
+
+/** One button of the row: an app (icon only), or one window of it with its title (the taskbar not combining). */
+interface Button {
+  item: Item;
+  win?: AppWindow;
+}
+
+/**
+ * The buttons for Settings > Taskbar > "Combine taskbar buttons and hide labels" (TaskbarGlomLevel),
+ * as Explorer lays them out: 0 always, one icon per app; 1 when the taskbar is full, one labelled
+ * button per window while they fit, combined icons once they do not; 2 never, labelled buttons that
+ * narrow and then overflow behind "•••". Apps that are not running keep an icon-only button. A
+ * side-edge column has no room for labels: it always combines.
+ */
+function layoutButtons(instanceId: string, items: Item[]) {
+  const glom = taskbarPrefs.glom;
+  const combined = (): { visible: Button[]; overflow: Item[]; slots: number[] } => {
+    const room = appRoom(instanceId, items.length);
+    const overflow = items.length > room ? items.slice(Math.max(0, room - 1)) : [];
+    const shown = overflow.length ? items.slice(0, Math.max(0, room - 1)) : items;
+    return { visible: shown.map((item) => ({ item })), overflow, slots: shown.map(() => 1) };
+  };
+  if (glom === 0 || dockVertical()) return combined();
+  const buttons: Button[] = items.flatMap((item): Button[] => {
+    const wins = item.running ? (desktop.apps.find((a) => a.key === item.key)?.windows ?? []) : [];
+    return wins.length ? wins.map((win) => ({ item, win })) : [{ item }];
+  });
+  const labelled = buttons.filter((b) => b.win).length;
+  const icons = buttons.length - labelled;
+  const room = appRoom(instanceId, icons + labelled * LABEL_MAX);
+  const per = labelled ? Math.min(LABEL_MAX, Math.floor((room - icons) / labelled)) : LABEL_MAX;
+  if (per >= LABEL_MIN) return { visible: buttons, overflow: [] as Item[], slots: buttons.map((b) => (b.win ? per : 1)) };
+  if (glom === 1) return combined();
+  // Never combine, and still no room: the narrowest labels, the rest behind the overflow button.
+  const visible: Button[] = [];
+  const slots: number[] = [];
+  let used = 1;
+  for (const b of buttons) {
+    const w = b.win ? LABEL_MIN : 1;
+    if (used + w > room) break;
+    visible.push(b);
+    slots.push(w);
+    used += w;
+  }
+  const shownKeys = new Set(visible.map((b) => b.win ?? b.item.key));
+  const overflow = items.filter((item, i, all) => all.indexOf(item) === i && buttons.some((b) => b.item === item && !shownKeys.has(b.win ?? b.item.key)));
+  return { visible, overflow, slots };
+}
+
+/**
+ * A window's own button (the taskbar set not to combine): its app's icon and the window title,
+ * on a plate as wide as `slots` app slots. A click brings the window forward, or minimizes it when
+ * it is already in front, as Explorer's ungrouped button does; right-click opens the app's menu.
+ */
+function WindowButton(props: {
+  item: Item;
+  win: AppWindow;
+  slots: number;
+  onContextMenu: () => void;
+  drag: ReturnType<typeof appDragProps>;
+  dropSide: "before" | "after" | null;
+}) {
+  const { item, win } = props;
+  const icon = iconFor(item.pin?.path ?? item.exe, ui.app.icon);
+  const hwnd = Number(win.hwnd);
+  const active = desktop.activeHwnd === hwnd && !win.minimized;
+  const attention = desktop.flashing.includes(hwnd);
+  const width = props.slots * ui.app.slot;
+  const inset = (ui.app.slot - ui.app.plate) / 2;
+  const onClick = () => {
+    if (modifiedClick(item)) return;
+    hidePreview(true);
+    activateWindowButton(win.hwnd);
+  };
+  const onContextMenu = () => {
+    hidePreview(true);
+    // Shift+right-click on an uncombined button: that window's own system menu, as on the taskbar.
+    if (pressWith(2)?.shift) {
+      const at = cursorPos();
+      if (popupSystemMenu(win.hwnd, at.x, at.y)) return;
+    }
+    props.onContextMenu();
+  };
+  return (
+    <Pressable
+      id={"win:" + hwnd}
+      focusable={false}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      {...props.drag}
+        style={{ position: "relative", width, height: ui.tile.height, cursor: "pointer", radius: 10, ...iconHover({ magnified: true }), opacity: appDrag.source === item.orderKey ? 0.4 : 1 }}
+      >
+      <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} drag={props.drag} />
+      <DropMark side={props.dropSide} />
+      {attention || active ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: inset,
+            width: width - inset * 2,
+            height: ui.tile.height,
+            radius: devicePx(8),
+            background: attention ? "rgba(247,99,12,0.32)" : `${taskbarPrefs.accent}2e`,
+            borderWidth: 1,
+            borderColor: attention ? "rgba(247,99,12,0.55)" : "rgba(255,255,255,0.06)",
+          }}
+        />
+      ) : null}
+      <Row style={{ position: "absolute", top: 0, bottom: 0, left: (ui.app.slot - ui.app.icon) / 2, right: inset + devicePx(6), align: "center", gap: devicePx(8) }}>
+        {icon ? (
+          <Image src={icon} width={ui.app.icon} height={ui.app.icon} fit="contain" style={{ radius: 0, shrink: 0 }} />
+        ) : (
+          <View style={{ width: ui.app.icon, height: ui.app.icon, radius: 8, background: "#3a3a40", shrink: 0 }} />
+        )}
+        <Text size={12} color={ui.text} style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
+          {win.title || item.name}
+        </Text>
+      </Row>
+      <AppProgress exe={item.exe} />
+      <View style={{ ...indicatorBox(), opacity: config.runningIndicator && !appProgress(item.exe) ? 1 : 0 }}>
+        <View
+          style={{
+            width: devicePx(active || attention ? 16 : 6, true),
+            height: devicePx(3),
+            radius: devicePx(3) / 2,
+            background: attention ? "#f7630c" : active ? taskbarPrefs.accent : "rgba(255,255,255,0.55)",
+            transition: { width: { duration: 180, easing: "easeOut" } },
+          }}
+        />
+      </View>
+    </Pressable>
+  );
+}
+/** The AppUserModelID Explorer keeps the app's jump list under: asked of a window, else of the pin. */
+function jumpAppId(item: Item, windows: readonly AppWindow[]): string {
+  const hwnd = windows[0]?.hwnd as unknown as number | undefined;
+  const fromWindow = hwnd ? appIdForWindow(hwnd) : "";
+  if (fromWindow) return fromWindow;
+  const path = item.pin?.path ?? item.dockPin?.path ?? item.launch;
+  const packaged = /^shell:AppsFolder\\(.+)$/i.exec(path);
+  if (packaged) return packaged[1]!;
+  if (/\.lnk$/i.test(path)) return appIdForShortcut(path);
+  return /^[a-z]:\\/i.test(path) ? defaultAppIdForProgram(path) : "";
+}
+
+const JUMP_TITLES: Record<JumpCategory["kind"], string> = { pinned: "Fixado", recent: "Recentes", frequent: "Frequentes", tasks: "Tarefas", custom: "" };
+
+/** The app's jump list as menu sections, each under the heading the taskbar gives it. */
+function jumpSections(appId: string, refresh: () => void): { sections: DockMenuItem[][]; titles: string[] } {
+  const categories = readJumpList(appId);
+  return {
+    sections: categories.map((category) =>
+      category.items.map((entry): DockMenuItem => {
+        const image = jumpIcon(entry.iconPath, entry.iconIndex);
+        return {
+          label: entry.label,
+          icon: image ? { image } : { fluent: 0xe8a5 },
+          onSelect: entry.open,
+          trailing: entry.pinnable
+            ? {
+                icon: entry.pinned ? glyph.unpin : glyph.pin,
+                label: entry.pinned ? "Desafixar desta lista" : "Fixar nesta lista",
+                onSelect: () => {
+                  entry.togglePin();
+                  refresh();
+                },
+              }
+            : undefined,
+        };
+      }),
+    ),
+    titles: categories.map((category) => category.title || JUMP_TITLES[category.kind]),
+  };
+}
+/** A jump-list row's icon: a link's own icon resource, else the shell's icon for the item. */
+const jumpIcons = new Map<string, ImageRgbaSource | null>();
+function jumpIcon(path: string, index: number | null): ImageRgbaSource | string | undefined {
+  if (!path) return undefined;
+  if (index === null) return iconFor(path, 16);
+  const px = Math.round(16 * systemScale());
+  const key = `${path.toLowerCase()},${index}|${px}`;
+  let icon = jumpIcons.get(key);
+  if (icon === undefined) {
+    const pixels = linkIconPixels(path, index, px);
+    icon = pixels ? { ...pixels, cacheKey: `jump:${key}` } : null;
+    if (jumpIcons.size > 256) jumpIcons.clear();
+    jumpIcons.set(key, icon);
+  }
+  return icon ?? iconFor(path, 16);
+}
+/**
+ * Reordering by dragging a button sideways, as on the taskbar. Windows keeps the order of its pins
+ * in Explorer's memory and writes Taskband\Favorites itself; IPinnedList3 (CLSID_TaskbarPin) has no
+ * move, and its Modify silently ignores pins from other processes on Windows 11, so the order cannot
+ * be written to the Windows taskbar from here. The dock keeps its own order instead, in the widget's
+ * `order` (pins, dock pins and open apps alike); buttons it does not know keep Windows' place.
+ */
+const appDrag = store({ instance: "", source: "", over: "" });
+
+function appDragProps(instance: string, item: Item, onMove: (source: string, target: string) => void) {
+  const key = item.orderKey;
+  return {
+    draggable: true,
+    dropTarget: true,
+    onDragStart: () => {
+      hidePreview(true);
+      clearTimeout(dragTimer);
+      appDrag.instance = instance;
+      appDrag.source = key;
+    },
+    onDragEnter: () => {
+      if (appDrag.source && appDrag.instance === instance) appDrag.over = key;
+    },
+    onDragLeave: () => {
+      if (appDrag.over === key) appDrag.over = "";
+    },
+    onDrop: () => {
+      if (appDrag.source && appDrag.instance === instance) onMove(appDrag.source, key);
+    },
+    onDragEnd: () => {
+      appDrag.instance = "";
+      appDrag.source = "";
+      appDrag.over = "";
+    },
+  };
+}
+
+/** Which side of the button the dragged one lands on, or null when it is not under the pointer. */
+function appDropSide(instance: string, item: Item, items: readonly Item[]): "before" | "after" | null {
+  if (appDrag.instance !== instance || !appDrag.source || appDrag.over !== item.orderKey || appDrag.source === item.orderKey) return null;
+  const from = items.findIndex((i) => i.orderKey === appDrag.source);
+  const to = items.findIndex((i) => i.orderKey === item.orderKey);
+  return from < to ? "after" : "before";
+}
+
+/** The blue bar marking where a dragged button will land, as for widgets. */
+function DropMark(props: { side: "before" | "after" | null }) {
+  if (!props.side) return null;
+  return dockVertical() ? (
+    <View style={{ position: "absolute", left: 6, right: 6, height: 3, radius: 2, background: ui.blue, [props.side === "before" ? "top" : "bottom"]: -1, zIndex: 20 }} />
+  ) : (
+    <View style={{ position: "absolute", top: 6, bottom: 6, width: 3, radius: 2, background: ui.blue, [props.side === "before" ? "left" : "right"]: -1, zIndex: 20 }} />
+  );
+}
+
+/** `items` in the saved order: known buttons take the saved sequence, unknown ones keep their place. */
+function applyOrder(items: Item[], order: readonly string[] | undefined): Item[] {
+  if (!order?.length) return items;
+  const rank = new Map(order.map((k, i) => [k, i]));
+  const known = items.filter((i) => rank.has(i.orderKey)).sort((a, b) => rank.get(a.orderKey)! - rank.get(b.orderKey)!);
+  let next = 0;
+  return items.map((i) => (rank.has(i.orderKey) ? known[next++]! : i));
+}
+
+
+
+
 
 export default defineWidget({
   type: "apps",
   name: "Apps",
   description: "Os apps fixados da barra de tarefas do Windows, os fixados no dock e os abertos. Clique direito abre o menu do app.",
   category: "apps",
-  defaultConfig: { showUnpinned: true, dockPins: [] as DockPin[] },
+  defaultConfig: { showUnpinned: true, dockPins: [] as DockPin[], order: [] as string[] },
   settings: [{ kind: "toggle", key: "showUnpinned", label: "Mostrar apps abertos não fixados" }],
   setup(ctx) {
     watchTaskbarPins();
     ctx.onDispose(windowsPoller.acquire());
     ctx.onDispose(acquireBadges());
+    // The app handle is set right after the first render; until then the presses are not needed.
+    let unwatch: (() => void) | null = null;
+    let disposed = false;
+    queueMicrotask(() => {
+      if (!disposed) unwatch = watchPresses(ctx.app);
+    });
+    ctx.onDispose(() => {
+      disposed = true;
+      unwatch?.();
+      middleTargets.delete(ctx.instanceId);
+    });
     return {};
   },
   menu() {
@@ -365,6 +730,7 @@ export default defineWidget({
       if (items.some((i) => i.key === key)) continue;
       items.push({
         key,
+        orderKey: pin.key,
         exe: pin.exe,
         launch: pin.path,
         pin,
@@ -384,6 +750,7 @@ export default defineWidget({
       if (items.some((i) => i.key === key)) continue;
       items.push({
         key,
+        orderKey: pin.key,
         exe: app?.exe ?? pin.path,
         launch: pin.path,
         dockPin: pin,
@@ -400,6 +767,7 @@ export default defineWidget({
       if (items.some((i) => i.key === app.key)) continue;
       items.push({
         key: app.key,
+        orderKey: app.key,
         exe: app.exe,
         launch: app.exe,
         name: app.name,
@@ -411,10 +779,29 @@ export default defineWidget({
       });
     }
     // No room for every icon: the last slot becomes the overflow button, as on the taskbar.
-    const room = appRoom(ctx.instanceId, items.length);
-    const overflow = items.length > room ? items.slice(Math.max(0, room - 1)) : [];
-    const visible = overflow.length ? items.slice(0, Math.max(0, room - 1)) : items;
-    setAppCount(ctx.instanceId, visible.length + (overflow.length ? 1 : 0));
+    // Labelled per-window buttons when Windows is set not to combine (TaskbarGlomLevel).
+    // In the order the buttons were dragged to (the dock's own: see appDrag).
+    const ordered = applyOrder(items, ctx.config.order as string[] | undefined);
+    const moveApp = (source: string, target: string) => {
+      const keys = ordered.map((i) => i.orderKey);
+      const from = keys.indexOf(source);
+      const to = keys.indexOf(target);
+      if (from < 0 || to < 0 || from === to) return;
+      keys.splice(to, 0, keys.splice(from, 1)[0]!);
+      // Apps closed now keep their remembered place for when they open again.
+      const old = (ctx.config.order as string[] | undefined) ?? [];
+      ctx.config.order = [...keys, ...old.filter((k) => !keys.includes(k))].slice(0, 200);
+      ctx.save();
+    };
+    const { visible, overflow, slots } = layoutButtons(ctx.instanceId, ordered);
+    // Slot offsets along the group, for the magnification and the group's room.
+    const offsets = slots.map((_, i) => slots.slice(0, i).reduce((a, b) => a + b, 0));
+    const used = slots.reduce((a, b) => a + b, 0);
+    setAppCount(ctx.instanceId, used + (overflow.length ? 1 : 0));
+    middleTargets.set(
+      ctx.instanceId,
+      visible.map(({ item, win }) => ({ id: win ? "win:" + Number(win.hwnd) : "app:" + item.key, launch: item.launch })),
+    );
     const pinToDock = (item: Item) => {
       const app = desktop.apps.find((a) => a.key === item.key);
       if (!app || dockPins.some((p) => p.key === app.key)) return;
@@ -430,6 +817,27 @@ export default defineWidget({
     const showMenu = (item: Item) => {
       const windows = desktop.apps.find((a) => a.key === item.key)?.windows ?? [];
       const icon = iconFor(item.exe, 28);
+      // Shift+right-click, as on the taskbar: one window shows its own system menu; a group gets
+      // the taskbar's group menu (restore, minimize or close all its windows).
+      if (pressWith(2)?.shift && windows.length) {
+        const at = cursorPos();
+        if (showWindowSystemMenu(item.key, at.x, at.y)) return;
+        if (windows.length > 1) {
+          showDockMenu({
+            title: item.name,
+            subtitle: `${windows.length} janelas abertas`,
+            image: icon,
+            sections: [
+              [
+                { label: "Restaurar todas as janelas", icon: glyph.window, onSelect: () => restoreApp(item.key) },
+                { label: "Minimizar todas as janelas", icon: glyph.window, onSelect: () => minimizeApp(item.key) },
+              ],
+              [{ label: "Fechar todas as janelas", icon: "x", danger: true, onSelect: () => closeApp(item.key) }],
+            ],
+          });
+          return;
+        }
+      }
       const windowItems: DockMenuItem[] = windows.slice(0, 8).map((w) => ({
         label: w.title,
         icon: glyph.window,
@@ -460,28 +868,57 @@ export default defineWidget({
             },
           ]
         : [];
-      showDockMenu({
-        title: item.name,
-        subtitle: windows.length ? (windows.length > 1 ? `${windows.length} janelas abertas` : "1 janela aberta") : "Não está aberto",
-        image: icon,
-        sections: [windowItems, actions, close],
-      });
+      // The app's jump list (pinned, recent/frequent, its own categories, tasks) above the app's
+      // entries, as on the taskbar; pinning an item redraws the open menu in place.
+      const appId = jumpAppId(item, windows);
+      const menuId = `jump:${item.key}`;
+      const spec = (): DockMenuSpec => {
+        const jump = jumpSections(appId, () => updateDockMenu(menuId, spec()));
+        return {
+          id: menuId,
+          title: item.name,
+          subtitle: windows.length ? (windows.length > 1 ? `${windows.length} janelas abertas` : "1 janela aberta") : "Não está aberto",
+          image: icon,
+          sections: [...jump.sections, windowItems, actions, close],
+          sectionTitles: jump.titles,
+        };
+      };
+      showDockMenu(spec());
     };
     return (
       <View style={{ direction: dockVertical() ? "column" : "row", ...(dockVertical() ? { width: ui.tile.height } : { height: ui.tile.height }), align: "center", gap: 0, shrink: 0 }}>
-        {visible.map((item, index) => (
+        {visible.map(({ item, win }, index) =>
+          win ? (
+            <WindowButton key={"win:" + Number(win.hwnd)} item={item} win={win} slots={slots[index]!} onContextMenu={() => showMenu(item)} drag={appDragProps(ctx.instanceId, item, moveApp)} dropSide={appDropSide(ctx.instanceId, item, ordered)} />
+          ) : (
           <AppIcon
             key={item.key}
             item={item}
-            dockIndex={dockIndex(ctx.instanceId, index)}
+            dockIndex={dockIndex(ctx.instanceId, offsets[index]!)}
             onClick={() => activateApp(item.key, item.launch)}
             onContextMenu={() => showMenu(item)}
+              drag={appDragProps(ctx.instanceId, item, moveApp)}
+            dropSide={appDropSide(ctx.instanceId, item, ordered)}
           />
-        ))}
+          ),
+        )}
         {overflow.length ? (
-          <OverflowButton items={overflow} dockIndex={dockIndex(ctx.instanceId, visible.length)} onContextMenu={showMenu} />
+          <OverflowButton items={overflow} dockIndex={dockIndex(ctx.instanceId, used)} onContextMenu={showMenu} />
         ) : null}
       </View>
     );
   },
 });
+/**
+ * A left click with Shift/Ctrl, as on the taskbar: Shift = new instance, Ctrl+Shift = as administrator
+ * (the "runas" verb), Ctrl = the app's next window. False for a plain click.
+ */
+function modifiedClick(item: Item): boolean {
+  const press = pressWith(0);
+  if (!press || !(press.shift || press.ctrl)) return false;
+  hidePreview(true);
+  if (press.shift && press.ctrl) launchAsAdmin(item.launch);
+  else if (press.shift) launch(item.launch);
+  else cycleApp(item.key, item.launch);
+  return true;
+}

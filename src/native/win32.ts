@@ -1,4 +1,4 @@
-import { CFunction, dlopen, JSCallback, type Pointer, FfiUnsupported } from "./ffi";
+import { dlopen, JSCallback, type Pointer, CFunction, read } from "./ffi";
 import { encodeWide, decodeWide } from "./wide";
 
 /** Win32 bindings used by the dock. Everything here is synchronous and cheap enough to poll. */
@@ -34,6 +34,7 @@ const user32 = dlopen("user32.dll", {
   GetMonitorInfoW: { args: ["ptr", "ptr"], returns: "i32" },
   keybd_event: { args: ["u8", "u8", "u32", "u64"], returns: "void" },
   SwitchToThisWindow: { args: ["ptr", "i32"], returns: "void" },
+  SystemParametersInfoW: { args: ["u32", "u32", "ptr", "u32"], returns: "i32" },
 });
 
 const kernel32 = dlopen("kernel32.dll", {
@@ -43,18 +44,12 @@ const kernel32 = dlopen("kernel32.dll", {
   GlobalMemoryStatusEx: { args: ["ptr"], returns: "i32" },
   GetSystemTimes: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
   GetSystemPowerStatus: { args: ["ptr"], returns: "i32" },
-  LoadLibraryW: { args: ["ptr"], returns: "ptr" },
-  GetProcAddress: { args: ["ptr", "u64"], returns: "ptr" },
   GetApplicationUserModelId: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
   TerminateProcess: { args: ["ptr", "u32"], returns: "i32" },
 });
 
 const dwmapi = dlopen("dwmapi.dll", {
   DwmGetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" },
-  DwmRegisterThumbnail: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
-  DwmUnregisterThumbnail: { args: ["ptr"], returns: "i32" },
-  DwmUpdateThumbnailProperties: { args: ["ptr", "ptr"], returns: "i32" },
-  DwmQueryThumbnailSourceSize: { args: ["ptr", "ptr"], returns: "i32" },
 });
 
 const gdi32 = dlopen("gdi32.dll", {
@@ -395,8 +390,12 @@ export function showOwnWindowOnTaskbar(title: string) {
 }
 let enumCallback: JSCallback | null = null;
 
-export function listTaskbarWindows(): TopWindow[] {
+/** Read by the cached EnumWindows callback: list windows of every virtual desktop. */
+let listAllDesktops = false;
+
+export function listTaskbarWindows(allDesktops = false): TopWindow[] {
   collected = [];
+  listAllDesktops = allDesktops;
   enumCallback ??= new JSCallback(
     (hwnd: HWND) => {
       if (!U.IsWindowVisible(hwnd)) return 1;
@@ -411,9 +410,13 @@ export function listTaskbarWindows(): TopWindow[] {
       if (owned && !(ex & WS_EX_APPWINDOW)) return 1;
       cloakBuf[0] = 0;
       dwmapi.symbols.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, cloakBytes, 4);
-      if (cloakBuf[0]) return 1;
+      const cloaked = !!cloakBuf[0];
+      if (cloaked && !listAllDesktops) return 1;
       const title = windowTitle(hwnd, own);
       if (!title) return 1;
+      // Virtual desktops, as the taskbar filters them (VirtualDesktopTaskbarFilter): only the
+      // current desktop's windows, or every desktop's (those are cloaked by the shell while away).
+      if (cloaked ? !onOtherDesktop(hwnd) : !listAllDesktops && onOtherDesktop(hwnd)) return 1;
       // Of this app's own windows only the ones registered (the settings/widgets window) belong on
       // the taskbar: the menu and preview windows look like app windows to Windows too.
       if (own && !ownTaskbarTitles.has(title)) return 1;
@@ -435,6 +438,82 @@ export function isCloaked(hwnd: HWND): boolean {
   return !!cloakBuf[0];
 }
 
+
+const ole32 = dlopen("ole32.dll", {
+  CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
+  CoCreateInstance: { args: ["ptr", "ptr", "u32", "ptr", "ptr"], returns: "i32" },
+});
+
+function guidBytes(s: string) {
+  const h = s.replace(/[{}-]/g, "");
+  const b = new Uint8Array(16);
+  const v = new DataView(b.buffer);
+  v.setUint32(0, parseInt(h.slice(0, 8), 16), true);
+  v.setUint16(4, parseInt(h.slice(8, 12), 16), true);
+  v.setUint16(6, parseInt(h.slice(12, 16), 16), true);
+  for (let i = 0; i < 8; i++) b[8 + i] = parseInt(h.slice(16 + i * 2, 18 + i * 2), 16);
+  return b;
+}
+
+/**
+ * IVirtualDesktopManager, the documented part of the virtual desktop API (shobjidl_core.h):
+ * vtable 3 IsWindowOnCurrentVirtualDesktop(HWND, BOOL*), 4 GetWindowDesktopId(HWND, GUID*).
+ * 0 = not created yet, null = unavailable (no COM, an old build).
+ */
+let vdm: Pointer | null | 0 = 0;
+let vdmCurrent: ((obj: Pointer, hwnd: HWND, out: Uint8Array) => number) | null = null;
+let vdmDesktopId: ((obj: Pointer, hwnd: HWND, out: Uint8Array) => number) | null = null;
+const vdmBool = new Uint32Array(1);
+const vdmGuid = new Uint8Array(16);
+
+function desktopManager(): Pointer | null {
+  if (vdm !== 0) return vdm;
+  vdm = null;
+  ole32.symbols.CoInitializeEx(null, 2 /* COINIT_APARTMENTTHREADED */);
+  const out = new BigUint64Array(1);
+  const hr = ole32.symbols.CoCreateInstance(
+    guidBytes("aa509086-5ca9-4c25-8f95-589d3c07b48a"), // CLSID_VirtualDesktopManager
+    null,
+    0x17 /* CLSCTX_ALL */,
+    guidBytes("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), // IID_IVirtualDesktopManager
+    new Uint8Array(out.buffer),
+  );
+  if (hr !== 0 || !out[0]) return null;
+  const obj = Number(out[0]) as Pointer;
+  const vtbl = read.ptr(obj, 0) as Pointer;
+  const slot = (i: number) => new CFunction({ ptr: read.ptr(vtbl, i * 8) as Pointer, args: ["ptr", "ptr", "ptr"], returns: "i32" }) as never;
+  vdmCurrent = slot(3);
+  vdmDesktopId = slot(4);
+  vdm = obj;
+  return vdm;
+}
+
+/**
+ * Whether the window sits on a virtual desktop other than the one shown, the way the taskbar
+ * tells (IVirtualDesktopManager::IsWindowOnCurrentVirtualDesktop). A window no desktop tracks
+ * (GetWindowDesktopId fails or gives GUID_NULL: a suspended Store frame, a shell surface) is not
+ * on another desktop.
+ */
+export function onOtherDesktop(hwnd: HWND): boolean {
+  const m = desktopManager();
+  if (!m) return false;
+  vdmBool[0] = 1;
+  if (vdmCurrent!(m, hwnd, new Uint8Array(vdmBool.buffer)) !== 0 || vdmBool[0]) return false;
+  vdmGuid.fill(0);
+  if (vdmDesktopId!(m, hwnd, vdmGuid) !== 0) return false;
+  return vdmGuid.some((b) => b !== 0);
+}
+
+/**
+ * Whether the window is left off the taskbar for being cloaked. Windows on another virtual
+ * desktop are cloaked by the shell; with "show windows on all desktops" (allDesktops) the
+ * taskbar lists them anyway, while windows cloaked for any other reason stay off.
+ */
+export function cloakedOff(hwnd: HWND, allDesktops: boolean): boolean {
+  if (!isCloaked(hwnd)) return !allDesktops && onOtherDesktop(hwnd);
+  return !(allDesktops && onOtherDesktop(hwnd));
+}
+
 export function isMinimized(hwnd: HWND): boolean {
   return !!U.IsIconic(hwnd);
 }
@@ -453,6 +532,18 @@ export function activateWindow(hwnd: HWND) {
   if (U.IsIconic(hwnd) || !U.SetForegroundWindow(hwnd)) U.SwitchToThisWindow(hwnd, 1);
 }
 
+
+const hoverTimeBuf = new Uint32Array(1);
+
+/**
+ * How long the pointer must rest for a hover to count (SPI_GETMOUSEHOVERTIME, 400 ms by default):
+ * the wait of the taskbar before a button that files are dragged over brings its window forward.
+ * Read each time, so a change in the system setting applies at once.
+ */
+export function mouseHoverTime(): number {
+  return U.SystemParametersInfoW(0x66 /* SPI_GETMOUSEHOVERTIME */, 0, hoverTimeBuf, 0) ? hoverTimeBuf[0]! : 400;
+}
+
 /** The desktop takes the foreground (nothing left to activate), as after the last window minimizes. */
 export function activateDesktop() {
   const desktop = U.GetShellWindow() as HWND | null;
@@ -468,26 +559,6 @@ export function windowPid(hwnd: HWND): number {
 /** The window that owns `hwnd` (a dialog's main window), or null. */
 export function ownerOf(hwnd: HWND): HWND | null {
   return U.GetWindow(hwnd, GW_OWNER) as HWND | null;
-}
-
-let livePreview: ((on: number, target: HWND | null, keepOnTop: HWND | null, kind: number, extra: number) => number) | null | undefined;
-
-/**
- * Aero Peek, as the taskbar does it: every other window fades to glass outlines and `target`
- * shows in place. `keepOnTop` stays visible above it. Undocumented (dwmapi ordinal 113).
- */
-export function peekWindow(target: HWND | null, keepOnTop: HWND | null = null) {
-  if (livePreview === undefined) {
-    const mod = K.LoadLibraryW(wide("dwmapi.dll"));
-    const fn = mod ? K.GetProcAddress(mod, 113) : null;
-    try {
-      livePreview = fn ? (new CFunction({ ptr: fn, args: ["i32", "ptr", "ptr", "u32", "u64"], returns: "i32" }) as never) : null;
-    } catch (error) {
-      if (!(error instanceof FfiUnsupported)) throw error;
-      livePreview = null;
-    }
-  }
-  livePreview?.(target ? 1 : 0, target, keepOnTop, 1, 0);
 }
 
 export function minimizeWindow(hwnd: HWND) {
@@ -566,50 +637,6 @@ export function packagedAppId(pid: number): string {
   }
 }
 
-// ---------- Live window thumbnails (what the taskbar previews use) ----------
-
-export type Thumbnail = bigint;
-
-/** Shows a live picture of `source` inside `dest` (a window of this process). */
-export function registerThumbnail(dest: HWND, source: HWND): Thumbnail | null {
-  const out = new BigUint64Array(1);
-  return dwmapi.symbols.DwmRegisterThumbnail(dest, source, new Uint8Array(out.buffer)) === 0 ? out[0]! : null;
-}
-
-export function unregisterThumbnail(thumb: Thumbnail) {
-  dwmapi.symbols.DwmUnregisterThumbnail(Number(thumb) as unknown as Pointer);
-}
-
-export function thumbnailSourceSize(thumb: Thumbnail): { width: number; height: number } {
-  const size = new Int32Array(2);
-  dwmapi.symbols.DwmQueryThumbnailSourceSize(Number(thumb) as unknown as Pointer, new Uint8Array(size.buffer));
-  return { width: size[0]!, height: size[1]! };
-}
-
-/**
- * Places the thumbnail at `rect` (physical px in the destination's client area). The whole window
- * is shown, title bar included, as on the taskbar; `source` crops it (see visibleFrame).
- */
-export function placeThumbnail(thumb: Thumbnail, rect: Rect, visible = true, source: Rect | null = null) {
-  const buf = new Uint8Array(48);
-  const view = new DataView(buf.buffer);
-  view.setUint32(0, 0x1 | (source ? 0x2 : 0) | 0x4 | 0x8 | 0x10, true); // destination, source, opacity, visible, client area only
-  view.setInt32(4, Math.round(rect.left), true);
-  view.setInt32(8, Math.round(rect.top), true);
-  view.setInt32(12, Math.round(rect.right), true);
-  view.setInt32(16, Math.round(rect.bottom), true);
-  if (source) {
-    view.setInt32(20, Math.round(source.left), true);
-    view.setInt32(24, Math.round(source.top), true);
-    view.setInt32(28, Math.round(source.right), true);
-    view.setInt32(32, Math.round(source.bottom), true);
-  }
-  view.setUint8(36, 255);
-  view.setInt32(40, visible ? 1 : 0, true);
-  view.setInt32(44, 0, true);
-  dwmapi.symbols.DwmUpdateThumbnailProperties(Number(thumb) as unknown as Pointer, buf);
-}
-
 /**
  * The visible part of a window inside its window rect: Windows 10/11 frames carry invisible resize
  * borders that a thumbnail would show as empty margins. Null for a minimized window.
@@ -621,6 +648,23 @@ export function visibleFrame(hwnd: HWND): Rect | null {
   if (dwmapi.symbols.DwmGetWindowAttribute(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, new Uint8Array(r.buffer), 16) !== 0) return null;
   const frame = { left: r[0]! - outer.left, top: r[1]! - outer.top, right: r[2]! - outer.left, bottom: r[3]! - outer.top };
   return frame.right > frame.left && frame.bottom > frame.top ? frame : null;
+}
+
+
+const clientToScreen = dlopen("user32.dll", { ClientToScreen: { args: ["ptr", "ptr"], returns: "i32" } }).symbols.ClientToScreen;
+
+/**
+ * A rectangle of the window's client area (ITaskbarList3::SetThumbnailClip's coordinates) inside
+ * its window rect, as a DWM thumbnail's source takes it. Null for a minimized window.
+ */
+export function clientRectInWindow(hwnd: HWND, rect: Rect): Rect | null {
+  if (U.IsIconic(hwnd)) return null;
+  const outer = windowRect(hwnd);
+  const p = new Int32Array(2);
+  if (!clientToScreen(hwnd, new Uint8Array(p.buffer))) return null;
+  const dx = p[0]! - outer.left;
+  const dy = p[1]! - outer.top;
+  return { left: rect.left + dx, top: rect.top + dy, right: rect.right + dx, bottom: rect.bottom + dy };
 }
 
 // ---------- Keyboard ----------

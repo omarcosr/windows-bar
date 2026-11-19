@@ -1,4 +1,4 @@
-import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type Style } from "@tarve/core";
+import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type DraggableProps, type DropTargetProps, type Style } from "@tarve/core";
 import { Fragment } from "@tarve/core/jsx-runtime";
 import { COMPACT_PAD, hoverShade, numeric, ui } from "../theme";
 import { config, type GlowColor, type HoverEffect } from "../config";
@@ -515,7 +515,17 @@ const alpha = (a: number) =>
  * the same press, right-click and hover. Place it as the button's first child (`position:
  * "relative"` button); `height` is the button's own height.
  */
-export function HitReach(props: { height: number; onClick?: () => void; onContextMenu?: () => void; onHover?: (hovered: boolean) => void }) {
+export function HitReach(props: {
+  height: number;
+  onClick?: () => void;
+  onContextMenu?: () => void;
+  onHover?: (hovered: boolean) => void;
+  /**
+   * The button's drag-and-drop props: the press lands on this child, and a drag only starts from
+   * the pressed node (and drops reach the innermost target), so a draggable button passes them here too.
+   */
+  drag?: DraggableProps & DropTargetProps;
+}) {
   const reach = Math.max(0, (ui.dock.height - props.height) / 2);
   if (!reach) return null;
   // Across the bar: up and down in a row, left and right in the column of a side-edge dock.
@@ -527,6 +537,7 @@ export function HitReach(props: { height: number; onClick?: () => void; onContex
       onClick={props.onClick}
       onContextMenu={props.onContextMenu}
       onHover={props.onHover}
+      {...props.drag}
       style={{ position: "absolute", ...box, cursor: "pointer" }}
     />
   );

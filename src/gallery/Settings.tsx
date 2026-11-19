@@ -173,7 +173,7 @@ function HoverPreview() {
             >
               <View style={magnify.box}>
                 {icon ? (
-                  <Image src={icon} width={30} height={30} fit="contain" style={magnify.icon} />
+                  <Image src={icon} width={30} height={30} fit="contain" style={{ radius: 0, ...magnify.icon }} />
                 ) : (
                   <View style={{ radius: 8, background: "#3a3a40", ...magnify.icon }} />
                 )}

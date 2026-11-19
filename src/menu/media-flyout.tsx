@@ -83,7 +83,7 @@ function Artwork() {
   const icon = playerIcon(media.app, 48);
   return (
     <View style={{ width: ART, height: ART, radius: 8, shrink: 0, background: "rgba(255,255,255,0.06)", align: "center", justify: "center" }}>
-      {icon ? <Image src={icon} width={44} height={44} fit="contain" /> : <Fluent code={0xe8d6 /* MusicNote */} size={30} color={ui.muted} />}
+      {icon ? <Image src={icon} width={44} height={44} fit="contain" style={{ radius: 0 }} /> : <Fluent code={0xe8d6 /* MusicNote */} size={30} color={ui.muted} />}
     </View>
   );
 }
@@ -96,7 +96,7 @@ function Header() {
   return (
     <Row style={{ align: "center", gap: 8, height: 24 }}>
       <Pressable onClick={() => openPlayer()} style={{ direction: "row", align: "center", gap: 8, flex: 1, minWidth: 0, cursor: "pointer", radius: 4 }}>
-        {icon ? <Image src={icon} width={16} height={16} fit="contain" /> : null}
+        {icon ? <Image src={icon} width={16} height={16} fit="contain" style={{ radius: 0 }} /> : null}
         <Text size={12} color={ui.muted} style={{ flex: 1, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
           {media.app ? sourceName(media.app) : ""}
         </Text>
@@ -271,7 +271,7 @@ function Sources() {
               hover: { background: "rgba(255,255,255,0.1)" },
             }}
           >
-            {icon ? <Image src={icon} width={16} height={16} fit="contain" /> : <Fluent code={0xe8d6} size={14} color={ui.muted} />}
+            {icon ? <Image src={icon} width={16} height={16} fit="contain" style={{ radius: 0 }} /> : <Fluent code={0xe8d6} size={14} color={ui.muted} />}
             <Text size={12} color={ui.text} style={{ flex: 1, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
               {s.title ? `${s.title}${s.artist ? " · " + s.artist : ""}` : sourceName(s.appId)}
             </Text>

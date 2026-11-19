@@ -30,6 +30,8 @@ export interface DockMenuItem {
   onContextMenu?: () => void;
   /** Grid menus only: a second click on the same item within a moment. */
   onDoubleSelect?: () => void;
+  /** A small button at the row's end (the jump list's pin), run instead of onSelect. */
+  trailing?: { icon: FluentIcon; label: string; onSelect: () => void };
 }
 
 export interface DockMenuSpec {
@@ -37,6 +39,8 @@ export interface DockMenuSpec {
   subtitle?: string;
   image?: ImageSource;
   sections: DockMenuItem[][];
+  /** A heading per section (same index as sections), like the jump list's "Fixado" / "Tarefas". */
+  sectionTitles?: (string | undefined)[];
   /**
    * Icons only, five per row, no header, like the Windows hidden-icons flyout. Clicks do not
    * close it; it closes when something else comes to the front, a press lands outside or Esc.
@@ -126,7 +130,7 @@ function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string; size?: num
   const { icon } = props;
   const size = props.size ?? 16;
   if (!icon) return <View style={{ width: size, height: size }} />;
-  if (typeof icon === "object" && "image" in icon) return <Image src={icon.image} width={size} height={size} fit="contain" />;
+  if (typeof icon === "object" && "image" in icon) return <Image src={icon.image} width={size} height={size} fit="contain" style={{ radius: 0 }} />;
   const code = typeof icon === "object" && "fluent" in icon ? icon.fluent : typeof icon === "string" ? NAMED[icon] : undefined;
   if (code !== undefined) {
     return (
@@ -144,6 +148,32 @@ function ItemIcon(props: { icon: DockMenuItem["icon"]; color: string; size?: num
 function MenuRow(props: { item: DockMenuItem }) {
   const { item } = props;
   const color = item.danger ? "#ff6961" : ui.text;
+  const trailing = item.trailing;
+  if (trailing) {
+    // The jump list's pin button: beside the row, not inside it, so its click is its own.
+    return (
+      <Row style={{ align: "center", gap: 2 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <MenuRow item={{ ...item, trailing: undefined }} />
+        </View>
+        <Pressable
+          onClick={trailing.onSelect}
+          style={{
+            width: 30,
+            height: 34,
+            align: "center",
+            justify: "center",
+            radius: 8,
+            cursor: "pointer",
+            hover: { background: "rgba(255,255,255,0.08)" },
+            active: { background: "rgba(255,255,255,0.12)" },
+          }}
+        >
+          <FluentGlyph code={trailing.icon.fluent} size={14} color="#c7c7cc" />
+        </Pressable>
+      </Row>
+    );
+  }
   return (
     <Pressable
       // The action runs before the menu closes: while the menu is in front, this process may
@@ -258,7 +288,7 @@ function MenuView() {
               }}
             >
               <Row style={{ align: "center", gap: 10, padding: { left: 10, right: 10, top: 8, bottom: 8 } }}>
-                {spec.image ? <Image src={spec.image} width={28} height={28} fit="contain" /> : null}
+                {spec.image ? <Image src={spec.image} width={28} height={28} fit="contain" style={{ radius: 0 }} /> : null}
                 <Column style={{ flex: 1, gap: 1, minWidth: 0 }}>
                   <Text
                     size={13}
@@ -276,10 +306,16 @@ function MenuView() {
                 </Column>
               </Row>
               {spec.sections
-                .filter((s) => s.length)
-                .map((section, index) => (
+                .map((section, index) => ({ section, title: spec.sectionTitles?.[index] }))
+                .filter((s) => s.section.length)
+                .map(({ section, title }, index) => (
                   <Column key={index} style={{ gap: 0 }}>
                     <View style={{ height: 1, margin: { left: 8, right: 8, top: 3, bottom: 3 }, background: "rgba(255,255,255,0.07)" }} />
+                    {title ? (
+                      <Text size={11} weight={600} color={ui.muted} style={{ padding: { left: 10, right: 10, top: 4, bottom: 2 } }}>
+                        {title}
+                      </Text>
+                    ) : null}
                     {section.map((item, i) => (
                       <MenuRow key={i} item={item} />
                     ))}

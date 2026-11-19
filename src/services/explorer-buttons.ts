@@ -51,6 +51,18 @@ onDockCoveredChange(() => {
   read();
 });
 
+/** One button's HelpText changed (the event carries the button and its new text): no search needed. */
+function helpChanged(button: ExplorerButton) {
+  if (!users) return;
+  const list = explorerButtons.list;
+  const index = list.findIndex((b) => b.appId === button.appId);
+  const shown = !!button.help.trim();
+  if (index >= 0 && shown && list[index]!.help === button.help) return;
+  if (index < 0 && !shown) return;
+  if (process.env.TRAY_DEBUG) console.log("[explorer-buttons] help", JSON.stringify(button));
+  explorerButtons.list = shown ? (index >= 0 ? list.map((b, i) => (i === index ? button : b)) : [...list, button]) : list.filter((_, i) => i !== index);
+}
+
 /** Explorer changed a button: read once the burst settles. */
 function changed() {
   if (!users || waiting || timer) return;
@@ -86,7 +98,7 @@ function watch(tries = 0) {
   clearTimeout(retry);
   stopWatch?.();
   try {
-    stopWatch = watchExplorerButtons(changed);
+    stopWatch = watchExplorerButtons(changed, helpChanged);
   } catch (error) {
     stopWatch = null;
     console.error("[explorer-buttons]", error);

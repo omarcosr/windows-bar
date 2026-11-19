@@ -1,5 +1,5 @@
-import { dlopen } from "../native/ffi";
-import { Image, Pressable, Row, Text, View, Window, darkTheme, store, type AppHandle, type ScreenInfo } from "@tarve/core";
+
+import { Image, Pressable, Row, Text, View, Window, darkTheme, peekWindow, setWindowPeek, store, windowThumbnail, type AppHandle, type ScreenInfo, type WindowThumbnail } from "@tarve/core";
 import { config } from "../config";
 import { FluentGlyph } from "./dock-menu";
 import { DockWindow } from "../native/dock-window";
@@ -9,19 +9,17 @@ import {
   closeWindow,
   cursorPos,
   foregroundWindow,
-  peekWindow,
-  placeThumbnail,
-  registerThumbnail,
-  thumbnailSourceSize,
-  unregisterThumbnail,
+  
   visibleFrame,
   windowRect,
   type HWND,
-  type Thumbnail,
-} from "../native/win32";
+  clientRectInWindow, mouseHoverTime } from "../native/win32";
 import { iconFor } from "../services/icons";
 import { desktop, focusWindow, scheduleRefresh } from "../services/windows";
 import { ui } from "../theme";
+import { thumbBars, thumbButtonImage, type ThumbBar, type ThumbButton } from "../services/taskbar-host";
+import { clickThumbButton } from "../native/tray-host";
+
 const TITLE = "WindowsBar Preview";
 // Fixed geometry: DWM paints each live thumbnail into a rectangle we compute from these.
 const BORDER = 1;
@@ -40,6 +38,81 @@ const CARD_H = CARD_PAD + HEADER + CARD_PAD + THUMB_H + CARD_PAD;
 const ROW_H = 36;
 const LIST_W = 320;
 
+/** The thumbnail toolbar's row under the picture, and one button of it. */
+const BAR_H = 32;
+const BAR_BUTTON_W = 34;
+const BAR_BUTTON_H = 28;
+
+function cardHeight() {
+  return CARD_H + (preview.bar ? BAR_H : 0);
+}
+
+/** The buttons an app shows under its window's thumbnail (THBF_HIDDEN ones left out). */
+function visibleButtons(bar: ThumbBar | undefined): ThumbButton[] {
+  return bar ? bar.buttons.filter((b) => !(b.flags & 0x8)) : [];
+}
+
+/** The pointer is on a window's thumbnail (button null) or on one of its toolbar buttons. */
+function showTip(target: HWND, button: number | null, hovered: boolean) {
+  const id = Number(target);
+  if (hovered) {
+    if (preview.tip.hwnd !== id || preview.tip.button !== button) preview.tip = { hwnd: id, button };
+  } else if (preview.tip.hwnd === id && preview.tip.button === button) {
+    preview.tip = { hwnd: 0, button: null };
+  }
+}
+
+/** The text the header shows instead of the title: SetThumbnailTooltip's, or the hovered button's tip (kept current by UpdateButtons). */
+function tipText(target: HWND): string {
+  if (preview.tip.hwnd !== Number(target)) return "";
+  const bar = thumbBars[String(target)];
+  if (!bar) return "";
+  if (preview.tip.button === null) return bar.tooltip;
+  return bar.buttons.find((b) => b.id === preview.tip.button)?.tip ?? "";
+}
+
+function clickThumb(target: HWND, button: ThumbButton) {
+  if (button.flags & 0x11) return; // THBF_DISABLED, THBF_NONINTERACTIVE
+  clickThumbButton(Number(target), button.id);
+  if (button.flags & 0x2) hidePreview(true); // THBF_DISMISSONCLICK
+}
+
+/** ITaskbarList3's thumbnail toolbar: the app's buttons, centred under the picture, as Explorer draws them. */
+function ThumbBarRow(props: { hwnd: HWND }) {
+  const bar = thumbBars[String(props.hwnd)];
+  const buttons = visibleButtons(bar);
+  return (
+    <Row style={{ height: BAR_H, align: "center", justify: "center", gap: 2 }}>
+      {bar
+        ? buttons.map((b) => {
+            const image = thumbButtonImage(bar, b);
+            const inert = !!(b.flags & 0x11);
+            // The app's pixels, one to one: the size it drew them at, in logical px.
+            const size = image && image.size ? image.size / scale : 16;
+            return (
+              <Pressable
+                key={b.id}
+                onHover={(hovered) => showTip(props.hwnd, b.id, hovered)}
+                onClick={() => clickThumb(props.hwnd, b)}
+                style={{
+                  width: BAR_BUTTON_W,
+                  height: BAR_BUTTON_H,
+                  radius: 4,
+                  align: "center",
+                  justify: "center",
+                  opacity: b.flags & 0x1 ? 0.4 : 1,
+                  hover: inert || b.flags & 0x4 ? {} : { background: "rgba(255,255,255,0.12)" },
+                }}
+              >
+                {image ? <Image src={image.src} width={size} height={size} fit="contain" style={{ radius: 0 }} /> : null}
+              </Pressable>
+            );
+          })
+        : null}
+    </Row>
+  );
+}
+
 const preview = store({
   key: "",
   /** Thumbnail width per card, in logical px. */
@@ -47,13 +120,17 @@ const preview = store({
   list: false,
   /** Windows just closed from the preview: hidden until the next window scan drops them. */
   closed: [] as number[],
+  /** Some window has a thumbnail toolbar (ThumbBarAddButtons): every card gets its row, as on the taskbar. */
+  bar: false,
+  /** The thumbnail tooltip or toolbar button tip under the pointer, shown in its card's header. */
+  tip: { hwnd: 0, button: null as number | null },
 });
 
 let handle: AppHandle | undefined;
 /** The window in front before a click opened the list: it gets the keyboard back when the list goes. */
 let beforeList: HWND | null = null;
 let hwnd: HWND | null = null;
-let thumbs: { source: HWND; thumb: Thumbnail }[] = [];
+let thumbs: { source: HWND; thumb: WindowThumbnail }[] = [];
 let showTimer: ReturnType<typeof setTimeout> | undefined;
 /** Where the preview opens, in physical screen px: the pointer's x and the monitor under it. */
 let anchorX = 0;
@@ -73,12 +150,9 @@ let placed = "";
 /** The hovered icon's centre, asked of the dock's renderer as the pointer arrives (during the hover delay). */
 let center: { key: string; at: Promise<number | null> } | null = null;
 
-// The thumbnails and the peek are DWM features Tarve does not wrap, so they stay on FFI; so does
-// keeping the preview itself out of the peek (DWMWA_EXCLUDED_FROM_PEEK).
-const dwm = dlopen("dwmapi.dll", { DwmSetWindowAttribute: { args: ["ptr", "u32", "ptr", "u32"], returns: "i32" } });
-
+/** Stays visible while a window is peeked from the preview (DWMWA_EXCLUDED_FROM_PEEK). */
 function excludeFromPeek(window: HWND) {
-    dwm.symbols.DwmSetWindowAttribute(window, 12 /* DWMWA_EXCLUDED_FROM_PEEK */, new Uint32Array([1]), 4);
+  setWindowPeek(window, { excluded: true });
 }
 
 /**
@@ -86,7 +160,7 @@ function excludeFromPeek(window: HWND) {
  * window open/close animation on every show(), which held the preview back after the hover delay.
  */
 function disableTransitions(window: HWND) {
-  dwm.symbols.DwmSetWindowAttribute(window, 3 /* DWMWA_TRANSITIONS_FORCEDISABLED */, new Uint32Array([1]), 4);
+  setWindowPeek(window, { transitions: false });
 }
 
 function startPeek(target: HWND) {
@@ -96,7 +170,11 @@ function startPeek(target: HWND) {
     // Exclusion keeps a window visible, but only keepOnTop keeps it above the peek target.
     const dock = DockWindow.handle();
     if (dock) excludeFromPeek(dock);
-    peekWindow(target, hwnd);
+    try {
+      peekWindow(target, hwnd ? { keepVisible: hwnd } : {});
+    } catch (error) {
+      console.error("[preview] peek", error);
+    }
   }, 350);
 }
 
@@ -104,7 +182,9 @@ function stopPeek() {
   clearTimeout(peekTimer);
   if (!peeking) return;
   peeking = false;
-  peekWindow(null);
+  try {
+    peekWindow(null);
+  } catch {}
 }
 
 function windowsOf(key: string) {
@@ -164,15 +244,64 @@ function pick(target: HWND) {
   focusWindow(target);
 }
 
+
+/** The app icon files are dragged over, and the card they rest on (see dragOverApp). */
+let dragKey = "";
+let dragCard: HWND | null = null;
+let dragCardTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Files dragged over the icon of an app with several windows, once they rested there for the
+ * hover time: its thumbnails open without taking the foreground, as on the taskbar, so the files
+ * can go on to one of its windows. They close a moment after the files leave the icon and cards.
+ */
+export function dragOverApp(key: string, hovered: boolean) {
+  if (hovered) {
+    clearTimeout(leaveTimer);
+    dragKey = key;
+    void showFor(key, () => dragKey === key || dragCard !== null);
+    return;
+  }
+  if (dragKey === key) dragKey = "";
+  dragLeft();
+}
+
+function dragLeft() {
+  if (!preview.key || pinned) return;
+  clearTimeout(leaveTimer);
+  leaveTimer = setTimeout(() => {
+    if (!dragKey && !dragCard && !hoveredKey) hidePreview(true);
+  }, 300);
+}
+
+/** Files resting on a card for the hover time bring its window forward, as the taskbar's thumbnails do. */
+function dragOverCard(target: HWND, hovered: boolean) {
+  clearTimeout(dragCardTimer);
+  if (!hovered) {
+    if (dragCard === target) dragCard = null;
+    dragLeft();
+    return;
+  }
+  dragCard = target;
+  clearTimeout(leaveTimer);
+  dragCardTimer = setTimeout(() => {
+    if (dragCard !== target) return;
+    dragCard = null;
+    pick(target);
+  }, mouseHoverTime());
+}
+
 function Card(props: { hwnd: HWND; title: string; exe: string; width: number }) {
   const icon = iconFor(props.exe, 16);
   return (
     <Pressable
       onHover={(hovered) => hoverWindow(props.hwnd, hovered)}
       onClick={() => pick(props.hwnd)}
+      onFileDragEnter={() => dragOverCard(props.hwnd, true)}
+      onFileDragLeave={() => dragOverCard(props.hwnd, false)}
       style={{
         width: props.width + CARD_PAD * 2,
-        height: CARD_H,
+        height: cardHeight(),
         padding: CARD_PAD,
         gap: CARD_PAD,
         radius: 8,
@@ -182,14 +311,19 @@ function Card(props: { hwnd: HWND; title: string; exe: string; width: number }) 
       }}
     >
       <Row style={{ height: HEADER, align: "center", gap: 8 }}>
-        {icon ? <Image src={icon} width={16} height={16} fit="contain" /> : null}
+        {icon ? <Image src={icon} width={16} height={16} fit="contain" style={{ radius: 0 }} /> : null}
         <Text size={12} color={ui.text} style={{ flex: 1, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
-          {props.title}
+          {tipText(props.hwnd) || props.title}
         </Text>
         <CloseButton hwnd={props.hwnd} />
       </Row>
       {/* DWM draws the live window here; nothing painted under it, so no frame shows around it. */}
-      <View style={{ width: props.width, height: THUMB_H }} />
+      <View
+          onPointerMove={() => showTip(props.hwnd, null, true)}
+          onPointerLeave={() => showTip(props.hwnd, null, false)}
+          style={{ width: props.width, height: THUMB_H }}
+        />
+        {preview.bar ? <ThumbBarRow hwnd={props.hwnd} /> : null}
     </Pressable>
   );
 }
@@ -200,6 +334,8 @@ function ListRow(props: { hwnd: HWND; title: string; exe: string }) {
     <Pressable
       onHover={(hovered) => hoverWindow(props.hwnd, hovered)}
       onClick={() => pick(props.hwnd)}
+      onFileDragEnter={() => dragOverCard(props.hwnd, true)}
+      onFileDragLeave={() => dragOverCard(props.hwnd, false)}
       style={{
         width: LIST_W,
         height: ROW_H,
@@ -213,7 +349,7 @@ function ListRow(props: { hwnd: HWND; title: string; exe: string }) {
         hover: { background: "rgba(255,255,255,0.08)" },
       }}
     >
-      {icon ? <Image src={icon} width={16} height={16} fit="contain" /> : null}
+      {icon ? <Image src={icon} width={16} height={16} fit="contain" style={{ radius: 0 }} /> : null}
       <Text size={12} color={ui.text} style={{ flex: 1, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
         {props.title}
       </Text>
@@ -229,7 +365,7 @@ function PreviewView() {
     <Window
       title={TITLE}
       width={(BORDER + PAD) * 2 + (THUMB_W + CARD_PAD * 2) * 4 + GAP * 3}
-      height={CARD_H + (BORDER + PAD) * 2}
+      height={cardHeight() + (BORDER + PAD) * 2}
       frameless
       resizable={false}
       skipTaskbar
@@ -278,15 +414,17 @@ function pointerInsidePreview() {
 }
 
 function clearThumbs() {
-  for (const t of thumbs) unregisterThumbnail(t.thumb);
+  for (const t of thumbs) t.thumb.dispose();
   thumbs = [];
 }
 
 /** The visible size of a window (its invisible resize borders cropped) and the crop itself. */
-function sourceOf(source: HWND, thumb: Thumbnail) {
-  const crop = visibleFrame(source);
+function sourceOf(source: HWND, thumb: WindowThumbnail) {
+  // SetThumbnailClip: only that part of the client area, as Explorer shows it.
+  const clip = thumbBars[String(source)]?.clip;
+  const crop = (clip && clientRectInWindow(source, clip)) || visibleFrame(source);
   if (crop) return { crop, width: crop.right - crop.left, height: crop.bottom - crop.top };
-  return { crop: null, ...thumbnailSourceSize(thumb) };
+  return { crop: null, ...thumb.sourceSize };
 }
 
 /** Sizes and places the window above its icon, then lays the live thumbnails into their cards. */
@@ -298,11 +436,16 @@ function layout() {
   const room = area.width / scale - 16;
 
   const sources = windows.map((w) => w.hwnd);
+  const bar = sources.some((s) => visibleButtons(thumbBars[String(s)]).length > 0);
+  if (preview.bar !== bar) preview.bar = bar;
   if (thumbs.length !== sources.length || thumbs.some((t, i) => t.source !== sources[i])) {
     clearThumbs();
     for (const source of sources) {
-      const thumb = registerThumbnail(hwnd, source);
-      if (thumb !== null) thumbs.push({ source, thumb });
+      try {
+          thumbs.push({ source, thumb: windowThumbnail(hwnd, source) });
+        } catch {
+          // The window went away between the scan and now: its card shows no picture.
+        }
     }
   }
   const shapes = thumbs.map((t) => sourceOf(t.source, t.thumb));
@@ -318,7 +461,7 @@ function layout() {
 
   const width = Math.ceil((list ? (BORDER + PAD) * 2 + LIST_W : rowWidth) * scale);
   const height = Math.ceil(
-    (list ? (BORDER + PAD) * 2 + windows.length * ROW_H + 2 * (windows.length - 1) : CARD_H + (BORDER + PAD) * 2) * scale,
+    (list ? (BORDER + PAD) * 2 + windows.length * ROW_H + 2 * (windows.length - 1) : cardHeight() + (BORDER + PAD) * 2) * scale,
   );
   // Centred on the app's icon (anchorX, see centerOf), as the taskbar does, wherever on the icon the pointer was.
   const { x, y } = DockWindow.placePopup(width, height, gap, area, anchorX, 80);
@@ -341,7 +484,12 @@ function layout() {
       const h = (shape.height || boxH) * fit;
       const x0 = left + (boxW - w) / 2;
       const y0 = (BORDER + PAD + CARD_PAD + HEADER + CARD_PAD) * scale + (boxH - h) / 2;
-      placeThumbnail(t.thumb, { left: x0, top: y0, right: x0 + w, bottom: y0 + h }, !list, shape.crop);
+      const c = shape.crop;
+        t.thumb.update({
+          rect: { x: Math.round(x0), y: Math.round(y0), width: Math.round(x0 + w) - Math.round(x0), height: Math.round(y0 + h) - Math.round(y0) },
+          source: c ? { x: c.left, y: c.top, width: c.right - c.left, height: c.bottom - c.top } : null,
+          visible: !list,
+        });
     }
     left += boxW + (CARD_PAD * 2 + GAP) * scale;
   });

@@ -57,7 +57,7 @@ export default defineWidget({
     return (
       <HoverTip id={`tip:${ctx.instanceId}:bin`} tip={() => ["Lixeira", actions.recycleItems ? `${count(actions.recycleItems)} · ${formatBytes(actions.recycleBytes)}` : "Vazia"]} disabled={preview}>
         <Tile padding={{ left: 8, right: ctx.config.showDetails ? 12 : 8 }} onClick={preview ? undefined : () => launch(FOLDER)}>
-          {icon ? <Image src={icon} width={size} height={size} fit="contain" /> : <Glyph code={G.recycle} />}
+          {icon ? <Image src={icon} width={size} height={size} fit="contain" style={{ radius: 0 }} /> : <Glyph code={G.recycle} />}
           {ctx.config.showDetails ? (
             <Column style={{ gap: lines.gap }}>
               <Text size={lines.primary} weight={600} color={ui.text} style={{ ...numeric, lineHeight: lines.lineHeight }}>

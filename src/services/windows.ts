@@ -11,21 +11,23 @@ import {
   closeWindow,
   activateDesktop,
   isWindowVisible,
-  isCloaked,
+  cloakedOff,
   isMinimized,
   ownerOf,
   appProcessOf,
   exePathOf,
   terminateProcess,
   type HWND,
-  type TopWindow,
-} from "../native/win32";
+  type TopWindow, monitorOf } from "../native/win32";
 import { readFileSync, writeFileSync } from "node:fs";
 import { configDir } from "../config";
 import { windowAppId } from "../native/app-id";
 import { openUri, showInFolder } from "../native/desktop";
 import { fileDescription } from "../native/version-info";
 import { explorerButtonRank } from "./explorer-buttons";
+import { onShellEvent } from "../native/shell-events";
+import { buttonsOnOwnDisplayOnly, onTaskbarPrefsChange, taskbarPrefs } from "./taskbar-prefs";
+import { popupSystemMenu, sysCommand, SC_RESTORE } from "../native/system-menu";
 
 export interface AppWindow {
   hwnd: HWND;
@@ -58,6 +60,8 @@ export const desktop = store({
   flashing: [] as number[],
   /** Key of the app whose window was last in front (the dock itself excluded). */
   activeKey: "",
+  /** The window in front itself (0 for none), for per-window buttons when the taskbar does not combine. */
+  activeHwnd: 0,
 });
 
 /** The window in front before the dock was clicked: set at start, then by foreground events (noteForeground). */
@@ -171,21 +175,24 @@ export function windowShown(hwnd: number) {
 }
 
 export function refreshWindows() {
-  const all = listTaskbarWindows();
+  const allDesktops = taskbarPrefs.allDesktops;
+  const all = listTaskbarWindows(allDesktops);
   // A window already on the dock keeps its button while its title is empty for a moment (apps
   // clear it while they change it), as Explorer's taskbar does: measured, VS Code keeps its button
   // there with an empty title. Hidden, cloaked (another desktop) or destroyed windows still go.
   const seen = new Set(all.map((w) => w.hwnd));
   for (const [hwnd, info] of lastListed)
-    if (!seen.has(hwnd) && isWindowVisible(hwnd) && !isCloaked(hwnd)) all.push({ ...info, minimized: isMinimized(hwnd) });
+    if (!seen.has(hwnd) && isWindowVisible(hwnd) && !cloakedOff(hwnd, allDesktops)) all.push({ ...info, minimized: isMinimized(hwnd) });
   lastListed = new Map(all.map((w) => [w.hwnd, w]));
   const listed = new Set(all.map((w) => w.hwnd as unknown as number));
   for (const hwnd of closing) if (!listed.has(hwnd)) closing.delete(hwnd);
-  const windows = all.filter((w) => !closing.has(w.hwnd as unknown as number));
+  const ownDisplay = buttonsOnOwnDisplayOnly();
+  const windows = all.filter((w) => !closing.has(w.hwnd as unknown as number) && (!ownDisplay || onPrimaryDisplay(w.hwnd)));
   const groups = new Map<string, RunningApp>();
   // The app in front is the one owning the last non-dock foreground window; the desktop or a
   // window that is not on the taskbar leaves no app active, as on the Windows taskbar.
   let activeKey = "";
+  let activeHwnd = 0;
   const front = buttonOf(lastForeground, (h) => windows.some((w) => w.hwnd === h));
   for (const w of windows) {
     if (!w.exe) continue;
@@ -205,7 +212,10 @@ export function refreshWindows() {
     keyOf.set(w.hwnd, key);
     group.windows.push({ hwnd: w.hwnd, title: w.title, minimized: w.minimized });
     group.recent.push(w.hwnd);
-    if (front && w.hwnd === front && !w.minimized) activeKey = key;
+    if (front && w.hwnd === front && !w.minimized) {
+      activeKey = key;
+      activeHwnd = Number(w.hwnd);
+    }
   }
   const alive = new Set(windows.map((w) => w.hwnd));
   // A window still on screen but briefly off the list (cloaked while it starts or on another
@@ -242,12 +252,15 @@ export function refreshWindows() {
       .map((a) => `${a.key}:${a.windows.map((w) => `${w.hwnd}${w.minimized ? "m" : ""}${w.title}`).join(",")}:${a.recent.join(",")}`)
       .join("|") +
     "#" +
-    activeKey;
+    activeKey +
+    "#" +
+    activeHwnd;
   if (next !== signature) {
     signature = next;
     saveOrder(windows);
     desktop.apps = apps;
     desktop.activeKey = activeKey;
+    desktop.activeHwnd = activeHwnd;
   }
 }
 
@@ -259,7 +272,16 @@ export function refreshWindows() {
 export const windowsPoller = {
   acquire(): () => void {
     refreshWindows();
-    return () => {};
+    // With buttons only on the display where the window is open, a window dragged (or Win+Shift+
+    // arrowed) to another display leaves the dock, and a change of the setting relists them.
+    const offMoved = onShellEvent((event) => {
+      if (event.type === "moved" && buttonsOnOwnDisplayOnly()) scheduleRefresh();
+    });
+    const offPrefs = onTaskbarPrefsChange(scheduleRefresh);
+    return () => {
+      offMoved();
+      offPrefs();
+    };
   },
 };
 
@@ -387,4 +409,83 @@ export function closeApp(key: string) {
   const app = desktop.apps.find((a) => a.key === key);
   app?.windows.forEach((w) => closeWindow(w.hwnd));
   setTimeout(refreshWindows, 400);
+}
+/**
+ * Whether a window is on the primary display, where Explorer keeps its main taskbar (and the dock
+ * stands in for it): the display MonitorFromWindow picks, which for a minimized window is the one
+ * it will be restored to. The primary display is the one at the virtual screen's origin.
+ */
+function onPrimaryDisplay(hwnd: HWND): boolean {
+  const { monitor } = monitorOf(hwnd);
+  return monitor.left === 0 && monitor.top === 0;
+}
+/**
+ * A click on one window's own button (the taskbar set to never combine): the window in front
+ * minimizes, any other comes forward (restored if minimized), as Explorer's ungrouped button does.
+ */
+export function activateWindowButton(hwnd: HWND) {
+  const fg = foregroundWindow();
+  if (fg && countsAsApp(fg)) lastForeground = fg;
+  refreshWindows();
+  const app = desktop.apps.find((a) => a.windows.some((w) => w.hwnd === hwnd));
+  const win = app?.windows.find((w) => w.hwnd === hwnd);
+  if (!app || !win) return;
+  const front = buttonOf(lastForeground, (h) => h === hwnd);
+  if (front === hwnd && !win.minimized) {
+    minimizeWindow(hwnd);
+    lastForeground = null;
+    activateNext({ ...app, windows: [win], recent: [hwnd] });
+  } else {
+    activateWindow(hwnd);
+    lastForeground = hwnd;
+  }
+  setTimeout(refreshWindows, 120);
+}
+/** Ctrl+Shift+click: the pinned shortcut or program started with the shell's "runas" verb (UAC prompt), as the taskbar does. */
+export function launchAsAdmin(path: string) {
+  const directory = /^[a-z]:\\.*\.exe$/i.test(path) ? dirname(path) : undefined;
+  if (!openUri(path, directory, "runas")) console.error("[windows] Não foi possível abrir como administrador", path);
+}
+/**
+ * Ctrl+click, as on the taskbar: the app's windows take turns in front, in the button's order; the
+ * first press brings the most recently used one. Nothing open: the app starts.
+ */
+export function cycleApp(key: string, launchPath?: string) {
+  const fg = foregroundWindow();
+  if (fg && countsAsApp(fg)) lastForeground = fg;
+  refreshWindows();
+  const app = desktop.apps.find((a) => a.key === key);
+  if (!app || app.windows.length === 0) {
+    if (launchPath) launch(launchPath);
+    return;
+  }
+  const front = buttonOf(lastForeground, (h) => app.windows.some((w) => w.hwnd === h));
+  const index = app.windows.findIndex((w) => w.hwnd === front && !w.minimized);
+  const target = index < 0 ? (app.recent[0] ?? app.windows[0]!.hwnd) : app.windows[(index + 1) % app.windows.length]!.hwnd;
+  activateWindow(target);
+  lastForeground = target;
+  setTimeout(refreshWindows, 120);
+}
+/**
+ * Shift+right-click on a one-window button: that window's own system menu at the pointer
+ * (WM_POPUPSYSTEMMENU, as Explorer posts it). False when the app has several windows (group menu).
+ */
+export function showWindowSystemMenu(key: string, x: number, y: number): boolean {
+  const app = desktop.apps.find((a) => a.key === key);
+  if (!app || app.windows.length !== 1) return false;
+  const hwnd = app.windows[0]!.hwnd;
+  lastForeground = hwnd;
+  return popupSystemMenu(hwnd, x, y);
+}
+/** The group menu's "Restaurar todas as janelas": SC_RESTORE to each minimized window, as the taskbar sends it. */
+export function restoreApp(key: string) {
+  const app = desktop.apps.find((a) => a.key === key);
+  for (const w of app?.windows ?? []) if (w.minimized) sysCommand(w.hwnd, SC_RESTORE);
+  setTimeout(refreshWindows, 120);
+}
+/** The group menu's "Minimizar todas as janelas": SC_MINIMIZE to each window on screen. */
+export function minimizeApp(key: string) {
+  const app = desktop.apps.find((a) => a.key === key);
+  for (const w of app?.windows ?? []) if (!w.minimized) minimizeWindow(w.hwnd);
+  setTimeout(refreshWindows, 120);
 }
