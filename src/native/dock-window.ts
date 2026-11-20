@@ -178,6 +178,17 @@ export class DockWindow {
     return box ? DockWindow.#center(dock, box) : null;
   }
 
+  /** A dock node's border box on screen (physical px); null if it is not laid out. */
+  static nodeScreenRect(id: string): { x: number; y: number; width: number; height: number } | null {
+    const dock = DockWindow.#current;
+    if (!dock) return null;
+    const box = dock.#app.layout([id])?.[id];
+    if (!box) return null;
+    const r = windowRect(dock.#hwnd);
+    const s = dock.#scale;
+    return { x: Math.round(r.left + box.x * s), y: Math.round(r.top + box.y * s), width: Math.round(box.borderWidth * s), height: Math.round(box.borderHeight * s) };
+  }
+
   /** nodeCenter without blocking the JS thread: resolves once the renderer answers. */
   static async nodeCenterAsync(id: string): Promise<number | null> {
     const dock = DockWindow.#current;

@@ -11,7 +11,7 @@ import {
   type DockMenuItem,
   type DockMenuSpec,
 } from "../../menu/dock-menu";
-import { endDragGhost, moveDragGhost, startDragGhost } from "../../menu/drag-ghost";
+import { dragGhost, endDragGhost, moveDragGhost, startDragGhost } from "../../menu/drag-ghost";
 import { cursorPos } from "../../native/win32";
 import { windowPidOf } from "../../native/tray-host";
 import { DockWindow } from "../../native/dock-window";
@@ -43,7 +43,44 @@ const trayIcon = () => Math.round((18 * Math.max(0.7, Math.min(1.3, Number(confi
  * drop writes IsPromoted in the icon's NotifyIconSettings subkey (setTrayIconPromoted) and the
  * key's change notification moves it; nothing is kept here but the drag in progress.
  */
-const trayDrag = store({ key: "", over: false, arrived: "", slot: -1 });
+const trayDrag = store({
+  /** The icon being dragged. */
+  key: "",
+  over: false,
+  /** Where the gap is open in the row (among the icons without the dragged one); -1 none. */
+  slot: -1,
+  /** Dropped on the row from the flyout: the gap and the copy stay until the registry shows it there. */
+  arriving: "",
+  /** Dropped behind the arrow: it stays folded away, its gap closing, until the registry hides it. */
+  leaving: "",
+});
+
+/** The registry answers a drop within this; past it the drop is taken as refused and undone. */
+const SETTLE_MS = 1500;
+let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The drop has landed: gap closed, copy gone, every icon drawn as it is. */
+function settle() {
+  clearTimeout(settleTimer);
+  trayDrag.arriving = "";
+  trayDrag.leaving = "";
+  endPlacement();
+  endDragGhost();
+}
+
+/** The icon left the row: done once its gap has finished closing (GAP_MOTION), so the row only ever shrinks smoothly. */
+let leftAt = 0;
+function settleLeft() {
+  if (!trayDrag.leaving) return;
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(settle, Math.max(0, leftAt + 180 - performance.now()));
+}
+
+function settleLater() {
+  leftAt = performance.now();
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(settle, SETTLE_MS);
+}
 
 /**
  * Where icons sit in the tray's row. Windows 11 lets its icons be dragged into any order there, but
@@ -99,8 +136,10 @@ function endPlacement() {
 /** The room an icon will land in opens under the pointer, as the taskbar's icons make room. */
 const GAP_MOTION = { width: { duration: 160, easing: "easeOut" as const } };
 
-function Gap() {
-  return <View motionFrom={{ width: 0 }} style={{ width: 30, height: 36, shrink: 0, transition: GAP_MOTION }} />;
+function Gap(props: { closing?: boolean }) {
+  return (
+    <View motionFrom={{ width: 0 }} style={{ width: props.closing ? 0 : 30, height: 36, shrink: 0, transition: GAP_MOTION }} />
+  );
 }
 
 /** The flyout was opened by an icon dragged over the arrow: it gets the focus after the drop. */
@@ -110,9 +149,6 @@ let dragOpenTimer: ReturnType<typeof setTimeout> | undefined;
 /** The tooltip lines Windows shows for an icon: its tip text, one line per line. */
 const tipLines = (icon: TrayIcon) => icon.tip.split("\n").map((l) => l.trim());
 
-/** An icon that just moved onto the taskbar grows into its slot (only that one, not every mount). */
-const ARRIVE = { opacity: 0, transform: "scale(0.4)" };
-const ARRIVE_MOTION = { opacity: { duration: 160 }, transform: { duration: 260, easing: "spring" as const } };
 
 function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolean; placer?: Placer }) {
   const { icon } = props;
@@ -125,13 +161,16 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolea
         onDragStart: () => {
           hideTip();
           endTrayPopup();
+          settle();
           trayDrag.key = icon.key;
-          trayDrag.arrived = "";
-          startDragGhost(icon.image, trayIcon());
+          // Its gap starts where it is: once the copy is up, the icon folds as the gap opens.
+          if (props.placer) trayDrag.slot = props.placer.inline().findIndex((i) => i.key === icon.key);
+          // The copy shows exactly over the icon; the icon goes only once it is up (dragGhost.ready).
+          startDragGhost(icon.image, trayIcon(), props.placer ? DockWindow.nodeScreenRect(props.placer.buttonId(icon)) : null);
         },
         onDragMove: () => {
           moveDragGhost();
-          if (!props.placer) return;
+          if (!props.placer || !dragGhost.ready) return;
           // Off the row the gap stays where the icon was: the row keeps its length all along the
           // drag, so the dock never shrinks and grows back under it.
           let slot = slotAt(props.placer, icon.key);
@@ -139,19 +178,30 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolea
           if (slot !== trayDrag.slot) trayDrag.slot = slot;
         },
         onDragEnd: (event: { cancelled: boolean }) => {
-          endDragGhost();
           clearTimeout(dragOpenTimer);
           const key = trayDrag.key;
           const slot = trayDrag.slot;
-          trayDrag.key = "";
-          trayDrag.over = false;
-          endPlacement();
           // Released on the arrow, or over the flyout it opened (a window of its own: no drop
-          // event reaches the dock from there): the icon goes behind the arrow. Released in the
-          // row: it takes the place shown.
+          // event reaches the dock from there): the icon goes behind the arrow, staying folded
+          // away until the registry change takes it out. Released in the row: it takes the place
+          // shown, in the same render that closes the gap. Anywhere else: back where it was.
           const hide = (props.placer && DockWindow.pointerOn(props.placer.arrow)) || pointOnDockMenu(OVERFLOW_MENU, cursorPos());
-          if (key && !event.cancelled && hide) setTrayIconPromoted(icon, false);
-          else if (key && !event.cancelled && slot >= 0 && props.placer && DockWindow.pointerOn(props.placer.row)) props.placer.commit(icon, slot);
+          // Every state change of the drop is made before the drag's own is cleared: a render in
+          // between drew the icon back at full width for a frame (the dock grew, then shrank).
+          if (key && !event.cancelled && hide) {
+            trayDrag.leaving = key;
+            trayDrag.key = "";
+            trayDrag.over = false;
+            settleLater();
+            endDragGhost();
+            setTrayIconPromoted(icon, false);
+          } else {
+            if (key && !event.cancelled && slot >= 0 && props.placer && DockWindow.pointerOn(props.placer.row)) props.placer.commit(icon, slot);
+            trayDrag.key = "";
+            trayDrag.over = false;
+            endPlacement();
+            endDragGhost();
+          }
           if (openedByDrag) {
             openedByDrag = false;
             activateDockMenu(OVERFLOW_MENU);
@@ -167,16 +217,15 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolea
     hideTip();
     clickTrayIcon(icon, "right");
   };
-  const arrived = !props.preview && trayDrag.arrived === icon.key;
-  const dragging = trayDrag.key === icon.key;
-  const lifted = dragging && trayDrag.slot >= 0;
+  const leaving = trayDrag.leaving === icon.key;
+  // Lifted once its copy is up over it: folded away while the gap shows where it goes.
+  const lifted = leaving || (trayDrag.key === icon.key && dragGhost.ready && trayDrag.slot >= 0);
   const hover = iconHover();
   // The app's own tip text, shown by the taskbar on hover.
   return (
     <HoverTip id={`tip:tray:${icon.key}`} tip={() => tipLines(icon)} disabled={props.preview || popup} side="full">
     <Pressable
       id={props.placer?.buttonId(icon)}
-      motionFrom={arrived ? ARRIVE : undefined}
       focusable={false}
       onClick={onClick}
       onContextMenu={onContextMenu}
@@ -199,10 +248,10 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolea
         overflow: "hidden",
         // Folded away it draws nothing: at zero width its hover and press backgrounds still left a
         // 1 px line where it was.
-        opacity: lifted ? 0 : dragging ? 0.4 : 1,
+        opacity: lifted ? 0 : 1,
         ...hover,
         // After the hover effect's own transitions, which would otherwise replace these.
-        transition: { ...hover.transition, ...(arrived ? ARRIVE_MOTION : {}), ...(lifted ? GAP_MOTION : {}) },
+        transition: { ...hover.transition, ...(lifted ? GAP_MOTION : {}) },
       }}
     >
       <HitReach
@@ -268,24 +317,33 @@ function overflowSpec(icons: TrayIcon[], zones: string[]): DockMenuSpec & { id: 
           start: () => {
             hideTip();
             endTrayPopup();
-            trayDrag.arrived = "";
-            startDragGhost(icon.image, 20);
+            settle();
+            trayDrag.key = icon.key;
+            // Lifted from its cell: the copy starts exactly over it (GridPanel draws icons at 20 px).
+            startDragGhost(icon.image, 20, gridCellRect(OVERFLOW_MENU, index));
           },
           move: () => {
             moveDragGhost();
+            if (!dragGhost.ready) return;
             const placer = placers.get(zones[0]!);
             const slot = placer ? slotAt(placer, icon.key) : -1;
             if (slot !== trayDrag.slot) trayDrag.slot = slot;
           },
           end: (cancelled) => {
-            endDragGhost();
-            const slot = trayDrag.slot;
-            endPlacement();
-            if (cancelled || !zones.some((id) => DockWindow.pointerOn(id))) return;
-            trayDrag.arrived = icon.key;
-            // Its place in the row first, so it shows up there once the registry says it shows.
             const placer = placers.get(zones[0]!);
-            if (placer) placer.commit(icon, slot >= 0 ? slot : placer.inline().length);
+            trayDrag.key = "";
+            if (cancelled || !placer || !zones.some((id) => DockWindow.pointerOn(id))) {
+              endPlacement();
+              endDragGhost();
+              return;
+            }
+            // Its place in the row first, so it shows up there once the registry says it shows. Till
+            // then the gap stays open and the copy waits in it (settled by the View).
+            const slot = trayDrag.slot >= 0 ? trayDrag.slot : placer.inline().length;
+            trayDrag.slot = slot;
+            trayDrag.arriving = icon.key;
+            settleLater();
+            placer.commit(icon, slot);
             setTrayIconPromoted(icon, true);
           },
         }
@@ -296,18 +354,22 @@ function overflowSpec(icons: TrayIcon[], zones: string[]): DockMenuSpec & { id: 
 
 /** The row's buttons, with the gap where a dragged icon will land (slot among the others). */
 function rowChildren(inline: TrayIcon[], preview: boolean | undefined, movable: boolean, placer: Placer | undefined) {
-  const slot = movable && trayDrag.slot >= 0 ? trayDrag.slot : -1;
+  // An icon dropped from the flyout is drawn in its place in the same render the gap goes.
+  const arrived = !!trayDrag.arriving && inline.some((i) => i.key === trayDrag.arriving);
+  // While a drag starts the copy is not up yet: no gap (the icon is still drawn in its place).
+  const held = !!trayDrag.arriving || !!trayDrag.leaving || dragGhost.ready;
+  const slot = movable && held && trayDrag.slot >= 0 && !arrived ? trayDrag.slot : -1;
   const out: Child[] = [];
   let n = 0;
   for (const icon of inline) {
-    // The dragged icon stays in the list (collapsed) so its drag goes on; it is not a slot.
-    if (icon.key !== trayDrag.key) {
-      if (n === slot) out.push(<Gap key="tray-gap" />);
+    // The dragged (or leaving) icon stays in the list, folded, so its drag goes on; it is not a slot.
+    if (icon.key !== trayDrag.key && icon.key !== trayDrag.leaving) {
+      if (n === slot) out.push(<Gap key="tray-gap" closing={!!trayDrag.leaving} />);
       n++;
     }
     out.push(<TrayButton key={icon.key} icon={icon} preview={preview} movable={movable} placer={placer} />);
   }
-  if (slot >= n) out.push(<Gap key="tray-gap" />);
+  if (slot >= n) out.push(<Gap key="tray-gap" closing={!!trayDrag.leaving} />);
   return out;
 }
 
@@ -351,6 +413,9 @@ export default defineWidget({
     const order = ctx.config.order;
     const inline = applyOrder(mode === "all" ? icons : mode === "none" ? [] : icons.filter((i) => i.promoted), order);
     const overflow = icons.filter((i) => !inline.includes(i));
+    // A drop the registry has now applied: the icon is where it landed, so the gap and the copy go.
+    if (trayDrag.arriving && inline.some((i) => i.key === trayDrag.arriving)) queueMicrotask(settle);
+    if (trayDrag.leaving && !inline.some((i) => i.key === trayDrag.leaving)) queueMicrotask(settleLeft);
     // An open flyout follows the icons: one whose app quit leaves it at once, as on the taskbar.
     // Only when the hidden icons really changed: updating the menu re-renders, which renders this
     // again, so an unconditional update would loop forever.
@@ -381,7 +446,7 @@ export default defineWidget({
       shownOverflow = key;
       queueMicrotask(() => updateDockMenu(OVERFLOW_MENU, overflow.length ? overflowSpec(overflow, zones) : null));
     }
-    // A bar icon dropped on the arrow goes behind it (IsPromoted 0), as on Windows 11.
+    // A bar icon held over the arrow opens the flyout; dropped there it goes behind it (IsPromoted 0), as on Windows 11.
     const arrowDrop = movable
       ? {
           dropTarget: true,
@@ -402,12 +467,11 @@ export default defineWidget({
             trayDrag.over = false;
             clearTimeout(dragOpenTimer);
           },
+          // The dragged button's onDragEnd hides it (it sees the pointer on the arrow), keeping it
+          // folded until the registry change lands; this only ends the hover state.
           onDrop: () => {
             clearTimeout(dragOpenTimer);
-            const icon = tray.icons.find((i) => i.key === trayDrag.key);
-            trayDrag.key = "";
             trayDrag.over = false;
-            if (icon) setTrayIconPromoted(icon, false);
           },
         }
       : {};

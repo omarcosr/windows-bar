@@ -16,7 +16,8 @@ import {
   type SvgNode,
 } from "@tarve/core";
 import { DockWindow } from "../native/dock-window";
-import { foregroundWindow, isWindowVisible, popupMenuVisible, showWindow, SW_SHOWNA, windowPid, type HWND } from "../native/win32";
+import { raiseDragGhost } from "./drag-ghost";
+import { activateDesktop, activateWindow, foregroundWindow, isWindowVisible, popupMenuVisible, windowPid, type HWND } from "../native/win32";
 import { ui } from "../theme";
 import { onShellEvent, watchMenuPopups } from "../native/shell-events";
 
@@ -400,10 +401,46 @@ function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
   return hit || screens.find((s) => s.primary) || screens[0];
 }
 
+/**
+ * The menu window stays shown for Tarve all along and is put away by moving it off every screen:
+ * Tarve's show also activates it, which ends a drag in progress (the tray's flyout opens under
+ * one), and a window hidden by any means is no longer painted, so showing it again without Tarve
+ * drew nothing. place() brings it back; activation is asked for separately.
+ */
+function setShown(visible: boolean) {
+  if (!handle || visible) return;
+  const focused = handle.isFocused();
+  handle.setBounds({ x: -32000, y: -32000, width: Math.ceil(size.width * scale), height: Math.ceil(size.height * scale), physical: true });
+  // Closed while it has the keyboard (Esc, a choice): the window that had it before the menu
+  // opened gets it back, as when a taskbar flyout closes; a window moved away would keep it.
+  // With none to go back to (it closed, or was a hidden window), the desktop takes it, as when the
+  // last window goes.
+  if (!focused) return;
+  if (previousForeground && isWindowVisible(previousForeground)) activateWindow(previousForeground);
+  else activateDesktop();
+}
+/** The foreground window when the open menu took the focus. */
+let previousForeground: HWND | null = null;
+
 /** Creates the menu window once, hidden, so right-clicks open it without delay. */
 export async function initDockMenu(app: AppHandle) {
   handle = app.openWindow(MenuView, { id: "menu", keyboardEvents: true, closeBehavior: "hide" });
   await handle.ready;
+  // Shown for Tarve (it paints it from now on), hidden on screen until a menu opens.
+  setShown(false);
+  // Tarve's show also activates it: the app the user is in gets the foreground straight back.
+  const before = foregroundWindow();
+  if (before && windowPid(before) !== process.pid) {
+    const off = handle.onFocusChange((focused) => {
+      if (!focused) return;
+      off();
+      clearTimeout(giveUp);
+      if (isWindowVisible(before)) activateWindow(before);
+    });
+    // It may not take the foreground at all (another app holds it): nothing to give back then.
+    const giveUp = setTimeout(off, 2000);
+  }
+  handle.show();
   handle.onEvent((event) => {
     if (event.type === "keyboard" && (event as { key?: string }).key === "Escape") closeDockMenu();
   });
@@ -514,12 +551,12 @@ export function showDockMenu(spec: DockMenuSpec, options: { activate?: boolean }
       pending = false;
       place();
       shown = true;
-      // Opened under a drag (an icon brought over the tray's arrow): shown without activation
-      // (SW_SHOWNA), since a window coming to the front ends the drag's mouse capture;
-      // activateDockMenu() hands it the focus after the drop.
-      const native = options.activate === false ? h.nativeHandle() : undefined;
-      if (native) return void showWindow(Number(native) as HWND, SW_SHOWNA);
-      h.show();
+      setShown(true);
+      // Opened under a drag (an icon brought over the tray's arrow): not activated, since a
+      // window coming to the front ends the drag's mouse capture; activateDockMenu() hands it the
+      // focus after the drop. The dragged icon's copy stays above it.
+      if (options.activate === false) return void raiseDragGhost();
+      rememberForeground();
       h.activate();
     };
     reveal = show;
@@ -541,8 +578,16 @@ export function updateDockMenu(id: string, spec: DockMenuSpec | null) {
 /** Gives an open menu the focus it did not take when opened under a drag, for its light dismiss. */
 export function activateDockMenu(id: string) {
   if (!shown || menu.spec?.id !== id) return;
-  handle?.show();
+  rememberForeground();
   handle?.activate();
+}
+
+function rememberForeground() {
+  const fg = foregroundWindow();
+  // The app the user was in, or the dock when the click on it took the foreground (as the taskbar
+  // keeps it when its flyout closes); never the menu itself.
+  const own = Number(handle?.nativeHandle() ?? 0);
+  previousForeground = fg && Number(fg) !== own && isWindowVisible(fg) ? fg : null;
 }
 
 export function menuOpen() {
@@ -571,5 +616,5 @@ export function closeDockMenu() {
   if (!menu.spec) return;
   menu.spec = null;
   shown = false;
-  handle?.hide();
+  setShown(false);
 }
