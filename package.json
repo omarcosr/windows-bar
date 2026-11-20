@@ -21,9 +21,9 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@tarve/core": "0.13.5"
+    "@tarve/core": "0.13.6"
   },
-  "version": "0.3.0",
+  "version": "0.3.1",
   "tarve": {
     "name": "WindowsBar",
     "appId": "WindowsBar.Dock",
