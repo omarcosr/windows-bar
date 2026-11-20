@@ -16,7 +16,7 @@ import {
   type SvgNode,
 } from "@tarve/core";
 import { DockWindow } from "../native/dock-window";
-import { foregroundWindow, isWindowVisible, popupMenuVisible, windowPid } from "../native/win32";
+import { foregroundWindow, isWindowVisible, popupMenuVisible, showWindow, SW_SHOWNA, windowPid, type HWND } from "../native/win32";
 import { ui } from "../theme";
 import { onShellEvent, watchMenuPopups } from "../native/shell-events";
 
@@ -30,6 +30,14 @@ export interface DockMenuItem {
   onContextMenu?: () => void;
   /** Grid menus only: a second click on the same item within a moment. */
   onDoubleSelect?: () => void;
+  /** Grid menus only: the pointer entered (true) or left (false) the item. */
+  onHover?: (hovered: boolean) => void;
+  /**
+   * Grid menus only: the item can be dragged out of the menu (the hidden-icons flyout's icons onto
+   * the taskbar). `end` gets the release (cancelled: Esc or the menu lost the focus); where it
+   * landed is the owner's to check (the pointer, in screen px).
+   */
+  drag?: { start?: () => void; move?: () => void; end: (cancelled: boolean) => void };
   /** A small button at the row's end (the jump list's pin), run instead of onSelect. */
   trailing?: { icon: FluentIcon; label: string; onSelect: () => void };
 }
@@ -224,9 +232,14 @@ function GridCell(props: { item: DockMenuItem }) {
         else item.onSelect();
       }}
       onContextMenu={item.onContextMenu}
+      onHover={item.onHover}
+      draggable={!!item.drag}
+      onDragStart={item.drag?.start}
+      onDragMove={item.drag?.move}
+      onDragEnd={item.drag ? (event) => item.drag!.end(event.cancelled) : undefined}
       style={{
-        width: 40,
-        height: 40,
+        width: GRID.cell,
+        height: GRID.cell,
         radius: 8,
         align: "center",
         justify: "center",
@@ -242,11 +255,11 @@ function GridCell(props: { item: DockMenuItem }) {
 
 function GridPanel(props: { items: DockMenuItem[] }) {
   const rows: DockMenuItem[][] = [];
-  for (let i = 0; i < props.items.length; i += 5) rows.push(props.items.slice(i, i + 5));
+  for (let i = 0; i < props.items.length; i += GRID.columns) rows.push(props.items.slice(i, i + GRID.columns));
   return (
-    <Column style={{ padding: 8, gap: 4, radius: 14, background: "#1c1c1f" }}>
+    <Column style={{ padding: GRID.padding, gap: GRID.gap, radius: 14, background: "#1c1c1f" }}>
       {rows.map((row, i) => (
-        <Row key={i} style={{ gap: 4 }}>
+        <Row key={i} style={{ gap: GRID.gap }}>
           {row.map((item, j) => (
             <GridCell key={j} item={item} />
           ))}
@@ -336,6 +349,37 @@ function place() {
   const gap = Math.round(8 * scale);
   const { x, y } = DockWindow.placePopup(width, height, gap, area, anchorX, 80);
   handle.setBounds({ x, y, width, height, physical: true });
+  bounds = { x, y, width, height };
+}
+
+/** Where the open menu sits, in physical screen px (set by place). */
+let bounds = { x: 0, y: 0, width: 0, height: 0 };
+let shown = false;
+
+/** GridPanel's layout: padding, cell size and gap, five cells per row (logical px). */
+const GRID = { padding: 8, cell: 40, gap: 4, columns: 5 };
+
+/**
+ * The physical screen box of item `index` of open grid menu `id` (a hidden-icons flyout icon), for
+ * popups that point at it; null when that menu is not up.
+ */
+export function gridCellRect(id: string, index: number) {
+  if (!shown || !menu.spec?.grid || menu.spec.id !== id || index < 0) return null;
+  const step = GRID.cell + GRID.gap;
+  const col = index % GRID.columns;
+  const row = Math.floor(index / GRID.columns);
+  return {
+    x: Math.round(bounds.x + (GRID.padding + col * step) * scale),
+    y: Math.round(bounds.y + (GRID.padding + row * step) * scale),
+    width: Math.round(GRID.cell * scale),
+    height: Math.round(GRID.cell * scale),
+  };
+}
+
+/** Whether the point (physical screen px) is over open menu `id`. */
+export function pointOnDockMenu(id: string, p: { x: number; y: number }) {
+  if (!shown || menu.spec?.id !== id) return false;
+  return p.x >= bounds.x && p.x < bounds.x + bounds.width && p.y >= bounds.y && p.y < bounds.y + bounds.height;
 }
 
 /** True from an open until the new content's size is known (onSize only fires on a change). */
@@ -443,7 +487,7 @@ export function holdDockMenu(ownerPid: number) {
   hold = state;
 }
 
-export function showDockMenu(spec: DockMenuSpec) {
+export function showDockMenu(spec: DockMenuSpec, options: { activate?: boolean } = {}) {
   const h = handle;
   if (!h) return;
   stopHold();
@@ -469,6 +513,12 @@ export function showDockMenu(spec: DockMenuSpec) {
       if (ticket !== opening) return;
       pending = false;
       place();
+      shown = true;
+      // Opened under a drag (an icon brought over the tray's arrow): shown without activation
+      // (SW_SHOWNA), since a window coming to the front ends the drag's mouse capture;
+      // activateDockMenu() hands it the focus after the drop.
+      const native = options.activate === false ? h.nativeHandle() : undefined;
+      if (native) return void showWindow(Number(native) as HWND, SW_SHOWNA);
       h.show();
       h.activate();
     };
@@ -488,6 +538,13 @@ export function updateDockMenu(id: string, spec: DockMenuSpec | null) {
   else menu.spec = { ...spec, id };
 }
 
+/** Gives an open menu the focus it did not take when opened under a drag, for its light dismiss. */
+export function activateDockMenu(id: string) {
+  if (!shown || menu.spec?.id !== id) return;
+  handle?.show();
+  handle?.activate();
+}
+
 export function menuOpen() {
   return !!menu.spec;
 }
@@ -499,9 +556,9 @@ let menuAnchor: string | null = null;
  * Opens menu `spec.id` from dock button `anchor` (its node id), or closes it when it is open: a
  * second press of that button puts it away, as the taskbar's flyouts do.
  */
-export function toggleDockMenu(spec: DockMenuSpec & { id: string }, anchor: string) {
+export function toggleDockMenu(spec: DockMenuSpec & { id: string }, anchor: string, options: { activate?: boolean } = {}) {
   if (menu.spec?.id === spec.id) return closeDockMenu();
-  showDockMenu(spec);
+  showDockMenu(spec, options);
   menuAnchor = anchor;
 }
 
@@ -513,5 +570,6 @@ export function closeDockMenu() {
   menuAnchor = null;
   if (!menu.spec) return;
   menu.spec = null;
+  shown = false;
   handle?.hide();
 }

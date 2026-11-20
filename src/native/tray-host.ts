@@ -427,6 +427,7 @@ export function startTrayHost(h: TrayHostHandlers) {
     return;
   }
   const tray = Number(host.hwnd) as HWND;
+  let reannounced = false;
   // The dock's own AppBar calls go straight to Explorer: our tray drops to the bottom of the
   // z-order for the call, so FindWindow("Shell_TrayWnd") inside SHAppBarMessage finds Explorer's.
   setAppBarRoute((call) => {
@@ -436,9 +437,15 @@ export function startTrayHost(h: TrayHostHandlers) {
     } finally {
       keepTrayOnTop();
       // Icons added while our tray was out of the way (apps answering the startup broadcast)
-      // went to Explorer only: ask again once things settle, so none goes missing here.
-      clearTimeout(reannounce);
-      reannounce = setTimeout(broadcastTaskbarCreated, 1500);
+      // went to Explorer only: ask again once things settle, so none goes missing here. Once
+      // only: TaskbarCreated makes apps re-add their icons (Steam deletes and re-adds its own),
+      // Explorer then shows its taskbar, the dock hides it again with another AppBar call, and
+      // a broadcast after every call kept that loop going every ~3 s.
+      if (!reannounced) {
+        reannounced = true;
+        clearTimeout(reannounce);
+        reannounce = setTimeout(broadcastTaskbarCreated, 1500);
+      }
     }
   });
   keepTrayOnTop();
@@ -514,6 +521,34 @@ export function clickIcon(
     send(WM_LBUTTONUP);
     if (v4) send(NIN_SELECT);
   }
+}
+
+/** NOTIFYICON_VERSION_4: the pointer rests on the icon (the app draws its own popup) / left it. */
+export const NIN_POPUPOPEN = WM_USER + 6;
+export const NIN_POPUPCLOSE = WM_USER + 7;
+/** uFlags bit: a version-4 icon asks for the standard tooltip (szTip) instead of NIN_POPUPOPEN. */
+export const NIF_SHOWTIP = 0x80;
+
+/**
+ * Tells a version-4 icon's owner that the pointer rests on it (open) or left it (close), as
+ * Explorer does for icons added without NIF_SHOWTIP: wParam the anchor point, lParam the uid in
+ * the high word and the event in the low word, the same layout clickIcon uses. Older icons get no
+ * popup messages (Explorer shows their szTip).
+ */
+export function popupIcon(
+  icon: { hwnd: number; uid: number; callback: number; version: number },
+  open: boolean,
+  at: { x: number; y: number },
+) {
+  if (!icon.callback || icon.version < 4) return;
+  // The popup may take the foreground (some apps activate it): allowed as for a click.
+  if (open) {
+    U.AllowSetForegroundWindow(windowPidOf(icon.hwnd));
+    U.AllowSetForegroundWindow(-1);
+  }
+  const wParam = BigInt(((at.y & 0xffff) << 16) | (at.x & 0xffff));
+  const lParam = ((icon.uid & 0xffff) << 16) | (open ? NIN_POPUPOPEN : NIN_POPUPCLOSE);
+  U.SendNotifyMessageW(icon.hwnd as unknown as Pointer, icon.callback, wParam, lParam);
 }
 
 // ---------- HICON -> PNG ----------

@@ -8,6 +8,7 @@ import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type Galler
 import { initChartPanel } from "./menu/chart-panel";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { initHoverTip } from "./menu/hover-tip";
+import { initDragGhost } from "./menu/drag-ghost";
 import { hidePeek, initWidgetPeek } from "./menu/widget-peek";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
@@ -277,6 +278,7 @@ pauseExplorerButtonsWhile(() => previewOpen() || menuOpen() || mediaFlyoutOpen()
 await initDockMenu(app);
 await initWindowPreview(app);
 await initHoverTip(app);
+await initDragGhost(app);
 await initWidgetPeek(app);
 await initMediaFlyout(app);
 await initChartPanel(app);

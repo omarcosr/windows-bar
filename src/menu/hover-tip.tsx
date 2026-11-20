@@ -4,6 +4,7 @@ import { DockWindow } from "../native/dock-window";
 import { menuOpen } from "./dock-menu";
 import { previewOpen } from "./window-preview";
 import { dockVertical } from "../services/taskbar-prefs";
+import { mouseButtonDown } from "../native/win32";
 
 /**
  * The small info popup the Windows taskbar shows over the clock, network, volume, battery,
@@ -28,6 +29,9 @@ let cursorX = 0;
 let showTimer: ReturnType<typeof setTimeout> | undefined;
 /** A click puts the tip away until the pointer leaves that node, as on the taskbar. */
 let dismissed = "";
+/** Physical screen box of a source outside the dock (an icon in the hidden-icons flyout). */
+type Rect = { x: number; y: number; width: number; height: number };
+let anchorRect: (() => Rect | null) | null = null;
 
 function TipView() {
   return (
@@ -79,12 +83,23 @@ function place() {
   const width = Math.ceil(size.width * scale);
   const height = Math.ceil(size.height * scale);
   const gap = Math.round(GAP * scale);
+  const rect = anchorRect?.();
+  if (rect) {
+    // Above the flyout icon, centred on it, kept on its screen (below it when there is no room).
+    const x = Math.round(Math.min(Math.max(rect.x + rect.width / 2 - width / 2, area.x), area.x + area.width - width));
+    const above = rect.y - gap - height;
+    const y = above >= area.y ? above : rect.y + rect.height + gap;
+    handle.setBounds({ x, y, width, height, physical: true });
+    return;
+  }
   const { x, y } = DockWindow.placePopup(width, height, gap, area, DockWindow.nodeCenter(anchor) ?? cursorX);
   handle.setBounds({ x, y, width, height, physical: true });
 }
 
 function blocked() {
-  return menuOpen() || previewOpen() || dockUi.editing || !!widgetDrag.source;
+  // A tip for an icon inside the flyout shows while that flyout (a dock menu) is open.
+  // A held button (a press, the start of a drag) puts tips away, as the taskbar's tooltips go on button down.
+  return (!anchorRect && menuOpen()) || previewOpen() || dockUi.editing || !!widgetDrag.source || mouseButtonDown();
 }
 
 function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
@@ -130,6 +145,7 @@ let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 function close() {
   stopRefresh();
   source = null;
+  anchorRect = null;
   if (!shown) return;
   shown = false;
   handle?.hide();
@@ -146,6 +162,14 @@ export function hideTip() {
 
 /** The pointer entered (or left) a node with a tip. Another tip already up switches at once. */
 export function hoverTip(id: string, get: () => string[], hovered: boolean) {
+  hoverTipAt(id, get, hovered, null);
+}
+
+/**
+ * hoverTip for something drawn outside the dock window (the hidden-icons flyout): `rect` gives its
+ * physical screen box, and the tip goes above it, as Windows shows the tooltips of overflow icons.
+ */
+export function hoverTipAt(id: string, get: () => string[], hovered: boolean, rect: (() => Rect | null) | null) {
   if (!hovered) {
     if (dismissed === id) dismissed = "";
     if (anchor !== id) return;
@@ -159,6 +183,7 @@ export function hoverTip(id: string, get: () => string[], hovered: boolean) {
   clearTimeout(showTimer);
   clearTimeout(leaveTimer);
   anchor = id;
+  anchorRect = rect;
   showTimer = setTimeout(() => void open(id, get), shown ? 0 : DELAY);
 }
 

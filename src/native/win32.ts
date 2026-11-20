@@ -35,6 +35,7 @@ const user32 = dlopen("user32.dll", {
   keybd_event: { args: ["u8", "u8", "u32", "u64"], returns: "void" },
   SwitchToThisWindow: { args: ["ptr", "i32"], returns: "void" },
   SystemParametersInfoW: { args: ["u32", "u32", "ptr", "u32"], returns: "i32" },
+  GetAsyncKeyState: { args: ["i32"], returns: "i16" },
 });
 
 const kernel32 = dlopen("kernel32.dll", {
@@ -302,6 +303,16 @@ export const SW_MINIMIZE = 6;
 
 export function showWindow(hwnd: HWND, cmd: number) {
   U.ShowWindow(hwnd, cmd);
+}
+
+/** Whether a mouse button (left, right or middle) is held down now. */
+export function mouseButtonDown() {
+  return [0x01, 0x02, 0x04].some((vk) => (U.GetAsyncKeyState(vk) & 0x8000) !== 0);
+}
+
+/** Puts a topmost window above the other topmost ones, without activating, moving or sizing it. */
+export function raiseTopmost(hwnd: HWND) {
+  U.SetWindowPos(hwnd, -1 /* HWND_TOPMOST */, 0, 0, 0, 0, 0x1 | 0x2 | 0x10 /* SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE */);
 }
 
 /** ShowWindow for another process's window without waiting for its thread (it may be busy). */

@@ -87,8 +87,9 @@ function ThumbBarRow(props: { hwnd: HWND }) {
         ? buttons.map((b) => {
             const image = thumbButtonImage(bar, b);
             const inert = !!(b.flags & 0x11);
-            // The app's pixels, one to one: the size it drew them at, in logical px.
-            const size = image && image.size ? image.size / scale : 16;
+              // Explorer draws every button at the small-icon size (SM_CXSMICON, 16 logical px),
+              // whatever size the app's hIcon or image list has: Discord hands over 48 px icons.
+              const size = Math.round(16 * scale) / scale;
             return (
               <Pressable
                 key={b.id}

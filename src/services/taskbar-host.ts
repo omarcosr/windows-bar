@@ -4,12 +4,14 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { knownFolderPath } from "../native/shell-item";
 import { configDir } from "../config";
-import { cursorPos, exePathOf, listTaskbarWindows } from "../native/win32";
+import { cursorPos, exePathOf, listTaskbarWindows, mouseHoverTime } from "../native/win32";
 import {
   broadcastTaskbarButtonCreated,
   broadcastTaskbarCreated,
   clickIcon,
   encodePng,
+  NIF_SHOWTIP,
+  popupIcon,
   startTrayHost,
   stopTrayHost,
   windowAlive,
@@ -40,6 +42,11 @@ export interface TrayIcon {
   exe: string;
   /** Windows 11 shows it on the taskbar (Settings > Personalization > Taskbar > Other icons). */
   promoted: boolean;
+  /**
+   * NIF_SHOWTIP came with the icon: a version-4 icon then gets the standard tooltip (tip); without
+   * it Explorer shows no tooltip and sends NIN_POPUPOPEN / NIN_POPUPCLOSE so the app draws its own.
+   */
+  showTip: boolean;
 }
 
 export interface OverlayBadge {
@@ -125,51 +132,114 @@ const advapi32 = dlopen("advapi32.dll", {
   RegOpenKeyExW: { args: ["u64", "ptr", "u32", "u32", "ptr"], returns: "i32" },
   RegEnumKeyExW: { args: ["ptr", "u32", "ptr", "ptr", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
   RegGetValueW: { args: ["ptr", "ptr", "ptr", "u32", "ptr", "ptr", "ptr"], returns: "i32" },
+  RegSetValueExW: { args: ["ptr", "ptr", "u32", "u32", "ptr", "u32"], returns: "i32" },
   RegCloseKey: { args: ["ptr"], returns: "i32" },
 });
 const A = advapi32.symbols;
 const wide = (s: string) => encodeWide(s);
-/** Promoted exes ("Mostrar na barra de tarefas" in Settings), as full lower-cased paths. */
-let promoted = new Set<string>();
+const HKCU = 0x80000001n as unknown as number;
+const NOTIFY_ICON_SETTINGS = "Control Panel\\NotifyIconSettings";
+
+/**
+ * One subkey of HKCU\Control Panel\NotifyIconSettings: Explorer's record of one tray icon, named
+ * by IconGuid when the icon has a GUID, else by ExecutablePath + UID. IsPromoted 1 = on the taskbar
+ * ("Mostrar na barra de tarefas" in Settings, or dragged out of the hidden-icons flyout).
+ */
+interface IconSetting {
+  sub: string;
+  /** Lower-case, no braces (as NotifyIconMessage.guid), or "". */
+  guid: string;
+  /** Full lower-cased path, known-folder prefix resolved. */
+  exe: string;
+  uid: number;
+  promoted: boolean;
+}
+
+let settings: IconSetting[] = [];
 
 function readPromoted() {
-  const next = new Set<string>();
+  const next: IconSetting[] = [];
   const key = new BigUint64Array(1);
-  if (A.RegOpenKeyExW(0x80000001n /* HKCU */ as unknown as number, wide("Control Panel\\NotifyIconSettings"), 0, 0x20019, new Uint8Array(key.buffer)) !== 0)
-    return;
+  if (A.RegOpenKeyExW(HKCU, wide(NOTIFY_ICON_SETTINGS), 0, 0x20019 /* KEY_READ */, new Uint8Array(key.buffer)) !== 0) return;
   const root = Number(key[0]) as unknown as Pointer;
   const name = new Uint16Array(256);
   const len = new Uint32Array(1);
-  const pathBuf = new Uint16Array(1024);
+  const text = new Uint16Array(1024);
   const dword = new Uint32Array(1);
   const size = new Uint32Array(1);
+  const readDword = (sub: string, value: string) => {
+    size[0] = 4;
+    dword[0] = 0;
+    return A.RegGetValueW(root, wide(sub), wide(value), 0x10 /* RRF_RT_DWORD */, null, new Uint8Array(dword.buffer), new Uint8Array(size.buffer)) === 0 ? dword[0]! : 0;
+  };
+  const readText = (sub: string, value: string) => {
+    size[0] = text.byteLength;
+    if (A.RegGetValueW(root, wide(sub), wide(value), 0x2 /* RRF_RT_REG_SZ */, null, new Uint8Array(text.buffer), new Uint8Array(size.buffer)) !== 0) return "";
+    return decodeWide(text.buffer, 0, Math.max(0, size[0]! - 2)).replace(/\0.*$/s, "");
+  };
   try {
     for (let i = 0; ; i++) {
       len[0] = name.length;
       if (A.RegEnumKeyExW(root, i, new Uint8Array(name.buffer), new Uint8Array(len.buffer), null, null, null, null) !== 0) break;
       const sub = decodeWide(name.buffer, 0, len[0]! * 2);
-      size[0] = 4;
-      dword[0] = 0;
-      A.RegGetValueW(root, wide(sub), wide("IsPromoted"), 0x10 /* RRF_RT_DWORD */, null, new Uint8Array(dword.buffer), new Uint8Array(size.buffer));
-      if (!dword[0]) continue;
-      size[0] = pathBuf.byteLength;
-      if (A.RegGetValueW(root, wide(sub), wide("ExecutablePath"), 0x2 /* RRF_RT_REG_SZ */, null, new Uint8Array(pathBuf.buffer), new Uint8Array(size.buffer)) !== 0) continue;
-      let path = decodeWide(pathBuf.buffer, 0, Math.max(0, size[0]! - 2));
+      let path = readText(sub, "ExecutablePath");
       // Paths are stored like the shell's default AppUserModelIDs: a known-folder GUID prefix.
       const folder = /^\{[0-9A-F-]+\}/i.exec(path)?.[0];
       if (folder) {
-          const base = knownFolderPath(folder);
+        const base = knownFolderPath(folder);
         if (base) path = base + path.slice(folder.length);
       }
-      next.add(path.toLowerCase());
+      next.push({
+        sub,
+        guid: readText(sub, "IconGuid").replace(/[{}]/g, "").toLowerCase(),
+        exe: path.toLowerCase(),
+        uid: readDword(sub, "UID"),
+        promoted: readDword(sub, "IsPromoted") === 1,
+      });
     }
   } finally {
     A.RegCloseKey(root);
   }
-  promoted = next;
+  settings = next;
 }
 
-const isPromoted = (exe: string) => !!exe && promoted.has(exe.toLowerCase());
+/** Explorer's record for an icon: by IconGuid when it has one, else by ExecutablePath + UID. */
+function settingOf(icon: { guid: string; exe: string; uid: number }): IconSetting | undefined {
+  const guid = icon.guid.replace(/[{}]/g, "").toLowerCase();
+  if (guid) {
+    const hit = settings.find((s) => s.guid === guid);
+    if (hit) return hit;
+  }
+  if (!icon.exe) return undefined;
+  const exe = icon.exe.toLowerCase();
+  return settings.find((s) => !s.guid && s.exe === exe && s.uid === icon.uid);
+}
+
+const isPromoted = (icon: { guid: string; exe: string; uid: number }) => !!settingOf(icon)?.promoted;
+
+/**
+ * Moves an icon between the taskbar and the hidden-icons flyout the way Windows 11 does: IsPromoted
+ * in the icon's NotifyIconSettings subkey. The registry stays the source of truth: the key's change
+ * notification (applyPromoted) moves the icon. Explorer creates the subkey when it first sees the
+ * icon; one it has no record of cannot be moved (returns false).
+ */
+export function setTrayIconPromoted(icon: TrayIcon, promote: boolean): boolean {
+  const setting = settingOf(icon);
+  if (!setting) {
+    console.warn("[tray] no NotifyIconSettings entry for", icon.guid || `${icon.exe}#${icon.uid}`);
+    return false;
+  }
+  if (setting.promoted === promote) return true;
+  const key = new BigUint64Array(1);
+  if (A.RegOpenKeyExW(HKCU, wide(`${NOTIFY_ICON_SETTINGS}\\${setting.sub}`), 0, 0x2 /* KEY_SET_VALUE */, new Uint8Array(key.buffer)) !== 0) return false;
+  const handle = Number(key[0]) as unknown as Pointer;
+  try {
+    const value = new Uint32Array([promote ? 1 : 0]);
+    return A.RegSetValueExW(handle, wide("IsPromoted"), 0, 4 /* REG_DWORD */, new Uint8Array(value.buffer), 4) === 0;
+  } finally {
+    A.RegCloseKey(handle);
+  }
+}
 
 // ---------- Messages from the host ----------
 
@@ -179,7 +249,18 @@ const NIF_STATE = 0x8;
 const NIF_GUID = 0x20;
 const NIS_HIDDEN = 0x1;
 
+/**
+ * Explorer's own volume (7820AE73), network (7820AE74) and power (7820AE75) icons. Its legacy
+ * systray still registers them, but Windows 11 shows that state on the Quick Settings button,
+ * never in the tray or its overflow; the dock's system button does the same.
+ */
+const QUICK_SETTINGS_ICONS = new Set(["73", "74", "75"].map((n) => `7820ae${n}-23e3-4229-82c1-e41cb67d5b9c`));
+const quickSettingsIds = new Set<string>();
+
 function onNotifyIcon(m: NotifyIconMessage) {
+  // Later calls may name the icon by hwnd and uid alone: remember the pair.
+  if (m.guid && QUICK_SETTINGS_ICONS.has(m.guid.toLowerCase())) quickSettingsIds.add(`${m.hwnd}:${m.uid}`);
+  if (quickSettingsIds.has(`${m.hwnd}:${m.uid}`)) return;
   const key = m.flags & NIF_GUID && m.guid ? m.guid : `${m.hwnd}:${m.uid}`;
   const icons = tray.icons;
   const index = icons.findIndex((i) => i.key === key || (m.guid && i.guid === m.guid) || (i.hwnd === m.hwnd && i.uid === m.uid));
@@ -191,18 +272,22 @@ function onNotifyIcon(m: NotifyIconMessage) {
   const prev = index >= 0 ? icons[index]! : undefined;
   if (!prev && m.message === 4) return;
   const exe = prev?.exe || exePathOf(windowPidOf(m.hwnd));
+  const guid = m.guid || prev?.guid || "";
   const next: TrayIcon = {
     key,
     hwnd: m.hwnd || prev?.hwnd || 0,
     uid: m.uid,
-    guid: m.guid || prev?.guid || "",
+    guid,
     callback: m.flags & 0x1 ? m.callback : (prev?.callback ?? 0),
     version: m.message === 4 ? m.version : (prev?.version ?? 0),
     tip: m.flags & NIF_TIP ? m.tip : (prev?.tip ?? ""),
     image: m.flags & NIF_ICON ? iconFile(m.icon) || prev?.image || "" : (prev?.image ?? ""),
     hidden: m.flags & NIF_STATE && m.stateMask & NIS_HIDDEN ? !!(m.state & NIS_HIDDEN) : (prev?.hidden ?? false),
     exe,
-    promoted: isPromoted(exe),
+    promoted: isPromoted({ guid, exe, uid: m.uid }),
+    // A behaviour flag, not a "member valid" bit: the add says it, and a modify that sets the tip
+    // says it again (apps pass their whole uFlags); other modifies keep what the icon had.
+    showTip: m.message === 0 || m.flags & NIF_TIP ? !!(m.flags & NIF_SHOWTIP) : (prev?.showTip ?? false),
   };
   if (prev && JSON.stringify(prev) === JSON.stringify(next)) return;
   tray.icons = prev ? icons.map((i, n) => (n === index ? next : i)) : [...icons, next];
@@ -296,7 +381,7 @@ function prune() {
 /** "Mostrar na barra de tarefas" changed in Settings: the registry key's change notification. */
 function applyPromoted() {
   readPromoted();
-  const icons = tray.icons.map((i) => (i.promoted === isPromoted(i.exe) ? i : { ...i, promoted: !i.promoted }));
+  const icons = tray.icons.map((i) => (i.promoted === isPromoted(i) ? i : { ...i, promoted: !i.promoted }));
   if (icons.some((i, n) => i !== tray.icons[n])) tray.icons = icons;
 }
 
@@ -359,6 +444,7 @@ export function acquireTaskbarHost(): () => void {
       for (const off of offEvents) off();
       offEvents = [];
       clearTimeout(pruneTimer);
+      endTrayPopup();
       stopTrayHost();
       tray.icons = [];
       for (const id of Object.keys(overlays)) delete overlays[id];
@@ -370,7 +456,64 @@ export function acquireTaskbarHost(): () => void {
 
 /** Plays a click on a tray icon to the app that owns it, anchored at the pointer. */
 export function clickTrayIcon(icon: TrayIcon, button: "left" | "right" | "double") {
+  // A press puts the app's hover popup away first, as the pointer leaving would.
+  endTrayPopup();
   clickIcon(icon, button, cursorPos());
+}
+
+/** Whether an icon's owner draws its own hover popup (v4 without NIF_SHOWTIP) instead of the standard tooltip. */
+export const ownsPopup = (icon: TrayIcon) => icon.version >= 4 && !icon.showTip && !!icon.callback;
+
+/** The icon whose app was told NIN_POPUPOPEN, and the pending one (hover not yet stable). */
+let popupShown: TrayIcon | null = null;
+let popupTimer: ReturnType<typeof setTimeout> | undefined;
+let popupPending = "";
+/** The icon under the pointer, and the short grace before a leave counts. */
+let popupHover = "";
+let popupLeave: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * The pointer entered or left a tray icon (on the bar or in the flyout). For an icon that draws its
+ * own popup, Explorer waits for the system hover time (SPI_GETMOUSEHOVERTIME) and sends
+ * NIN_POPUPOPEN, then NIN_POPUPCLOSE when the pointer leaves; the same here. Other icons: nothing
+ * (their standard tooltip is the HoverTip's job).
+ */
+export function hoverTrayIcon(icon: TrayIcon, hovered: boolean) {
+  if (!ownsPopup(icon)) return;
+  if (!hovered) {
+    if (popupHover !== icon.key) return;
+    popupHover = "";
+    // The icon and its HitReach both report hover: moving between them is not leaving the icon.
+    clearTimeout(popupLeave);
+    popupLeave = setTimeout(() => {
+      if (popupHover === icon.key) return;
+      if (popupPending === icon.key) {
+        clearTimeout(popupTimer);
+        popupPending = "";
+      }
+      if (popupShown?.key === icon.key) endTrayPopup();
+    }, 50);
+    return;
+  }
+  popupHover = icon.key;
+  clearTimeout(popupLeave);
+  if (popupShown?.key === icon.key || popupPending === icon.key) return;
+  endTrayPopup();
+  popupPending = icon.key;
+  popupTimer = setTimeout(() => {
+    popupPending = "";
+    popupShown = icon;
+    popupIcon(icon, true, cursorPos());
+  }, mouseHoverTime());
+}
+
+/** Closes the open hover popup (pointer gone, click, drag), if any. */
+export function endTrayPopup() {
+  clearTimeout(popupTimer);
+  popupPending = "";
+  const shown = popupShown;
+  popupShown = null;
+  if (shown) popupIcon(shown, false, cursorPos());
 }
 
 /** Re-asks every app for its icons (after Explorer restarts, or to recover a lost one). */
