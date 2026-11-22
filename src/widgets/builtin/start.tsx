@@ -7,7 +7,7 @@ import { darken, devicePx, ui } from "../../theme";
 import { dockVertical, taskbarPrefs } from "../../services/taskbar-prefs";
 import { WindowsLogo, axisBox, iconHover } from "../ui";
 import { defineWidget } from "../types";
-import { dockIndex, dockMetrics, magnifyStyles } from "../magnify";
+import { dockIndex, dockMetrics, magnifying, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
 import { followForeground } from "../../native/shell-events";
 
@@ -270,6 +270,8 @@ export default defineWidget({
     const effect = c.animation === "dock" || c.animation === "none" ? c.animation : "windows";
     const hover = effect === "dock" ? iconHover({ magnified: true }) : {};
     // The plate behind the logo, where the taskbar draws an app's plate: on hover and while Start is open.
+    // The macOS effect draws none, as for the apps: the plate keeps the slot's resting size and place
+    // while the logo grows and its slot widens, so the logo would spill off it to one side.
     const inset = (ui.app.slot - ui.app.plate) / 2;
     const plate = dockVertical()
       ? { left: 0, top: inset, width: ui.tile.height, height: ui.app.plate }
@@ -286,18 +288,20 @@ export default defineWidget({
       effect === "windows" ? { transition: { transform: { duration: 280, easing: "spring" } }, active: { transform: "scale(0.85)" } } : hover;
     return (
       <View style={{ position: "relative", ...axisBox(ui.app.slot, ui.tile.height), shrink: 0, group: true, ...magnify.slot }}>
-        <View
-          style={{
-            position: "absolute",
-            ...plate,
-            radius: devicePx(8),
-            background: open ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0)",
-            borderWidth: 1,
-            borderColor: open ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0)",
-            transition: { background: { duration: 120, easing: "easeOut" }, borderColor: { duration: 120, easing: "easeOut" } },
-            ...(effect === "windows" && !open ? { groupHover: { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.04)" } } : {}),
-          }}
-        />
+        {magnifying() ? null : (
+          <View
+            style={{
+              position: "absolute",
+              ...plate,
+              radius: devicePx(8),
+              background: open ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0)",
+              borderWidth: 1,
+              borderColor: open ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0)",
+              transition: { background: { duration: 120, easing: "easeOut" }, borderColor: { duration: 120, easing: "easeOut" } },
+              ...(effect === "windows" && !open ? { groupHover: { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.04)" } } : {}),
+            }}
+          />
+        )}
         <Pressable
           focusable={false}
           onClick={toggleStart}
