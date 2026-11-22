@@ -1,4 +1,4 @@
-import { CFunction, dlopen, ptr, read, type Pointer, FfiUnsupported } from "./ffi";
+import { CFunction, dlopen, ptr, read, type Pointer, FfiUnsupported, JSCallback } from "./ffi";
 import { iconPixels } from "./tray-host";
 import { encodeWide } from "./wide";
 
@@ -25,6 +25,16 @@ const user32 = dlopen("user32.dll", {
   GetDpiForSystem: { args: [], returns: "u32" },
   GetDC: { args: ["ptr"], returns: "ptr" },
   ReleaseDC: { args: ["ptr", "ptr"], returns: "i32" },
+  PrivateExtractIconsW: { args: ["ptr", "i32", "i32", "i32", "ptr", "ptr", "u32", "u32"], returns: "u32" },
+});
+const kernel32 = dlopen("kernel32.dll", {
+  LoadLibraryExW: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
+  FreeLibrary: { args: ["ptr"], returns: "i32" },
+  EnumResourceNamesW: { args: ["ptr", "ptr", "function", "ptr"], returns: "i32" },
+  FindResourceW: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
+  LoadResource: { args: ["ptr", "ptr"], returns: "ptr" },
+  LockResource: { args: ["ptr"], returns: "ptr" },
+  SizeofResource: { args: ["ptr", "ptr"], returns: "u32" },
 });
 const ole32 = dlopen("ole32.dll", {
   CoInitializeEx: { args: ["ptr", "u32"], returns: "i32" },
@@ -113,8 +123,87 @@ function factoryIcon(path: string, size: number): Pixels | null {
   // at least 1.5x as large (48 for 30) and area-filtered down here, edges come out smooth and the
   // small-size designs (cmd's prompt) are kept, which the 256 px frame would lose.
   const source = SOURCE_FRAMES.find((frame) => frame === size || frame >= size * 1.5) ?? 256;
-  const px = factoryImage(path, source);
+  const group = iconGroupIndex(path);
+  const px = group > 0 ? extractedIcon(path, group, source) : factoryImage(path, source);
   return px && px.width > size ? downscale(px, size) : px;
+}
+
+const RT_ICON = 3;
+const RT_GROUP_ICON = 14;
+const LOAD_LIBRARY_AS_DATAFILE = 0x2;
+const LOAD_LIBRARY_AS_IMAGE_RESOURCE = 0x20;
+const groupIndexes = new Map<string, number>();
+let groupCallback: JSCallback | null = null;
+let groupSeen = 0;
+let groupFound = -1;
+
+/**
+ * Index of the icon group the taskbar draws for an .exe or .dll: the first intact one.
+ * Bun's `--windows-icon` leaves Bun's own group first, its single "256 px" entry now pointing at
+ * the app's 16 px frame (their RT_ICON ids collide), so the frame no longer has the entry's size.
+ * The shell's extraction (index 0) upscales that 16 px frame; the taskbar skips the group and
+ * draws the app's own one. 0 for every well-formed file.
+ */
+function iconGroupIndex(path: string): number {
+  if (!/\.(exe|dll)$/i.test(path)) return 0;
+  const key = path.toLowerCase();
+  const cached = groupIndexes.get(key);
+  if (cached !== undefined) return cached;
+  let index = 0;
+  const module = kernel32.symbols.LoadLibraryExW(encodeWide(path), null, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE) as Pointer | null;
+  if (module) {
+    try {
+      groupCallback ??= new JSCallback(
+        (mod: Pointer, _type: Pointer, name: Pointer) => {
+          if (groupIntact(mod, name)) {
+            groupFound = groupSeen;
+            return 0;
+          }
+          groupSeen++;
+          return 1;
+        },
+        { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+      );
+      groupSeen = 0;
+      groupFound = -1;
+      kernel32.symbols.EnumResourceNamesW(module, RT_GROUP_ICON, groupCallback, null);
+      if (groupFound > 0) index = groupFound;
+    } finally {
+      kernel32.symbols.FreeLibrary(module);
+    }
+  }
+  groupIndexes.set(key, index);
+  return index;
+}
+
+/** Every frame of icon group `name` exists with the byte size its directory entry gives. */
+function groupIntact(mod: Pointer, name: Pointer): boolean {
+  const k = kernel32.symbols;
+  const info = k.FindResourceW(mod, name, RT_GROUP_ICON) as Pointer | null;
+  const dir = info ? (k.LockResource(k.LoadResource(mod, info)) as Pointer | null) : null;
+  if (!info || !dir) return false;
+  const size = k.SizeofResource(mod, info) as number;
+  const count = read.u16(dir, 4);
+  if (!count || 6 + count * 14 > size) return false;
+  for (let i = 0; i < count; i++) {
+    const entry = 6 + i * 14;
+    const frame = k.FindResourceW(mod, read.u16(dir, entry + 12), RT_ICON) as Pointer | null;
+    if (!frame || k.SizeofResource(mod, frame) !== read.u32(dir, entry + 8)) return false;
+  }
+  return true;
+}
+
+/** Icon group `index` of an .exe/.dll at `size` px, the frame picked by user32 as for any icon resource. */
+function extractedIcon(path: string, index: number, size: number): Pixels | null {
+  const handle = new BigUint64Array(1);
+  const id = new Uint32Array(1);
+  const count = user32.symbols.PrivateExtractIconsW(encodeWide(path), index, size, size, new Uint8Array(handle.buffer), new Uint8Array(id.buffer), 1, 0);
+  if (!count || count === 0xffffffff || !handle[0]) return null;
+  try {
+    return iconPixels(Number(handle[0]));
+  } finally {
+    user32.symbols.DestroyIcon(Number(handle[0]) as unknown as Pointer);
+  }
 }
 /** Shell icon frame sizes (what .ico files carry and the shell renders without scaling). */
 const SOURCE_FRAMES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
