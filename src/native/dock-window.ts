@@ -503,8 +503,13 @@ export class DockWindow {
    * app.onScreensChange, full screen from the shell events in main.tsx.
    */
   #onShellEvent(event: ShellEvent) {
-    if (this.#disposed) return;
-    if (event.type === "trayShown" || event.type === "explorerRestarted") this.#rehideTaskbar();
+          if (this.#disposed) return;
+          if (event.type === "trayShown" || event.type === "explorerRestarted") this.#rehideTaskbar();
+          // Restart, shut down or log off: Windows kills the dock (and its watchdog) without an exit, and
+          // Explorer keeps the auto-hide state across the restart (StuckRects3), so the next session had no
+          // taskbar at all until the dock started again. Put Explorer's own state back now, while it still
+          // runs: the next session starts with Windows' taskbar, which the dock hides when it starts.
+          if (event.type === "sessionEnd") this.#restoreTaskbar();
   }
 
   /** Releases the AppBar and docks it anew after a short pause, so Explorer is ready for AppBars. */

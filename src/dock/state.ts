@@ -2,6 +2,7 @@ import { store } from "@tarve/core";
 import { config, newInstanceId, saveConfig } from "../config";
 import { pruneWidgets } from "../widgets/host";
 import { getWidget } from "../widgets/registry";
+import { inDockGroup } from "../widgets/magnify";
 
 /** UI-only state shared by the dock and the gallery window. */
 export const dockUi = store({
@@ -80,4 +81,34 @@ export function moveWidget(id: string, delta: number) {
   const [item] = config.widgets.splice(index, 1);
   config.widgets.splice(target, 0, item!);
   saveConfig();
+}
+/**
+ * Puts widget `id` on one side of the Start + Apps group, right beside it: dropped on the empty
+ * part of a side of the full bar, where no widget is there to drop it on. With no group, at the end.
+ */
+export function moveWidgetToSide(id: string, side: "before" | "after") {
+  const from = config.widgets.findIndex((w) => w.id === id);
+  if (from < 0) return;
+  const [item] = config.widgets.splice(from, 1);
+  const group = config.widgets.flatMap((w, i) => (inDockGroup(w.id, config.widgets) ? [i] : []));
+  const at = !group.length ? config.widgets.length : side === "before" ? group[0]! : group[group.length - 1]! + 1;
+  config.widgets.splice(at, 0, item!);
+  if (at !== from) saveConfig();
+}
+/** Drop-target props for an empty side of the full bar (`side:before` / `side:after` in widgetDrag.over). */
+export function sideDropProps(side: "before" | "after") {
+  const key = `side:${side}`;
+  return {
+    dropTarget: true,
+    onDragEnter: (source: string) => {
+      if (source.startsWith(WIDGET_DRAG)) widgetDrag.over = key;
+    },
+    onDragLeave: () => {
+      if (widgetDrag.over === key) widgetDrag.over = "";
+    },
+    onDrop: (event: { source: string }) => {
+      if (widgetDrag.over === key) widgetDrag.over = "";
+      if (event.source.startsWith(WIDGET_DRAG)) moveWidgetToSide(event.source.slice(WIDGET_DRAG.length), side);
+    },
+  };
 }

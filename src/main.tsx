@@ -13,12 +13,12 @@ import { hidePeek, initWidgetPeek } from "./menu/widget-peek";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { DockWindow } from "./native/dock-window";
-import { HSHELL, startShellEvents } from "./native/shell-events";
-import { showOwnWindowOnTaskbar, windowExists } from "./native/win32";
+import { HSHELL, onShellEvent, startShellEvents } from "./native/shell-events";
+import { explorerTray, showOwnWindowOnTaskbar, windowExists } from "./native/win32";
 import { probeEvents } from "./runtime/perf-probe";
 import { sleep } from "./runtime/proc";
 import { watchAppColor } from "./services/app-color";
-import { readAutostart, setAutostart } from "./services/autostart";
+import { migrateAutostart, readAutostart, setAutostart } from "./services/autostart";
 import { exitApp } from "./services/exit";
 import { pauseExplorerButtonsWhile } from "./services/explorer-buttons";
 import { dockAlign, dockEdge, dockVertical, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
@@ -180,7 +180,7 @@ primary.onSecondInstance(({ args }) => {
   else openGallery();
 });
 // The registry is the truth for "start with Windows" (the user may have changed it elsewhere).
-void readAutostart().then((on) => {
+void migrateAutostart().then(readAutostart).then((on) => {
   if (config.autostart !== on) config.autostart = on;
 });
 setGalleryOpener(() => openGallery());
@@ -205,18 +205,6 @@ const nativeOptions = () => ({
   stripOverlap: stripOverlap(),
   edge: dockEdge(),
 });
-dockWindow = DockWindow.attach(app, nativeOptions());
-// The logical length of the dock's edge of its monitor (its width, or height on a side edge): the room the dock may take.
-const followScreen = () =>
-  void app.screen().then((screen) => {
-    const width = screen ? (dockVertical() ? screen.height : screen.width) / screen.scale : 0;
-    if (width && Math.abs(dockRoom.screen - width) > 0.5) dockRoom.screen = width;
-  });
-followScreen();
-app.onScreensChange(followScreen);
-if (pendingSize) dockWindow.setContentSize(...pendingSize);
-settleEntrance();
-setTimeout(() => (dockUi.shown = true), 1500);
 // The foreground window's moves, coalesced: at most one check per 50 ms, and always one after the
 // last move, so the final size of an F11 or a game switching to full screen is never missed.
 let moveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -268,6 +256,35 @@ startShellEvents((event) => {
   }
 });
 
+// Started at logon (a Task Scheduler task, services/autostart.ts), the dock can be up before
+// Explorer's taskbar exists: it has nothing to hide or take the place of yet. Wait for Explorer to
+// announce it (TaskbarCreated, see shell-events.ts); 30 s at most, for a PC without Explorer's shell.
+if (!explorerTray()) {
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      off();
+      clearTimeout(giveUp);
+      resolve();
+    };
+    const off = onShellEvent((event) => {
+      if (event.type === "explorerRestarted" && explorerTray()) done();
+    });
+    const giveUp = setTimeout(done, 30_000);
+    if (explorerTray()) done();
+  });
+}
+dockWindow = DockWindow.attach(app, nativeOptions());
+// The logical length of the dock's edge of its monitor (its width, or height on a side edge): the room the dock may take.
+const followScreen = () =>
+  void app.screen().then((screen) => {
+    const width = screen ? (dockVertical() ? screen.height : screen.width) / screen.scale : 0;
+    if (width && Math.abs(dockRoom.screen - width) > 0.5) dockRoom.screen = width;
+  });
+followScreen();
+app.onScreensChange(followScreen);
+if (pendingSize) dockWindow.setContentSize(...pendingSize);
+settleEntrance();
+setTimeout(() => (dockUi.shown = true), 1500);
 watchAppColor(
   () => DockWindow.handle(),
   () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,

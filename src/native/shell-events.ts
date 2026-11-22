@@ -91,6 +91,8 @@ export type ShellEvent =
    * while watchScrolled() holds it; at most one every 100 ms plus the last of a burst.
    */
   | { type: "scrolled" }
+  /** The session is ending (WM_ENDSESSION with wParam TRUE: log off, restart, shut down). The process is killed right after. */
+  | { type: "sessionEnd" }
   | { type: "changed"; id: WatchId };
 
 export const HSHELL = {
@@ -161,6 +163,8 @@ const watchSpecs = Object.entries(WATCHES) as [WatchId, WatchSpec][];
 
 const APPBAR_CALLBACK = 0x8000 + 0x51;
 const WM_SETTINGCHANGE = 0x1a, WM_POWERBROADCAST = 0x218, WM_DISPLAYCHANGE = 0x7e, WM_WTSSESSION_CHANGE = 0x2b1, WM_TIMECHANGE = 0x1e;
+/** Sent to every top-level window when Windows logs off, restarts or shuts down (wParam TRUE: it really ends). */
+const WM_ENDSESSION = 0x16;
 // SHChangeNotifyRegister callback messages: the Recycle Bin, and drives' free space.
 const MSG_RECYCLE = 0x8070, MSG_FREESPACE = 0x8071;
 const EVENT_SYSTEM_FOREGROUND = 0x0003;
@@ -536,7 +540,6 @@ function hookExplorer() {
   const shellWnd = Number(N().user.symbols.GetShellWindow() ?? 0);
   const pid = shellWnd ? ownerOf(shellWnd).pid : 0;
   if (!pid || pid === explorer) return false;
-  const restarted = explorer !== 0;
   explorer = pid;
   showHook?.dispose();
   showHook = hookWindow([{ min: 0x8002, process: pid }], (event) => {
@@ -544,7 +547,7 @@ function hookExplorer() {
     const cls = className(Number(event.hwnd));
     if (cls === "Shell_TrayWnd" || cls === "Shell_SecondaryTrayWnd") emit({ type: "trayShown" });
   });
-  return restarted;
+  return true;
 }
 
 // ---------- The main window ----------
@@ -595,8 +598,14 @@ function onCoreMessage(event: MessageWindowEvent, registryIds: WatchId[], folder
     emit({ type: msg === MSG_RECYCLE ? "recycleBin" : "freeSpace" });
   }
   else if (msg === WM_TIMECHANGE) emit({ type: "time" });
+  // Handled before the reply (waitReplies): Windows ends the process once every window has answered.
+  else if (msg === WM_ENDSESSION) {
+    if (code) emit({ type: "sessionEnd" });
+    return 0;
+  }
   else if (msg === WM_DISPLAYCHANGE) emit({ type: "display" });
-  // Our own tray host broadcasts TaskbarCreated too: only a new Explorer process counts.
+  // Our own tray host broadcasts TaskbarCreated too: only a new Explorer process counts, the first one
+  // included (the dock started at logon before Explorer: main.tsx waits for it).
   else if (msg === core?.messageIds.TaskbarCreated && hookExplorer()) emit({ type: "explorerRestarted" });
 }
 
@@ -622,6 +631,9 @@ export function startShellEvents(onEvent: (event: ShellEvent) => void) {
     className: "WindowsBarShellEvents",
     windowName: "WindowsBar shell events",
     messages: [APPBAR_CALLBACK, WM_SETTINGCHANGE, WM_POWERBROADCAST, WM_DISPLAYCHANGE, WM_WTSSESSION_CHANGE, WM_TIMECHANGE, MSG_RECYCLE, MSG_FREESPACE, "TaskbarCreated"],
+    // WM_ENDSESSION waits for the dock to put the taskbar back (dock-window.ts) before Windows ends it.
+    waitReplies: [WM_ENDSESSION],
+    replyTimeout: 3000,
     replies: { [WM_POWERBROADCAST]: 1 },
     shellHook: true,
     winEvents: [

@@ -7,7 +7,7 @@ import { setFullForm } from "../widgets/form";
 import { hidePeek, peekWidget } from "../menu/widget-peek";
 import { dockAlign, dockEdge, dockVertical } from "../services/taskbar-prefs";
 import { appColor } from "../services/app-color";
-import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps } from "./state";
+import { dockUi, dropSide, removeWidget, widgetDrag, widgetDragProps, sideDropProps } from "./state";
 import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { FluentGlyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
@@ -305,9 +305,30 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       </View>,
     ];
   };
-  const side = (list: WidgetInstance[], justify: "start" | "end") => (
-    <View style={{ direction: dir, flex: 1, basis: 0, gap: ui.dock.gap, align: "center", justify }}>{run(list)}</View>
-  );
+  // The free part of each side of the full bar takes a dragged widget too, beside the group: with no
+  // widget on a side there was nothing there to drop it on. A blue bar at the group's edge marks it.
+  const side = (list: WidgetInstance[], justify: "start" | "end") => {
+    const where = justify === "start" ? "before" : "after";
+    const marked = !!widgetDrag.source && widgetDrag.over === `side:${where}`;
+    const edgeKey = vertical ? (where === "before" ? "bottom" : "top") : where === "before" ? "right" : "left";
+    return (
+      <View key={`side-${where}`} {...sideDropProps(where)} style={{ position: "relative", direction: dir, flex: 1, basis: 0, alignSelf: "stretch", gap: ui.dock.gap, align: "center", justify }}>
+        {run(list)}
+        {marked ? (
+          <View
+            style={{
+              position: "absolute",
+              ...(vertical ? { left: 6, right: 6, height: 3 } : { top: 6, bottom: 6, width: 3 }),
+              radius: 2,
+              background: ui.blue,
+              [edgeKey]: 0,
+              zIndex: 20,
+            }}
+          />
+        ) : null}
+      </View>
+    );
+  };
   // Start and the app icons share one row with no gap, so their 44 px slots space evenly.
   // macOS magnification follows the pointer over the whole group. A centred group grows on both
   // sides, a left-aligned one to the right only.
