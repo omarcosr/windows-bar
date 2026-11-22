@@ -3,6 +3,7 @@ import { config, newInstanceId, saveConfig } from "../config";
 import { pruneWidgets } from "../widgets/host";
 import { getWidget } from "../widgets/registry";
 import { inDockGroup } from "../widgets/magnify";
+import { DockWindow } from "../native/dock-window";
 
 /** UI-only state shared by the dock and the gallery window. */
 export const dockUi = store({
@@ -11,9 +12,46 @@ export const dockUi = store({
   shown: false,
 });
 
-/** A widget being dragged to a new place (dock or gallery list), and the widget under it. */
-export const widgetDrag = store({ source: "", over: "" });
+/**
+ * A widget being dragged to a new place (dock or gallery list), and the widget under it. `tile`:
+ * the drag started on a clickable tile inside the widget (tileDragProps), whose node id is not the
+ * widget's: drops then take the widget from `source`.
+ */
+export const widgetDrag = store({ source: "", over: "", tile: false });
 export const WIDGET_DRAG = "widget:";
+
+/** The widget a drag carries: from its own node's id, or the tile drag in progress. */
+function draggedWidget(source: string, prefix: string): string | null {
+  // First: a tile's node may be unnamed, and then its id derives from the slot's ("widget:<id>/children/0").
+  if (prefix === WIDGET_DRAG && widgetDrag.tile && widgetDrag.source) return widgetDrag.source;
+  if (!source.startsWith(prefix)) return null;
+  const id = source.slice(prefix.length);
+  return config.widgets.some((w) => w.id === id) ? id : null;
+}
+
+/**
+ * Drag props for a clickable tile in the dock (widgets/ui.tsx Tile): a drag only starts from the
+ * pressed node, and a widget's tile takes the press, so without these the widget moved only while
+ * the widgets window covered it (edit mode). The widget is the one whose slot is under the pointer.
+ * A plain click stays a click: a press becomes a drag only past 4 px.
+ */
+export function tileDragProps() {
+  return {
+    draggable: true,
+    onDragStart: (at: { x: number; y: number }) => {
+      const node = DockWindow.nodeAt(config.widgets.map((w) => WIDGET_DRAG + w.id), at.x, at.y);
+      const hit = node ? node.slice(WIDGET_DRAG.length) : null;
+      if (!hit || inDockGroup(hit)) return;
+      widgetDrag.source = hit;
+      widgetDrag.tile = true;
+    },
+    onDragEnd: () => {
+      widgetDrag.source = "";
+      widgetDrag.over = "";
+      widgetDrag.tile = false;
+    },
+  };
+}
 
 /** Puts widget `id` where `targetId` is: after it when moving right, before it when moving left. */
 export function moveWidgetTo(id: string, targetId: string) {
@@ -36,13 +74,14 @@ export function widgetDragProps(id: string, prefix = WIDGET_DRAG) {
       widgetDrag.source = id;
     },
     onDragEnter: (source: string) => {
-      if (source.startsWith(prefix)) widgetDrag.over = id;
+      if (draggedWidget(source, prefix)) widgetDrag.over = id;
     },
     onDragLeave: () => {
       if (widgetDrag.over === id) widgetDrag.over = "";
     },
     onDrop: (event: { source: string }) => {
-      if (event.source.startsWith(prefix)) moveWidgetTo(event.source.slice(prefix.length), id);
+      const dragged = draggedWidget(event.source, prefix);
+      if (dragged) moveWidgetTo(dragged, id);
     },
     onDragEnd: () => {
       widgetDrag.source = "";
@@ -101,14 +140,15 @@ export function sideDropProps(side: "before" | "after") {
   return {
     dropTarget: true,
     onDragEnter: (source: string) => {
-      if (source.startsWith(WIDGET_DRAG)) widgetDrag.over = key;
+      if (draggedWidget(source, WIDGET_DRAG)) widgetDrag.over = key;
     },
     onDragLeave: () => {
       if (widgetDrag.over === key) widgetDrag.over = "";
     },
     onDrop: (event: { source: string }) => {
       if (widgetDrag.over === key) widgetDrag.over = "";
-      if (event.source.startsWith(WIDGET_DRAG)) moveWidgetToSide(event.source.slice(WIDGET_DRAG.length), side);
+      const dragged = draggedWidget(event.source, WIDGET_DRAG);
+      if (dragged) moveWidgetToSide(dragged, side);
     },
   };
 }

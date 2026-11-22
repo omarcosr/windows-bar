@@ -7,6 +7,7 @@ import { hideTip, hoverTip } from "../menu/hover-tip";
 import { hidePeek } from "../menu/widget-peek";
 import { fullForm } from "./form";
 import { formatDatePicture } from "../native/locale-format";
+import { tileDragProps } from "../dock/state";
 
 /**
  * The graphite card every dock widget sits on. Its content is one row, centred vertically, padded
@@ -106,6 +107,8 @@ export function Tile(props: {
   return (
     <Pressable
       {...tipProps}
+      // In the dock the tile carries its widget when dragged, as the widget's slot does elsewhere.
+      {...(!props.preview && !fullForm() ? tileDragProps() : {})}
       // Dock tiles never keep the keyboard, like taskbar buttons (Enter after a click must not re-press).
       focusable={false}
       onClick={

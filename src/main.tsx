@@ -15,8 +15,9 @@ import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-previ
 import { DockWindow } from "./native/dock-window";
 import { HSHELL, onShellEvent, startShellEvents } from "./native/shell-events";
 import { explorerTray, showOwnWindowOnTaskbar, windowExists } from "./native/win32";
+import { waitForProcessExit } from "./native/process-wait";
 import { probeEvents } from "./runtime/perf-probe";
-import { sleep } from "./runtime/proc";
+import { run, sleep } from "./runtime/proc";
 import { watchAppColor } from "./services/app-color";
 import { migrateAutostart, readAutostart, setAutostart } from "./services/autostart";
 import { exitApp } from "./services/exit";
@@ -51,6 +52,9 @@ const claimInstance = () =>
     console.error("[instance]", error);
     return null;
   });
+// Started again by a dock that was closing when this launch reached it: wait until it is gone.
+const after = argv.indexOf("--after");
+if (after >= 0) waitForProcessExit(Number(argv[after + 1]), 15_000);
 let instance = await claimInstance();
 if (argv.includes("--quit")) {
   if (instance?.primary) {
@@ -144,7 +148,7 @@ function openBarMenu() {
         { label: "Configurações da barra do Windows", icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
         { label: "Gerenciador de Tarefas", icon: glyph.activity, onSelect: () => launch("taskmgr.exe") },
       ],
-      [{ label: "Sair do WindowsBar", icon: "x", danger: true, onSelect: () => app.close() }],
+      [{ label: "Sair do WindowsBar", icon: "x", danger: true, onSelect: quit }],
     ],
   });
 }
@@ -171,10 +175,28 @@ const app = createApp(
   },
 );
 setWidgetApp(app);
+/**
+ * Closing: a launch that reaches this dock now (`WindowsBar.exe --quit` and a new start right after,
+ * as an update or a rebuild does) is answered, so the new process exits as handed over, yet this
+ * dock can no longer open anything and the user is left with no dock. That launch is started again
+ * at once, told to wait for this process to end (`--after <pid>`) before it claims the instance.
+ */
+let closing = false;
+let relaunched = false;
+function quit() {
+  closing = true;
+  app.close();
+}
+function relaunch(args: string[]) {
+  if (relaunched) return;
+  relaunched = true;
+  const exe = process.execPath;
+  const script = /\\(?:bun|node|tjs)(\.exe)?$/i.test(exe) && process.argv[1] ? [process.argv[1]] : [];
+  run([exe, ...script, ...args.filter((arg, i) => arg !== "--after" && args[i - 1] !== "--after"), "--after", String(process.pid)]);
+}
 primary.onSecondInstance(({ args }) => {
-  if (args.includes("--quit")) {
-    app.close();
-  }
+  if (args.includes("--quit")) quit();
+  else if (closing) relaunch(args);
   else if (args.includes("--settings")) openSettings();
   else if (args.includes("--update")) void updateNow();
   else openGallery();
@@ -322,7 +344,7 @@ app.tray({
     { id: "widgets", label: "Widgets…", onSelect: () => openGallery() },
     { id: "update", label: "Procurar atualizações", onSelect: () => (updater.status === "ready" ? restartToUpdate() : void checkNow()) },
     { type: "separator" },
-    { id: "quit", label: "Sair", onSelect: () => app.close() },
+    { id: "quit", label: "Sair", onSelect: quit },
   ],
 });
 

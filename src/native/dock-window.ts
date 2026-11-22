@@ -580,4 +580,16 @@ export class DockWindow {
     }
     this.#restoreTaskbar();
   }
+
+    /** The first of `ids` whose dock node holds the point (window coordinates, logical px), or null. */
+      static nodeAt(ids: readonly string[], x: number, y: number): string | null {
+        const dock = DockWindow.#current;
+        if (!dock) return null;
+        const boxes = dock.#app.layout([...ids]);
+        for (const id of ids) {
+          const b = boxes?.[id];
+          if (b && x >= b.x && x < b.x + b.borderWidth && y >= b.y && y < b.y + b.borderHeight) return id;
+        }
+        return null;
+      }
 }
