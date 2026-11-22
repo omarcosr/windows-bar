@@ -1,4 +1,4 @@
-import { Image, Pressable, View, store, type Child } from "@tarve/core";
+import { Image, Pressable, View, store, type Child, type Style } from "@tarve/core";
 import {
   activateDockMenu,
   FluentGlyph,
@@ -29,7 +29,7 @@ import { launch, prettyName } from "../../services/windows";
 import { config } from "../../config";
 import { dockEdge, dockVertical } from "../../services/taskbar-prefs";
 import { ui } from "../../theme";
-import { HitReach, iconHover, Tile } from "../ui";
+import { HitReach, Tile } from "../ui";
 import { HoverTip, hideTip, hoverTipAt } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
@@ -220,7 +220,9 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolea
   const leaving = trayDrag.leaving === icon.key;
   // Lifted once its copy is up over it: folded away while the gap shows where it goes.
   const lifted = leaving || (trayDrag.key === icon.key && dragGhost.ready && trayDrag.slot >= 0);
-  const hover = iconHover();
+  // As the taskbar's notification icons: hovered, a light plate behind the icon, with no zoom or lift
+  // (the app icons' hover effect); the same as the overflow arrow beside them.
+  const hover: Style = { transition: { background: { duration: 120, easing: "easeOut" } }, hover: { background: "rgba(255,255,255,0.07)" } };
   // The app's own tip text, shown by the taskbar on hover.
   return (
     <HoverTip id={`tip:tray:${icon.key}`} tip={() => tipLines(icon)} disabled={props.preview || popup} side="full">

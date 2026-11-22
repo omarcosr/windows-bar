@@ -137,13 +137,14 @@ export function onWatchChange(ids: readonly WatchId[], fn: () => void, settle = 
  * events. `recently(ms)` is true while one is, or for `ms` after it lost the foreground: clicking
  * the dock takes the focus from it before the click handler runs, as with the taskbar's buttons.
  */
-export function followForeground(test: (hwnd: number) => boolean, current: number | null) {
+export function followForeground(test: (hwnd: number) => boolean, current: number | null, onChange?: (inFront: boolean) => void) {
   let inFront = !!current && test(current);
   let leftAt = 0;
   onShellEvent((event) => {
     if (event.type !== "foreground") return;
     const next = !!event.hwnd && test(event.hwnd);
     if (inFront && !next) leftAt = Date.now();
+    if (next !== inFront) onChange?.(next);
     inFront = next;
   });
   return {

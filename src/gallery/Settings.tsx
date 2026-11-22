@@ -129,7 +129,7 @@ export function Toggle(props: { checked: boolean; label: string; onChange: (v: b
   return <Switch label="" aria-label={props.label} checked={props.checked} disabled={props.disabled} onCheckedChange={props.onChange} />;
 }
 
-function Button(props: { label: string; danger?: boolean; onClick: () => void }) {
+export function Button(props: { label: string; danger?: boolean; onClick: () => void }) {
   return (
     <Pressable
       onClick={props.onClick}

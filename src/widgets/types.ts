@@ -26,7 +26,9 @@ interface SettingBase<C> {
 export type WidgetSetting<C extends object> =
   | (SettingBase<C> & { kind: "toggle"; key: KeysOf<C, boolean> })
   | (SettingBase<C> & { kind: "choice"; key: KeysOf<C, string>; options: readonly { value: string; label: string }[] })
-  | (SettingBase<C> & { kind: "text"; key: KeysOf<C, string>; placeholder?: string; secret?: boolean });
+  | (SettingBase<C> & { kind: "text"; key: KeysOf<C, string>; placeholder?: string; secret?: boolean })
+  /** A file on disk, picked with the system Open dialog; stored as its full path ("" = none). */
+  | (SettingBase<C> & { kind: "file"; key: KeysOf<C, string>; filters?: readonly { name: string; extensions: string[] }[] });
 
 export interface Ticker {
   /** Starts ticking (no-op while running); the first tick comes after `ms`. */

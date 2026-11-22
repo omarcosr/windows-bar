@@ -1,4 +1,4 @@
-import { Circle, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type DraggableProps, type DropTargetProps, type Style } from "@tarve/core";
+import { Circle, Image, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type DraggableProps, type DropTargetProps, type Style } from "@tarve/core";
 import { Fragment } from "@tarve/core/jsx-runtime";
 import { COMPACT_PAD, hoverShade, numeric, ui } from "../theme";
 import { config, type GlowColor, type HoverEffect } from "../config";
@@ -439,12 +439,26 @@ export const glyphs = {
   ),
 };
 
-/** Four rounded squares, silver on graphite, like the lumabar start tile. */
-export function WindowsLogo(props: { size: number; color?: string }) {
+/**
+ * Four rounded squares, silver on graphite, like the lumabar start tile. With `gradient` (top-left to
+ * bottom-right) one gradient runs across all four, as on the Windows 11 Start button; that one is
+ * drawn as SVG bytes, since the Svg nodes take only plain fills.
+ */
+export function WindowsLogo(props: { size: number; color?: string; gradient?: readonly [string, string] }) {
   const s = props.size;
   const fill = props.color ?? "#e9e9ee";
   const q = s * 0.44;
   const g = s - q * 2;
+  if (props.gradient) {
+    const [from, to] = props.gradient;
+    const rect = (x: number, y: number) => `<rect x="${x}" y="${y}" width="${q}" height="${q}" rx="${s * 0.05}" fill="url(#g)"/>`;
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">` +
+      `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${s}" y2="${s}"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs>` +
+      rect(0, 0) + rect(q + g, 0) + rect(0, q + g) + rect(q + g, q + g) +
+      "</svg>";
+    return <Image src={{ bytes: new TextEncoder().encode(svg), mediaType: "image/svg+xml", cacheKey: `winlogo:${s}:${from}:${to}` }} width={s} height={s} fit="fill" style={{ radius: 0 }} />;
+  }
   const square = (x: number, y: number) => <SvgRect x={x} y={y} width={q} height={q} rx={s * 0.05} fill={fill} stroke="none" />;
   return (
     <Svg width={s} height={s} viewBox={[0, 0, s, s]}>

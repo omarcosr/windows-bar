@@ -1,11 +1,11 @@
-import { Column, Input, Modal, Text, Select } from "@tarve/core";
+import { Column, Input, Modal, Row, Text, Select } from "@tarve/core";
 import { config } from "../config";
 import { ui } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { getWidget } from "../widgets/registry";
 import { activeSettings, editWidgetSettings, setSetting, widgetSettings } from "../widgets/settings";
 import type { WidgetSetting } from "../widgets/types";
-import { Choice, Setting, Toggle } from "./Settings";
+import { Button, Choice, Setting, Toggle } from "./Settings";
 
 type AnySetting = WidgetSetting<Record<string, unknown>>;
 
@@ -40,6 +40,24 @@ function TextSetting(props: { setting: Extract<AnySetting, { kind: "text" }>; va
         onChange={props.onChange}
       />
     </Column>
+  );
+}
+
+/** A file option: the chosen file's name, and buttons to pick one with the Open dialog or clear it. */
+function FileSetting(props: {
+  setting: Extract<AnySetting, { kind: "file" }>;
+  value: string;
+  pick: () => Promise<string | undefined>;
+  onChange: (v: string) => void;
+}) {
+  const name = props.value.split(/[\\/]/).pop() ?? "";
+  return (
+    <Setting label={props.setting.label} description={props.value ? name : props.setting.description}>
+      <Row style={{ gap: 6 }}>
+        {props.value ? <Button label="Remover" onClick={() => props.onChange("")} /> : null}
+        <Button label="Escolher…" onClick={() => void props.pick().then((path) => path && props.onChange(path))} />
+      </Row>
+    </Setting>
   );
 }
 
@@ -80,7 +98,15 @@ export function WidgetSettingsModal() {
             </Setting>
           ) : null}
           {settings.map((s) =>
-            s.kind === "text" ? (
+            s.kind === "file" ? (
+            <FileSetting
+              key={s.key}
+              setting={s}
+              value={String(widget.ctx.config[s.key] ?? "")}
+              pick={() => widget.ctx.app.openFileDialog({ title: s.label, filters: s.filters?.map((f) => ({ name: f.name, extensions: [...f.extensions] })) })}
+              onChange={(v) => setSetting(widget.ctx, s.key, v)}
+            />
+          ) : s.kind === "text" ? (
               <TextSetting key={s.key} setting={s} value={String(widget.ctx.config[s.key] ?? "")} onChange={(v) => setSetting(widget.ctx, s.key, v)} />
             ) : (
               <Setting key={s.key} label={s.label} description={s.description}>
