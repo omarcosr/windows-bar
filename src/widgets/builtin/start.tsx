@@ -5,7 +5,7 @@ import { exePathOf, foregroundWindow, windowPid } from "../../native/win32";
 import { launch } from "../../services/windows";
 import { darken, devicePx, ui } from "../../theme";
 import { dockVertical, taskbarPrefs } from "../../services/taskbar-prefs";
-import { WindowsLogo, axisBox, iconHover } from "../ui";
+import { WindowsLogo, axisBox, iconHover, windowsHighlight } from "../ui";
 import { defineWidget } from "../types";
 import { dockIndex, dockMetrics, magnifying, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
@@ -268,7 +268,9 @@ export default defineWidget({
     // Windows 11's Start button neither grows nor lifts: hovered it shows the plate, pressed the logo
     // shrinks and springs back. "dock" takes the app icons' hover and press effect instead.
     const effect = c.animation === "dock" || c.animation === "none" ? c.animation : "windows";
-    const hover = effect === "dock" ? iconHover({ magnified: true }) : {};
+    const hover = effect === "dock" ? iconHover({ magnified: true, plate: true }) : {};
+    // The plate answers the hover with Windows 11's own animation, or with the apps' "Realce do Windows".
+    const plateHover = effect === "windows" || (effect === "dock" && windowsHighlight());
     // The plate behind the logo, where the taskbar draws an app's plate: on hover and while Start is open.
     // The macOS effect draws none, as for the apps: the plate keeps the slot's resting size and place
     // while the logo grows and its slot widens, so the logo would spill off it to one side.
@@ -298,7 +300,7 @@ export default defineWidget({
               borderWidth: 1,
               borderColor: open ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0)",
               transition: { background: { duration: 120, easing: "easeOut" }, borderColor: { duration: 120, easing: "easeOut" } },
-              ...(effect === "windows" && !open ? { groupHover: { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.04)" } } : {}),
+              ...(plateHover && !open ? { groupHover: { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.04)" } } : {}),
             }}
           />
         )}

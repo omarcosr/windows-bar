@@ -1,6 +1,6 @@
 import { Circle, Image, Path, Polyline, Pressable, Row, Svg, SvgRect, Text, View, type Child, type DraggableProps, type DropTargetProps, type Style } from "@tarve/core";
 import { Fragment } from "@tarve/core/jsx-runtime";
-import { COMPACT_PAD, hoverShade, numeric, ui } from "../theme";
+import { COMPACT_PAD, devicePx, hoverShade, numeric, ui } from "../theme";
 import { config, type GlowColor, type HoverEffect } from "../config";
 import { dockEdge, dockVertical, taskbarPrefs } from "../services/taskbar-prefs";
 import { hideTip, hoverTip } from "../menu/hover-tip";
@@ -494,7 +494,7 @@ export const hoverEffects: { value: HoverEffect; label: string }[] = [
   { value: "macos", label: "macOS" },
   { value: "lift", label: "Elevar" },
   { value: "glow", label: "Brilho" },
-  { value: "highlight", label: "Realce" },
+  { value: "highlight", label: "Realce do Windows" },
   { value: "none", label: "Nenhum" },
 ];
 
@@ -561,7 +561,28 @@ export function HitReach(props: {
  * `magnified`: the icon sits in a magnifying row (Start and the apps), which draws the "macos"
  * effect itself; elsewhere (tray) "macos" falls back to a plain zoom.
  */
-export function iconHover(options?: { magnified?: boolean }): Style {
+/**
+ * The Windows 11 taskbar button's hover: a faint plate with a hairline edge, faded in. Drawn as
+ * its own node behind the icon (`plate` box), shown when the pointer is over the button: the
+ * button must be a `group`.
+ */
+export function windowsHoverPlate(): Style {
+  const k = Math.max(0.25, Math.min(2, Number(config.hoverIntensity ?? 100) / 100));
+  const ms = Math.max(0, Math.min(600, Number(config.hoverSpeed ?? 120)));
+  const white = (a: number) => `rgba(255,255,255,${Math.min(0.3, a * k).toFixed(3)})`;
+  return {
+    background: "rgba(255,255,255,0)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0)",
+    transition: { background: { duration: ms, easing: "easeOut" }, borderColor: { duration: ms, easing: "easeOut" } },
+    groupHover: { background: white(0.06), borderColor: white(0.04) },
+  };
+}
+
+/** "highlight" draws the Windows 11 plate: buttons that have one (apps, Start) draw it themselves. */
+export const windowsHighlight = () => config.hoverEffect === "highlight";
+
+export function iconHover(options?: { magnified?: boolean; plate?: boolean }): Style {
   const effect = config.hoverEffect ?? "zoom";
   // 1 is the default look; the slider goes from a quarter to twice as strong.
   const k = Math.max(0.25, Math.min(2, Number(config.hoverIntensity ?? 100) / 100));
@@ -576,6 +597,7 @@ export function iconHover(options?: { magnified?: boolean }): Style {
   // Away from the screen edge the dock sits on: up from the bottom, right from the left edge…
   const inward = (n: number) => ({ bottom: `translateY(-${n}px)`, top: `translateY(${n}px)`, left: `translateX(${n}px)`, right: `translateX(-${n}px)` })[dockEdge()];
   if (effect === "macos" && options?.magnified) return { active };
+  if (effect === "highlight" && options?.plate) return { active };
   switch (effect) {
     case "macos":
     case "zoom":
@@ -600,7 +622,8 @@ export function iconHover(options?: { magnified?: boolean }): Style {
         active,
       };
     case "highlight":
-      return { transition, hover: { background: `rgba(255,255,255,${Math.min(0.2, 0.07 * k).toFixed(3)})` }, active };
+      // Buttons without a plate of their own: the Windows 11 plate's tint over the whole button.
+      return { transition, radius: devicePx(8), hover: { background: `rgba(255,255,255,${Math.min(0.2, 0.06 * k).toFixed(3)})` }, active };
     default:
       return { active };
   }

@@ -10,7 +10,7 @@ import { dockVertical, taskbarPrefs } from "../../services/taskbar-prefs";
 import { taskbarPins, unpinFromTaskbar, watchTaskbarPins, type TaskbarPin } from "../../services/taskbar-pins";
 import { progressFor, type ButtonProgress } from "../../services/taskbar-host";
 import { explorerStateFor } from "../../services/explorer-buttons";
-import { HitReach, axisBox, iconHover } from "../ui";
+import { HitReach, axisBox, iconHover, windowsHighlight, windowsHoverPlate } from "../ui";
 import { appRoom, dockIndex, dockMetrics, magnifying, magnifyStyles, peakSize, setAppCount } from "../magnify";
 import { defineWidget } from "../types";
 import { dropFilesOn } from "../../native/drop-target";
@@ -281,7 +281,8 @@ function AppIcon(props: {
         justify: "center",
         cursor: "pointer",
         radius: 10,
-        ...iconHover({ magnified: true }),
+        group: true,
+        ...iconHover({ magnified: true, plate: true }),
         ...magnify.slot,
         opacity: appDrag.source === item.orderKey ? 0.4 : 1,
       }}
@@ -293,6 +294,8 @@ function AppIcon(props: {
           an app asking for attention gets an orange plate until its window is activated. */}
       {/* The macOS effect draws no plate, as on the Dock: the grown icon would spill over it. The
           indicator below still marks the app in front (accent) and one asking for attention (orange). */}
+      {/* "Realce do Windows": the taskbar's hover plate, under the front/attention plate's tint. */}
+      {windowsHighlight() ? <View style={{ ...plateBox(), ...windowsHoverPlate() }} /> : null}
       {magnifying() ? null : item.attention ? (
         <View
           style={{
