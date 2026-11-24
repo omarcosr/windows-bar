@@ -7,15 +7,15 @@ import { setGalleryOpener } from "./dock/widget-menu";
 import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type GalleryPage } from "./gallery/Gallery";
 import { initChartPanel } from "./menu/chart-panel";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
-import { initHoverTip } from "./menu/hover-tip";
 import { initDragGhost } from "./menu/drag-ghost";
-import { hidePeek, initWidgetPeek } from "./menu/widget-peek";
+import { initHoverTip } from "./menu/hover-tip";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
+import { hidePeek, initWidgetPeek } from "./menu/widget-peek";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { DockWindow } from "./native/dock-window";
+import { waitForProcessExit } from "./native/process-wait";
 import { HSHELL, onShellEvent, startShellEvents } from "./native/shell-events";
 import { explorerTray, showOwnWindowOnTaskbar, windowExists } from "./native/win32";
-import { waitForProcessExit } from "./native/process-wait";
 import { probeEvents } from "./runtime/perf-probe";
 import { run, sleep } from "./runtime/proc";
 import { watchAppColor } from "./services/app-color";
@@ -165,7 +165,8 @@ const app = createApp(
     />
   ),
   {
-    renderer: "auto",
+    lowPower: true,
+    renderer: "cpu",
     // The button and Shift/Ctrl of each press: the taskbar's modified clicks on app buttons (apps.tsx).
     pointerEvents: true,
     appIdentity: { id: "WindowsBar.Dock", name: "WindowsBar", icon: appIcon },
