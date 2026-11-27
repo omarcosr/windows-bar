@@ -211,3 +211,7 @@ Componentes de layout e texto (`Row`, `Column`, `View`, `Text`, `Image`...) e `s
 | Dock, galeria e configurações | `src/dock/`, `src/gallery/` |
 
 Para publicar versões, veja [RELEASING.md](RELEASING.md).
+
+## Licença
+
+[MIT](LICENSE).
