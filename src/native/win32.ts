@@ -42,6 +42,7 @@ const kernel32 = dlopen("kernel32.dll", {
   OpenProcess: { args: ["u32", "i32", "u32"], returns: "ptr" },
   CloseHandle: { args: ["ptr"], returns: "i32" },
   QueryFullProcessImageNameW: { args: ["ptr", "u32", "ptr", "ptr"], returns: "i32" },
+  GetProcessTimes: { args: ["ptr", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
   GlobalMemoryStatusEx: { args: ["ptr"], returns: "i32" },
   GetSystemTimes: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
   GetSystemPowerStatus: { args: ["ptr"], returns: "i32" },
@@ -345,22 +346,30 @@ const cloakBuf = new Uint32Array(1);
 const textBytes = new Uint8Array(textBuf.buffer);
 const pidBytes = new Uint8Array(pidBuf.buffer);
 const cloakBytes = new Uint8Array(cloakBuf.buffer);
-const exeCache = new Map<number, string>();
+/**
+ * Program paths by process id, each with the process's creation time: Windows reuses a process id
+ * soon after its process exits (a RustDesk helper's id went to another app, whose window was then
+ * grouped under RustDesk), so a cached path counts only for the same process.
+ */
+const exeCache = new Map<number, { path: string; created: bigint }>();
+const timeBufs = [new BigUint64Array(1), new BigUint64Array(1), new BigUint64Array(1), new BigUint64Array(1)];
+const timeBytes = timeBufs.map((b) => new Uint8Array(b.buffer));
 
 export function exePathOf(pid: number): string {
-  const cached = exeCache.get(pid);
-  if (cached !== undefined) return cached;
-  let path = "";
   const handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-  if (handle) {
+  if (!handle) return "";
+  try {
+    const created = K.GetProcessTimes(handle, timeBytes[0], timeBytes[1], timeBytes[2], timeBytes[3]) ? timeBufs[0]![0]! : 0n;
+    const cached = exeCache.get(pid);
+    if (cached && cached.created === created) return cached.path;
+    let path = "";
     const size = new Uint32Array([textBuf.length]);
-    if (K.QueryFullProcessImageNameW(handle, 0, textBytes, new Uint8Array(size.buffer))) {
-      path = decodeWide(textBuf.buffer, 0, size[0]! * 2);
-    }
+    if (K.QueryFullProcessImageNameW(handle, 0, textBytes, new Uint8Array(size.buffer))) path = decodeWide(textBuf.buffer, 0, size[0]! * 2);
+    exeCache.set(pid, { path, created });
+    return path;
+  } finally {
     K.CloseHandle(handle);
   }
-  exeCache.set(pid, path);
-  return path;
 }
 
 /**

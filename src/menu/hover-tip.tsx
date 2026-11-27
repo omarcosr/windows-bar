@@ -32,6 +32,10 @@ let dismissed = "";
 /** Physical screen box of a source outside the dock (an icon in the hidden-icons flyout). */
 type Rect = { x: number; y: number; width: number; height: number };
 let anchorRect: (() => Rect | null) | null = null;
+/** What each HoverTip shows, by its id, as of its last render. */
+const tipSources = new Map<string, () => string[]>();
+/** HoverTip's onPointerLeave: it only makes the node report the pointer, which initHoverTip reads. */
+const reportPointer = () => {};
 
 function TipView() {
   return (
@@ -190,6 +194,14 @@ export function hoverTipAt(id: string, get: () => string[], hovered: boolean, re
 export async function initHoverTip(app: AppHandle) {
   handle = app.openWindow(TipView, { id: "tip", closeBehavior: "hide" });
   await handle.ready;
+  // The tips follow the dock's pointer events here, not with element handlers: Tarve re-renders the
+  // whole dock after every handler call (~11 ms under txiki), and pointerMove fires on every mouse
+  // move over a clock or a status icon.
+  app.onEvent((event) => {
+    if (event.type !== "pointerMove" && event.type !== "pointerLeave") return;
+    const get = tipSources.get(event.id);
+    if (get) hoverTip(event.id, get, event.type === "pointerMove");
+  });
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -222,13 +234,12 @@ function stopRefresh() {
  */
 export function HoverTip(props: { id: string; tip: () => string[]; disabled?: boolean; side?: "full"; children: Child }) {
   if (props.disabled || (dockVertical() && props.side !== "full")) return <>{props.children}</>;
+  tipSources.set(props.id, props.tip);
+  // onPointerLeave only marks the node to report the pointer (reportPointer): its pointerMove and
+  // pointerLeave events are read by the dock's event listener (initHoverTip). An onPointerMove
+  // handler would re-render the whole dock on every mouse move over it.
   return (
-    <View
-      id={props.id}
-      onPointerMove={() => hoverTip(props.id, props.tip, true)}
-      onPointerLeave={() => hoverTip(props.id, props.tip, false)}
-      style={{ direction: "row", align: "center", shrink: 0 }}
-    >
+    <View id={props.id} onPointerLeave={reportPointer} style={{ direction: "row", align: "center", shrink: 0 }}>
       {props.children}
     </View>
   );

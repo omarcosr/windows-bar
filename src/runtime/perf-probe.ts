@@ -12,8 +12,11 @@ let lagMax = 0;
 let lagTotal = 0;
 let lagSamples = 0;
 let started = performance.now();
-let cpuMark = enabled ? process.cpuUsage() : undefined;
-let rssMark = enabled ? process.memoryUsage().rss : 0;
+// txiki (the release runtime) has neither process.cpuUsage nor process.memoryUsage: zeros there.
+const cpuUsage = (since?: NodeJS.CpuUsage): NodeJS.CpuUsage => (typeof process.cpuUsage === "function" ? process.cpuUsage(since) : { user: 0, system: 0 });
+const memoryUsage = () => (typeof process.memoryUsage === "function" ? process.memoryUsage() : { rss: 0, heapUsed: 0, heapTotal: 0, external: 0 });
+let cpuMark = enabled ? cpuUsage() : undefined;
+let rssMark = enabled ? memoryUsage().rss : 0;
 const statWindows = new Map<string, (options: { reset: boolean }) => Promise<unknown>>();
 
 /** The first frame in the app's own code (not this file, not a dependency): who wrote to a store. */
@@ -72,9 +75,9 @@ function report() {
   const span = (performance.now() - started) / 1000;
   const rows = [...sites.entries()].sort((a, b) => b[1].total - a[1].total || b[1].calls - a[1].calls).slice(0, 40);
   // Process CPU (all threads, native included) and memory next to the JS sites, to tell JS cost from native/worker cost.
-  const cpu = process.cpuUsage(cpuMark);
-  cpuMark = process.cpuUsage();
-  const mem = process.memoryUsage();
+  const cpu = cpuUsage(cpuMark);
+  cpuMark = cpuUsage();
+  const mem = memoryUsage();
   const mb = (n: number) => (n / 1048576).toFixed(1);
   const lines = [
     `--- ${new Date().toISOString()} window ${span.toFixed(1)} s | loop lag avg ${(lagTotal / Math.max(1, lagSamples)).toFixed(1)} ms max ${lagMax.toFixed(0)} ms`,

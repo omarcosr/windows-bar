@@ -28,6 +28,7 @@ import { explorerButtonRank } from "./explorer-buttons";
 import { onShellEvent } from "../native/shell-events";
 import { buttonsOnOwnDisplayOnly, onTaskbarPrefsChange, taskbarPrefs } from "./taskbar-prefs";
 import { popupSystemMenu, sysCommand, SC_RESTORE } from "../native/system-menu";
+import { programOfAppId } from "../native/shell-item";
 
 export interface AppWindow {
   hwnd: HWND;
@@ -106,8 +107,8 @@ let seenCounter = Math.max(-1, ...savedOrder.values()) + 1;
 
 /** Store apps run inside ApplicationFrameHost.exe; each is told apart by its AppUserModelID. */
 const appIdCache = new Map<HWND, string>();
-/** Packaged desktop apps (their AppUserModelID, or "" for plain Win32), by process id. */
-const packageCache = new Map<number, string>();
+/** Packaged desktop apps (their AppUserModelID, or "" for plain Win32), by process id and program (an id is reused by a later process). */
+const packageCache = new Map<string, string>();
 /** AppUserModelIDs set on the windows themselves ("" when none), by window. */
 const windowIdCache = new Map<HWND, string>();
 
@@ -129,10 +130,11 @@ function identityOf(hwnd: HWND, exe: string, pid: number): { key: string; exe: s
     }
     return id ? { key: appIdKey(id), exe: `shell:AppsFolder\\${id}`, explicitId: true } : { key: exe.toLowerCase(), exe, explicitId: false };
   }
-  let packaged = packageCache.get(pid);
+  const processKey = `${pid}:${exe}`;
+  let packaged = packageCache.get(processKey);
   if (packaged === undefined) {
     packaged = packagedAppId(pid);
-    packageCache.set(pid, packaged);
+    packageCache.set(processKey, packaged);
   }
   let own = windowIdCache.get(hwnd);
   if (own === undefined) {
@@ -144,7 +146,13 @@ function identityOf(hwnd: HWND, exe: string, pid: number): { key: string; exe: s
   const id = own || packaged;
   if (!id) return { key: exe.toLowerCase(), exe, explicitId: false };
   // A packaged app shows its package entry (name, logo); a Win32 app keeps its exe for the icon.
-  return { key: appIdKey(id), exe: packaged ? `shell:AppsFolder\\${packaged}` : exe, explicitId: true };
+  if (packaged) return { key: appIdKey(id), exe: `shell:AppsFolder\\${packaged}`, explicitId: true };
+  // A window whose AppUserModelID belongs to another app than its process shows that app's Start
+  // entry, as the taskbar does: Explorer's Control Panel windows (Network Connections) carry
+  // Microsoft.Windows.ControlPanel and get the Control Panel's icon, not explorer.exe's folder.
+  const program = programOfAppId(id);
+  if (program && program !== exe.toLowerCase()) return { key: appIdKey(id), exe: `shell:AppsFolder\\${id}`, explicitId: true };
+  return { key: appIdKey(id), exe, explicitId: true };
 }
 
 /** The program's name as the taskbar shows it (its FileDescription); the file name only without one. */
@@ -229,8 +237,8 @@ export function refreshWindows() {
   }
   for (const hwnd of appIdCache.keys()) if (!alive.has(hwnd)) appIdCache.delete(hwnd);
   for (const hwnd of windowIdCache.keys()) if (!alive.has(hwnd)) windowIdCache.delete(hwnd);
-  const pids = new Set(windows.map((w) => w.pid));
-  for (const pid of packageCache.keys()) if (!pids.has(pid)) packageCache.delete(pid);
+  const processes = new Set(windows.map((w) => `${w.pid}:${w.exe}`));
+  for (const id of packageCache.keys()) if (!processes.has(id)) packageCache.delete(id);
   if (desktop.flashing.some((h) => !alive.has(h as unknown as HWND)))
     desktop.flashing = desktop.flashing.filter((h) => alive.has(h as unknown as HWND));
   for (const group of groups.values()) group.windows.sort((a, b) => firstSeen.get(a.hwnd)! - firstSeen.get(b.hwnd)!);

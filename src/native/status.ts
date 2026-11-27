@@ -13,6 +13,8 @@ const iphlpapi = dlopen("iphlpapi.dll", {
   GetNetworkConnectivityHint: { args: ["ptr"], returns: "u32" },
   GetBestInterface: { args: ["u32", "ptr"], returns: "u32" },
   GetIfEntry2: { args: ["ptr"], returns: "u32" },
+  GetIfTable2: { args: ["ptr"], returns: "u32" },
+  FreeMibTable: { args: ["ptr"], returns: "void" },
   NotifyNetworkConnectivityHintChange: { args: ["ptr", "ptr", "u8", "ptr"], returns: "u32" },
   NotifyRouteChange2: { args: ["u16", "ptr", "ptr", "u8", "ptr"], returns: "u32" },
   CancelMibChangeNotify2: { args: ["ptr"], returns: "u32" },
@@ -419,7 +421,14 @@ export function readNetwork(): { kind: NetworkKind; internet: boolean; signal: n
   const v = new DataView(ifRow.buffer);
   v.setUint32(8, ifIndex[0]!, true);
   let type = 0;
-  if (iphlpapi.symbols.GetIfEntry2(ifRow) === 0) type = v.getUint32(1128, true);
+  let hardware = false;
+  if (iphlpapi.symbols.GetIfEntry2(ifRow) === 0) {
+    type = v.getUint32(1128, true);
+    hardware = (ifRow[1152]! & 1) !== 0;
+  }
+  // A VPN or virtual adapter carrying the route (Tailscale, Hyper-V's vEthernet for WSL) is not
+  // what the taskbar shows: its icon is the physical connection under it (Wi-Fi or cable).
+  if (!hardware) type = physicalType() || type;
   if (type === 71) {
     if (network && !network.wlan) watchWlan(network);
     return { kind: "wifi", internet, ...readWifi() };
@@ -575,4 +584,31 @@ export function keyboardLayout(hwnd: Pointer | null): { language: string; layout
     name: localeInfo(langId, 0x2 /* LOCALE_SLOCALIZEDDISPLAYNAME */),
     hkl: hkl.toString(16),
   };
+}
+/**
+ * The type of the physical adapter that is up and connected (GetIfTable2): Ethernet (6) before
+ * Wi-Fi (71), as Windows routes over the cable when both are; 0 when there is none. MIB_IF_ROW2
+ * (1352 bytes): Type at 1128, InterfaceAndOperStatusFlags at 1152 (bit 0 HardwareInterface),
+ * OperStatus at 1156, MediaConnectState at 1164.
+ */
+export function physicalType(): number {
+  const out = new BigUint64Array(1);
+  if (iphlpapi.symbols.GetIfTable2(new Uint8Array(out.buffer)) !== 0 || !out[0]) return 0;
+  const table = Number(out[0]) as Pointer;
+  try {
+    const count = read.u32(table, 0);
+    if (!count) return 0;
+    const v = new DataView(toArrayBuffer(table, 8, count * 1352));
+    let found = 0;
+    for (let i = 0; i < count; i++) {
+      const at = i * 1352;
+      if (!(v.getUint8(at + 1152) & 1) || v.getUint32(at + 1156, true) !== 1 || v.getUint32(at + 1164, true) !== 1) continue;
+      const type = v.getUint32(at + 1128, true);
+      if (type === 6) return 6;
+      if (type === 71) found = 71;
+    }
+    return found;
+  } finally {
+    iphlpapi.symbols.FreeMibTable(table);
+  }
 }

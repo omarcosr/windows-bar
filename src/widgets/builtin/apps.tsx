@@ -34,10 +34,22 @@ function pressWith(button: number) {
   return p && p.button === button && Date.now() - p.at < 5000 ? p : null;
 }
 
-/** Follows the dock's mouse presses while an Apps widget is shown (one listener for all of them). */
+/**
+ * Follows the dock's mouse presses and the pointer entering and leaving app buttons while an Apps
+ * widget is shown (one listener for all of them).
+ */
 function watchPresses(app: AppHandle): () => void {
   if (pressWatchers++ === 0) {
     stopPresses = app.onEvent((event) => {
+      if (event.type === "hover") {
+        // An app button (or its HitReach, its first child) entered or left. Read here and not with
+        // onHover: Tarve re-renders the whole dock after every element handler (~11 ms under txiki),
+        // and the pointer crossing the icons fires several of these a second.
+        const key = /^app:(.+?)(\/children\/0)?$/.exec(event.id)?.[1];
+        // No preview while a button is being dragged to a new place.
+        if (key) hoverApp(key, event.entered && !appDrag.source);
+        return;
+      }
       if (event.type !== "pointer" || event.phase === "wheel") return;
       if (event.phase === "down") {
         lastPress = { button: event.button ?? 0, shift: event.shiftKey, ctrl: event.ctrlKey, at: Date.now() };
@@ -259,8 +271,6 @@ function AppIcon(props: {
     hidePreview(true);
     props.onContextMenu();
   };
-  // No preview while a button is being dragged to a new place.
-  const onHover = (hovered: boolean) => hoverApp(item.key, hovered && !appDrag.source);
   return (
     <Pressable
       // The window preview anchors above the icon by this id.
@@ -269,7 +279,6 @@ function AppIcon(props: {
       focusable={false}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      onHover={onHover}
       {...props.drag}
       onFileDragEnter={() => dragHoverApp(item.key, true)}
       onFileDragLeave={() => dragHoverApp(item.key, false)}
@@ -287,7 +296,7 @@ function AppIcon(props: {
         opacity: appDrag.source === item.orderKey ? 0.4 : 1,
       }}
     >
-      <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} onHover={onHover} drag={props.drag} />
+      <HitReach height={ui.tile.height} onClick={onClick} onContextMenu={onContextMenu} drag={props.drag} />
       {/* The look slides while a button is dragged; the slot (and its hit area) stays put. */}
       <View style={shiftStyle(props.shift)}>
       {/* The app in front sits on a plate tinted with the Windows accent colour, as on the taskbar;

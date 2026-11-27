@@ -12,7 +12,6 @@ import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { FluentGlyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
 import { currentExtra, dockCount, dockMetrics, dockRoom, fixedGroupSlots, inDockGroup, magnifying, magnifyRowProps, maxExtra, noteSlotWidth } from "../widgets/magnify";
-
 export const DOCK_TITLE = "WindowsBar Dock";
 
 /**
