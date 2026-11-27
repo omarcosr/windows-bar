@@ -107,7 +107,7 @@ export const defaultConfig = (): DockConfig => ({
   previewDelay: 450,
   autostart: false,
   autoUpdate: true,
-  language: "pt-BR",
+  language: "system",
   widgets: [
     { id: "clock-1", type: "clock-weather", config: {} },
     { id: "revenue-1", type: "revenue", config: {} },

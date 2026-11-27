@@ -7,7 +7,8 @@ import ptBR from "../locales/pt-BR/translation.json" with { type: "json" };
 /**
  * UI strings through i18next: one JSON resource per language under src/locales, keys namespaced by
  * module (`settings.appearance`), `{{name}}` interpolation and `count` plurals (`key_one` / `key_other`).
- * pt-BR is the default and the fallback for any key missing in another language.
+ * By default the language follows Windows (Portuguese display language: pt-BR, any other: en-US);
+ * pt-BR is the fallback for any key missing in another language.
  *
  * The language is fixed for the whole run (widget names, menus and option lists are built once at
  * load): a change in Settings applies on the next start.
@@ -19,7 +20,7 @@ function resolve(setting: typeof config.language): Language {
   try {
     return windowsDisplayIsPortuguese() ? "pt-BR" : "en-US";
   } catch {
-    return "pt-BR";
+    return "en-US";
   }
 }
 

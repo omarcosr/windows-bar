@@ -68,7 +68,7 @@ Em **Configurações** você ajusta:
 - **Cor**: o fundo da barra pode seguir a cor do app aberto, com animação.
 - **Efeito ao passar o mouse**: tipo, intensidade, velocidade e cor do brilho.
 - **Ícones e janelas**: tamanho dos ícones, indicador de app aberto, ícones empilhados, comportamento do clique e preview.
-- **Sistema**: idioma (português, inglês ou o do Windows), iniciar com o Windows, atualizações automáticas e restaurar os padrões.
+- **Sistema**: idioma (por padrão segue o Windows: português se o Windows estiver em português, senão inglês), iniciar com o Windows, atualizações automáticas e restaurar os padrões.
 
 A configuração fica em `%APPDATA%\windows-bar\config.json`.
 
