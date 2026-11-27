@@ -72,6 +72,8 @@ export interface DockConfig {
   autostart: boolean;
   /** Download new versions on their own; they install when the user restarts the app. */
   autoUpdate: boolean;
+  /** UI language; "system" follows the Windows display language. Applies on the next start. */
+  language: "pt-BR" | "en-US" | "system";
 }
 
 export const configDir = appConfigDirectory("windows-bar");
@@ -105,6 +107,7 @@ export const defaultConfig = (): DockConfig => ({
   previewDelay: 450,
   autostart: false,
   autoUpdate: true,
+  language: "pt-BR",
   widgets: [
     { id: "clock-1", type: "clock-weather", config: {} },
     { id: "revenue-1", type: "revenue", config: {} },

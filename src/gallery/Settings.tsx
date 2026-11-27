@@ -9,6 +9,7 @@ import { glowColors, hoverEffects, iconHover } from "../widgets/ui";
 import { magnifyRowProps, magnifyStyles, type MagnifyMetrics } from "../widgets/magnify";
 import { iconFor } from "../services/icons";
 import { desktop } from "../services/windows";
+import { languagePending, restartApp, t } from "../i18n";
 
 /** Sets one setting and saves. */
 function set<K extends keyof DockConfig>(key: K, value: DockConfig[K]) {
@@ -190,30 +191,30 @@ function UpdateSetting() {
   const s = updater.status;
   const description =
     s === "unsupported"
-      ? "Atualizações automáticas funcionam na versão instalada pelo instalador."
+      ? t("settings.automaticUpdatesWorkIn")
       : s === "checking"
-        ? "Procurando…"
+        ? t("settings.checking")
         : s === "current"
-          ? "Você está na versão mais recente."
+          ? t("settings.youreOnLatestVersion")
           : s === "available"
-            ? `Versão ${updater.version} disponível.`
+            ? t("settings.versionAvailable", { version: updater.version })
             : s === "downloading"
-              ? `Baixando a versão ${updater.version}… ${Math.round(updater.progress * 100)}%`
+              ? t("settings.downloadingVersion", { version: updater.version, p1: Math.round(updater.progress * 100) })
               : s === "ready"
-                ? `Versão ${updater.version} pronta para instalar.`
+                ? t("settings.versionReadyToInstall", { version: updater.version })
                 : s === "error"
-                  ? `Não foi possível verificar: ${updater.error}`
-                  : "Procura novas versões no GitHub.";
+                  ? t("settings.couldntCheck", { error: updater.error })
+                  : t("settings.checksGithubForNew");
   return (
-    <Setting label={`Atualizações · versão ${APP_VERSION}`} description={description}>
+    <Setting label={t("settings.updatesVersion", { APP_VERSION })} description={description}>
       {s === "ready" ? (
-        <Button label="Reiniciar e atualizar" onClick={restartToUpdate} />
+        <Button label={t("settings.restartAndUpdate")} onClick={restartToUpdate} />
       ) : s === "available" ? (
-        <Button label="Baixar" onClick={() => void download()} />
+        <Button label={t("settings.download")} onClick={() => void download()} />
       ) : s === "unsupported" || s === "downloading" || s === "checking" ? (
         <View />
       ) : (
-        <Button label="Procurar agora" onClick={() => void checkNow()} />
+        <Button label={t("settings.checkNow")} onClick={() => void checkNow()} />
       )}
     </Setting>
   );
@@ -228,37 +229,37 @@ export function SettingsPage() {
     <Column style={{ padding: 24, gap: 24, maxWidth: 760 }}>
       <Column style={{ gap: 4 }}>
         <Text size={22} weight={700} color="#fff">
-          Barra de tarefas
+          {t("settings.taskbar")}
         </Text>
         <Text size={12} color={ui.muted}>
-          As mudanças valem na hora.
+          {t("settings.changesApplyRightAway")}
         </Text>
       </Column>
 
-      <Section title="Aparência">
+      <Section title={t("settings.appearance")}>
         <Setting
-          label="Estilo"
-          description="Flutuante centraliza o dock acima da borda; barra inteira ocupa a largura toda, como a do Windows."
+          label={t("settings.style")}
+          description={t("settings.floatingCentersDockAbove")}
         >
           <Choice
             value={config.mode}
             options={[
-              { value: "floating", label: "Flutuante" },
-              { value: "full", label: "Barra inteira" },
+              { value: "floating", label: t("settings.floating") },
+              { value: "full", label: t("settings.fullBar") },
             ]}
             onChange={(v) => set("mode", v)}
           />
         </Setting>
-        <Setting label="Altura" description="Ícones e widgets acompanham a altura. Por padrão, a mesma da barra do Windows.">
+        <Setting label={t("settings.height")} description={t("settings.iconsAndWidgetsFollow")}>
           <Toggle
             checked={!config.barHeight}
-            label="Igual à barra do Windows"
+            label={t("settings.sameAsWindowsTaskbar")}
             onChange={(v) => set("barHeight", v ? 0 : ui.dock.height)}
           />
         </Setting>
-        <Setting label="Altura personalizada" when={!!config.barHeight}>
+        <Setting label={t("settings.customHeight")} when={!!config.barHeight}>
           <Range
-            label="Altura"
+            label={t("settings.height")}
             value={ui.dock.height}
             min={BAR_HEIGHT_MIN}
             max={BAR_HEIGHT_MAX}
@@ -267,9 +268,9 @@ export function SettingsPage() {
             onChange={(v) => set("barHeight", Math.round(v / 2) * 2)}
           />
         </Setting>
-        <Setting label="Cantos arredondados" when={floating}>
+        <Setting label={t("settings.roundedCorners")} when={floating}>
           <Range
-            label="Cantos"
+            label={t("settings.corners")}
             value={ui.dock.radius}
             min={0}
             max={32}
@@ -278,9 +279,9 @@ export function SettingsPage() {
             onChange={(v) => floating && set("cornerRadius", Math.round(v))}
           />
         </Setting>
-        <Setting label="Opacidade do fundo" description="Ícones e widgets continuam sólidos.">
+        <Setting label={t("settings.backgroundOpacity")} description={t("settings.iconsAndWidgetsStay")}>
           <Range
-            label="Opacidade"
+            label={t("settings.opacity")}
             value={Math.round(config.opacity * 100)}
             min={20}
             max={100}
@@ -289,12 +290,12 @@ export function SettingsPage() {
             onChange={(v) => set("opacity", Math.round(v) / 100)}
           />
         </Setting>
-        <Setting label="Juntar widgets" description="Os widgets lado a lado viram um só cartão, separados por linhas finas.">
-          <Toggle checked={config.joinWidgets === true} label="Juntar widgets" onChange={(v) => set("joinWidgets", v)} />
+        <Setting label={t("settings.joinWidgets")} description={t("settings.widgetsSideBySide")}>
+          <Toggle checked={config.joinWidgets === true} label={t("settings.joinWidgets")} onChange={(v) => set("joinWidgets", v)} />
         </Setting>
-        <Setting label="Espaço entre widgets" when={config.joinWidgets !== true}>
+        <Setting label={t("settings.spaceBetweenWidgets")} when={config.joinWidgets !== true}>
           <Range
-            label="Espaço"
+            label={t("settings.spacing")}
             value={ui.dock.gap}
             min={0}
             max={16}
@@ -305,24 +306,24 @@ export function SettingsPage() {
         </Setting>
       </Section>
 
-      <Section title="Posição e espaço na tela">
+      <Section title={t("settings.positionAndScreenSpace")}>
         <Setting
-          label="Alinhamento"
-          description={`Onde ficam o Iniciar e os apps. "Seguir o Windows" usa o alinhamento da barra do Windows (agora: ${taskbarPrefs.align === "left" ? "esquerda" : "centro"}).`}
+          label={t("settings.alignment")}
+          description={t("settings.whereStartAndApps", { p0: taskbarPrefs.align === "left" ? t("settings.left") : t("settings.center") })}
         >
           <Choice
             value={config.align}
             options={[
-              { value: "system", label: "Seguir o Windows" },
-              { value: "center", label: "Centro" },
-              { value: "left", label: "Esquerda" },
+              { value: "system", label: t("settings.followWindows") },
+              { value: "center", label: t("settings.center2") },
+              { value: "left", label: t("settings.left2") },
             ]}
             onChange={(v) => set("align", v)}
           />
         </Setting>
-        <Setting label="Distância da borda" description="Espaço entre o dock flutuante e a borda da tela." when={floating}>
+        <Setting label={t("settings.distanceFromEdge")} description={t("settings.spaceBetweenFloatingDock")} when={floating}>
           <Range
-            label="Distância"
+            label={t("settings.distance")}
             value={config.bottomMargin}
             min={0}
             max={24}
@@ -331,38 +332,38 @@ export function SettingsPage() {
             onChange={(v) => floating && set("bottomMargin", Math.round(v))}
           />
         </Setting>
-        <Setting label="Reservar espaço na tela" description="Janelas maximizadas param acima da barra.">
-          <Toggle label="Reservar espaço" checked={config.reserveSpace} onChange={(v) => set("reserveSpace", v)} />
+        <Setting label={t("settings.reserveScreenSpace")} description={t("settings.maximizedWindowsStopAbove")}>
+          <Toggle label={t("settings.reserveSpace")} checked={config.reserveSpace} onChange={(v) => set("reserveSpace", v)} />
         </Setting>
-        <Setting label="Fundo do espaço segue a tela" description="Pinta a faixa embaixo do dock com a cor do app aberto." when={strip}>
+        <Setting label={t("settings.spaceBackgroundFollowsScreen")} description={t("settings.paintsStripUnderDock")} when={strip}>
           <Toggle
-            label="Fundo segue a tela"
+            label={t("settings.backgroundFollowsScreen")}
             checked={config.stripFollowsApp}
             disabled={!strip}
             onChange={(v) => set("stripFollowsApp", v)}
           />
         </Setting>
         <Setting
-          label="Animação da troca de cor"
-          description="A cor nova desce em degradê; desligado, troca na hora."
+          label={t("settings.colorChangeAnimation")}
+          description={t("settings.newColorSlidesDown")}
           when={strip && config.stripFollowsApp}
         >
           <Toggle
-            label="Animação"
+            label={t("settings.animation")}
             checked={config.colorTransition}
             disabled={!strip || !config.stripFollowsApp}
             onChange={(v) => set("colorTransition", v)}
           />
         </Setting>
-        <Setting label="Mostrar área de trabalho no canto da barra" description="Clique no canto direito para mostrar a área de trabalho ou restaurar as janelas.">
-          <Toggle label="Mostrar área de trabalho no canto da barra" checked={config.showDesktop} onChange={(v) => set("showDesktop", v)} />
+        <Setting label={t("settings.showDesktopInBar")} description={t("settings.clickRightCornerTo")}>
+          <Toggle label={t("settings.showDesktopInBar")} checked={config.showDesktop} onChange={(v) => set("showDesktop", v)} />
         </Setting>
         <Setting
-          label="Esconder a barra do Windows"
-          description={full ? "A barra inteira sempre esconde a do Windows." : "A barra do Windows volta quando o WindowsBar fecha."}
+          label={t("settings.hideWindowsTaskbar")}
+          description={full ? t("settings.fullBarAlwaysHides") : t("settings.windowsTaskbarComesBack")}
         >
           <Toggle
-            label="Esconder a barra do Windows"
+            label={t("settings.hideWindowsTaskbar")}
             checked={config.hideNativeTaskbar || full}
             disabled={full}
             onChange={(v) => !full && set("hideNativeTaskbar", v)}
@@ -370,29 +371,29 @@ export function SettingsPage() {
         </Setting>
       </Section>
 
-      <Section title="Efeito ao passar o mouse" description="Vale para os apps, o botão Iniciar e os ícones da bandeja.">
-        <Setting label="Efeito">
+      <Section title={t("settings.hoverEffect")} description={t("settings.appliesToAppsStart")}>
+        <Setting label={t("settings.effect")}>
           <Choice value={config.hoverEffect} options={hoverEffects} onChange={(v) => set("hoverEffect", v)} />
         </Setting>
-        <Setting label="Experimente" description="Passe o mouse nos ícones ao lado." when={config.hoverEffect !== "none"}>
+        <Setting label={t("settings.tryIt")} description={t("settings.hoverOverIconsNext")} when={config.hoverEffect !== "none"}>
           <HoverPreview />
         </Setting>
         <Setting
-          label="Intensidade"
+          label={t("settings.intensity")}
           description={
             {
-              zoom: "Quanto o ícone cresce.",
-              macos: "Quanto os ícones crescem perto do ponteiro (até a altura da barra).",
-              lift: "Quanto o ícone sobe.",
-              glow: "Força do brilho.",
-              highlight: "Quão claro fica o fundo.",
+              zoom: t("settings.howMuchIconGrows"),
+              macos: t("settings.howMuchIconsGrow"),
+              lift: t("settings.howMuchIconRises"),
+              glow: t("settings.glowStrength"),
+              highlight: t("settings.howBrightBackgroundGets"),
               none: "",
             }[config.hoverEffect]
           }
           when={config.hoverEffect !== "none"}
         >
           <Range
-            label="Intensidade"
+            label={t("settings.intensity")}
             value={config.hoverIntensity}
             min={25}
             max={200}
@@ -401,9 +402,9 @@ export function SettingsPage() {
             onChange={(v) => config.hoverEffect !== "none" && set("hoverIntensity", Math.round(v))}
           />
         </Setting>
-        <Setting label="Velocidade da animação" description="Menor é mais rápido; 0 troca na hora." when={config.hoverEffect !== "none"}>
+        <Setting label={t("settings.animationSpeed")} description={t("settings.lowerIsFaster0")} when={config.hoverEffect !== "none"}>
           <Range
-            label="Velocidade"
+            label={t("settings.speed")}
             value={config.hoverSpeed}
             min={0}
             max={500}
@@ -412,7 +413,7 @@ export function SettingsPage() {
             onChange={(v) => config.hoverEffect !== "none" && set("hoverSpeed", Math.round(v))}
           />
         </Setting>
-        <Setting label="Cor do brilho" when={config.hoverEffect === "glow"}>
+        <Setting label={t("settings.glowColor")} when={config.hoverEffect === "glow"}>
           <Row style={{ gap: 6 }}>
             {glowColors.map((g) => {
               const on = config.glowColor === g.value;
@@ -444,15 +445,15 @@ export function SettingsPage() {
             })}
           </Row>
         </Setting>
-        <Setting label="Afundar ao clicar" description="O ícone encolhe um pouco enquanto é pressionado.">
-          <Toggle label="Afundar ao clicar" checked={config.pressEffect} onChange={(v) => set("pressEffect", v)} />
+        <Setting label={t("settings.pressDownOnClick")} description={t("settings.iconShrinksLittleWhile")}>
+          <Toggle label={t("settings.pressDownOnClick")} checked={config.pressEffect} onChange={(v) => set("pressEffect", v)} />
         </Setting>
       </Section>
 
-      <Section title="Ícones e janelas">
-        <Setting label="Tamanho dos ícones" description="Apps, botão Iniciar e bandeja; relativo à altura da barra.">
+      <Section title={t("settings.iconsAndWindows")}>
+        <Setting label={t("settings.iconSize")} description={t("settings.appsStartButtonAnd")}>
           <Range
-            label="Tamanho"
+            label={t("settings.size")}
             value={config.iconScale}
             min={70}
             max={130}
@@ -461,28 +462,28 @@ export function SettingsPage() {
             onChange={(v) => set("iconScale", Math.round(v))}
           />
         </Setting>
-        <Setting label="Indicador de apps abertos" description="O traço embaixo do ícone.">
-          <Toggle label="Indicador" checked={config.runningIndicator} onChange={(v) => set("runningIndicator", v)} />
+        <Setting label={t("settings.openAppIndicator")} description={t("settings.lineUnderIcon")}>
+          <Toggle label={t("settings.indicator")} checked={config.runningIndicator} onChange={(v) => set("runningIndicator", v)} />
         </Setting>
-        <Setting label="Ícones empilhados" description="Uma cópia atrás do ícone quando o app tem várias janelas.">
-          <Toggle label="Empilhados" checked={config.stackedIcons} onChange={(v) => set("stackedIcons", v)} />
+        <Setting label={t("settings.stackedIcons")} description={t("settings.copyBehindIconWhen")}>
+          <Toggle label={t("settings.stacked")} checked={config.stackedIcons} onChange={(v) => set("stackedIcons", v)} />
         </Setting>
-        <Setting label="Clique em app com várias janelas">
+        <Setting label={t("settings.clickOnAppWith")}>
           <Choice
             value={config.multiWindowClick}
             options={[
-              { value: "list", label: "Mostrar janelas" },
-              { value: "recent", label: "Abrir a última" },
+              { value: "list", label: t("settings.showWindows") },
+              { value: "recent", label: t("settings.openLastOne") },
             ]}
             onChange={(v) => set("multiWindowClick", v)}
           />
         </Setting>
-        <Setting label="Preview ao passar o mouse" description="Miniaturas das janelas acima do ícone.">
-          <Toggle label="Preview" checked={config.hoverPreview} onChange={(v) => set("hoverPreview", v)} />
+        <Setting label={t("settings.previewOnHover")} description={t("settings.windowThumbnailsAboveIcon")}>
+          <Toggle label={t("settings.preview")} checked={config.hoverPreview} onChange={(v) => set("hoverPreview", v)} />
         </Setting>
-        <Setting label="Tempo até o preview abrir" when={config.hoverPreview}>
+        <Setting label={t("settings.delayBeforePreviewOpens")} when={config.hoverPreview}>
           <Range
-            label="Tempo"
+            label={t("settings.delay")}
             value={config.previewDelay}
             min={0}
             max={1500}
@@ -493,10 +494,24 @@ export function SettingsPage() {
         </Setting>
       </Section>
 
-      <Section title="Sistema">
-        <Setting label="Iniciar com o Windows">
+      <Section title={t("settings.system")}>
+        <Setting label={t("settings.language")} description={t("settings.interfaceLanguageAppliesAfter")}>
+          <Row style={{ gap: 8, align: "center" }}>
+            {languagePending() ? <Button label={t("settings.restartNow")} onClick={restartApp} /> : null}
+            <Choice
+              value={config.language}
+              options={[
+                { value: "pt-BR", label: "Português (Brasil)" },
+                { value: "en-US", label: "English" },
+                { value: "system", label: t("settings.followWindows") },
+              ]}
+              onChange={(v) => set("language", v)}
+            />
+          </Row>
+        </Setting>
+        <Setting label={t("settings.startWithWindows")}>
           <Toggle
-            label="Iniciar com o Windows"
+            label={t("settings.startWithWindows")}
             checked={config.autostart}
             onChange={(v) => {
               set("autostart", v);
@@ -505,15 +520,15 @@ export function SettingsPage() {
           />
         </Setting>
         <UpdateSetting />
-        <Setting label="Baixar atualizações automaticamente" description="A nova versão é instalada quando você reinicia o WindowsBar.">
-          <Toggle label="Baixar automaticamente" checked={config.autoUpdate} onChange={(v) => set("autoUpdate", v)} />
+        <Setting label={t("settings.downloadUpdatesAutomatically")} description={t("settings.newVersionIsInstalled")}>
+          <Toggle label={t("settings.downloadAutomatically")} checked={config.autoUpdate} onChange={(v) => set("autoUpdate", v)} />
         </Setting>
-        <Setting label="Configurações da barra do Windows" description="Ícones da bandeja, alinhamento e comportamentos do Windows.">
-          <Button label="Abrir" onClick={() => launch("ms-settings:taskbar")} />
+        <Setting label={t("settings.windowsTaskbarSettings")} description={t("settings.trayIconsAlignmentAnd")}>
+          <Button label={t("settings.open")} onClick={() => launch("ms-settings:taskbar")} />
         </Setting>
-        <Setting label="Restaurar padrões" description="Volta todas as opções desta página ao original. Widgets e apps fixados não mudam.">
+        <Setting label={t("settings.restoreDefaults")} description={t("settings.resetsEveryOptionOn")}>
           <Button
-            label="Restaurar"
+            label={t("settings.restore")}
             danger
             onClick={() => {
               const { widgets: _widgets, autostart: _autostart, version: _version, ...defaults } = defaultConfig();

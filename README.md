@@ -68,7 +68,7 @@ Em **Configurações** você ajusta:
 - **Cor**: o fundo da barra pode seguir a cor do app aberto, com animação.
 - **Efeito ao passar o mouse**: tipo, intensidade, velocidade e cor do brilho.
 - **Ícones e janelas**: tamanho dos ícones, indicador de app aberto, ícones empilhados, comportamento do clique e preview.
-- **Sistema**: iniciar com o Windows, atualizações automáticas e restaurar os padrões.
+- **Sistema**: idioma (português, inglês ou o do Windows), iniciar com o Windows, atualizações automáticas e restaurar os padrões.
 
 A configuração fica em `%APPDATA%\windows-bar\config.json`.
 
@@ -209,6 +209,9 @@ Componentes de layout e texto (`Row`, `Column`, `View`, `Text`, `Image`...) e `s
 | Sistema de widgets | `src/widgets/types.ts`, `registry.ts`, `host.ts` |
 | Widgets incluídos | `src/widgets/builtin/` |
 | Dock, galeria e configurações | `src/dock/`, `src/gallery/` |
+| Textos da interface (i18next) | `src/i18n/`, `src/locales/<idioma>/translation.json` |
+
+Todo texto visível passa por `t("namespace.chave")`, com a mesma chave em `src/locales/pt-BR/translation.json` e `src/locales/en-US/translation.json`; o `typecheck` acusa chaves inexistentes.
 
 Para publicar versões, veja [RELEASING.md](RELEASING.md).
 

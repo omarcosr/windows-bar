@@ -8,6 +8,7 @@ import type { DockMenuItem } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { Metric, amber } from "./shared";
 
+import { t, language } from "../../../i18n";
 /** Temperature colour: green, amber from 70 °C (or the driver's warning level), red from 85 °C. */
 const heatTone = (celsius: number, warningC = 0) =>
   celsius >= (warningC > 0 ? Math.min(warningC, 85) : 85) ? ui.danger : celsius >= 70 ? amber : ui.green;
@@ -17,7 +18,7 @@ const degrees = (celsius: number) => `${Math.round(celsius)}°`;
 /** Task Manager opened on its Performance page, where it shows the GPU temperature. */
 const taskManager = () => launch("taskmgr.exe");
 
-const menu = (): DockMenuItem[][] => [[{ label: "Gerenciador de Tarefas", icon: "info", onSelect: taskManager }]];
+const menu = (): DockMenuItem[][] => [[{ label: t("widgets.hardware.temperature.taskManager"), icon: "info", onSelect: taskManager }]];
 
 const isPreview = (id: string) => id.startsWith("preview:");
 
@@ -72,8 +73,8 @@ const demoHottest: Hottest = { celsius: 62, source: "GPU", maxC: 100 };
 
 export const temperature = defineWidget({
   type: "hardware-temperature",
-  name: "Temperatura",
-  description: "Sensor mais quente que o Windows informa (GPU ou zona térmica ACPI), com uso de CPU e RAM.",
+  name: t("widgets.hardware.temperature.temperature"),
+  description: t("widgets.hardware.temperature.hottestSensorWindowsReports"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -104,7 +105,7 @@ export const temperature = defineWidget({
         preview={preview}
         tip={{
           id: `tip:${ctx.instanceId}`,
-          lines: () => [`Sensor mais quente: ${degrees(hot.celsius)}C (máx. ${degrees(hot.maxC)}C)`, `Processador ${cpu}% · Memória ${ram}% em uso`, "Clique: Gerenciador de Tarefas"],
+          lines: () => [t("widgets.hardware.temperature.hottestSensorCMax", { p0: degrees(hot.celsius), p1: degrees(hot.maxC) }), t("widgets.hardware.temperature.processorMemoryInUse", { cpu, ram }), t("widgets.hardware.temperature.clickTaskManager")],
         }}
       >
         <ArcGauge value={hot.celsius / hot.maxC} color={tone} size={size}>
@@ -129,8 +130,8 @@ const demoHistory = [52, 53, 55, 54, 57, 59, 58, 60, 58, 57, 58];
 
 export const gpuTemperature = defineWidget({
   type: "hardware-gpu-temperature",
-  name: "Temperatura da GPU",
-  description: "Temperatura da GPU como o Gerenciador de Tarefas mostra, com histórico e ventoinha quando o driver informa.",
+  name: t("widgets.hardware.temperature.gpuTemperature"),
+  description: t("widgets.hardware.temperature.gpuTemperatureAsTask"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -146,15 +147,15 @@ export const gpuTemperature = defineWidget({
     const history = live ? thermal.gpuHistory : demoHistory;
     const tone = heatTone(gpu.celsius, gpu.warningC);
     // The fan is not a heat reading: it goes on the label line, the value keeps the temperature's colour.
-    const fan = gpu.fanRpm !== null ? ` · ${gpu.fanRpm.toLocaleString("pt-BR")} rpm` : "";
-    const celsius = `${gpu.celsius.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} °C`;
+    const fan = gpu.fanRpm !== null ? t("widgets.hardware.temperature.rpm", { p0: gpu.fanRpm.toLocaleString(language) }) : "";
+    const celsius = `${gpu.celsius.toLocaleString(language, { maximumFractionDigits: 0 })} °C`;
     return (
       <Tile
         onClick={taskManager}
         preview={preview}
         tip={{
           id: `tip:${ctx.instanceId}`,
-          lines: () => [`${gpu.name}: ${celsius}${gpu.maxC ? ` (máx. ${gpu.maxC} °C)` : ""}`, gpu.fanRpm !== null ? `Ventoinha: ${gpu.fanRpm.toLocaleString("pt-BR")} rpm` : "", "Gráfico: últimos minutos", "Clique: Gerenciador de Tarefas"],
+          lines: () => [`${gpu.name}: ${celsius}${gpu.maxC ? t("widgets.hardware.temperature.maxC", { maxC: gpu.maxC }) : ""}`, gpu.fanRpm !== null ? t("widgets.hardware.temperature.fanRpm", { p0: gpu.fanRpm.toLocaleString(language) }) : "", t("widgets.hardware.temperature.chartLastFewMinutes"), t("widgets.hardware.temperature.clickTaskManager")],
         }}
       >
         <Metric label={`GPU${fan}`} value={celsius} color={tone} />

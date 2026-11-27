@@ -26,6 +26,7 @@ import { WidgetSettingsModal } from "./WidgetSettings";
 import { allWidgets, getWidget } from "../widgets/registry";
 import { categoryLabels, type WidgetCategory, type WidgetDefinition } from "../widgets/types";
 
+import { t } from "../i18n";
 export const GALLERY_TITLE = "WindowsBar Widgets";
 export const PREVIEW_PREFIX = "preview:";
 
@@ -146,7 +147,7 @@ function WidgetCard(props: { definition: WidgetDefinition }) {
           <Chip icon={glyph.sliders} onClick={() => editWidgetSettings(instances[0]!.id)} />
         ) : null}
         <Chip
-          label={placed ? `Adicionar outro (${placed})` : "Adicionar"}
+          label={placed ? t("gallery.addAnother", { placed }) : t("gallery.add")}
           tone={placed ? undefined : "primary"}
           onClick={() => addWidget(definition.type)}
         />
@@ -169,7 +170,7 @@ function DockOrder() {
   return (
     <Column style={{ gap: 8 }}>
       <Text size={15} weight={700} color="#fff">
-        Seu dock
+        {t("gallery.yourDock")}
       </Text>
       <Text size={11} color={ui.muted}>
         Ordem da esquerda para a direita. Arraste para reordenar, aqui ou no próprio dock; o "−" vermelho no dock remove.
@@ -255,19 +256,19 @@ export function GalleryView() {
           }}
         >
           <Text size={11} weight={600} color={ui.muted} style={{ padding: { left: 10, bottom: 4, top: 6 } }}>
-            CONFIGURAÇÕES
+            {t("gallery.settings")}
           </Text>
           <SidebarItem
-            label="Barra de tarefas"
+            label={t("gallery.taskbar")}
             icon="settings"
             active={gallery.page === "settings"}
             onClick={() => (gallery.page = "settings")}
           />
           <Text size={11} weight={600} color={ui.muted} style={{ padding: { left: 10, bottom: 4, top: 16 } }}>
-            WIDGETS
+            {t("gallery.widgets")}
           </Text>
           <SidebarItem
-            label="Todos"
+            label={t("gallery.all")}
             count={widgets.length}
             active={gallery.page === "widgets" && gallery.category === "all"}
             onClick={() => Object.assign(gallery, { page: "widgets", category: "all" })}

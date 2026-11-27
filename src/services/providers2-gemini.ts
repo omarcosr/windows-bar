@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createPoller } from "./poller";
 import type { LimitUsage, UsageStatus } from "./ai-usage";
 
+import { t } from "../i18n";
 /**
  * Gemini CLI quota, read the way the CLI's own /stats does (read-only):
  * - the Google login Gemini CLI keeps in `~/.gemini/oauth_creds.json` (access_token, expiry_date);
@@ -88,11 +89,11 @@ export async function refreshGemini() {
   const set = (patch: Partial<GeminiUsage>) => (gemini.usage = { ...gemini.usage, ...patch, updated: Date.now() });
   try {
     const path = join(geminiDir(), "oauth_creds.json");
-    if (!existsSync(path)) return set({ status: "missing", note: "não instalado" });
+    if (!existsSync(path)) return set({ status: "missing", note: t("services.providers2Gemini.notInstalled") });
     const type = authType();
-    if (type && type !== "oauth-personal") return set({ status: "missing", note: "sem login Google" });
+    if (type && type !== "oauth-personal") return set({ status: "missing", note: t("services.providers2Gemini.notSignedInTo") });
     const creds = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as OAuthCreds;
-    if (!creds.access_token) return set({ status: "missing", note: "sem login" });
+    if (!creds.access_token) return set({ status: "missing", note: t("services.providers2Gemini.notSignedIn") });
     if (creds.expiry_date && creds.expiry_date <= Date.now()) return set({ status: "expired", note: "abra o Gemini CLI", plan });
     const token = creds.access_token;
     if (!project) {
@@ -106,11 +107,11 @@ export async function refreshGemini() {
         },
       );
       if (load.status === 401 || load.status === 403) return set({ status: "expired", note: "abra o Gemini CLI" });
-      if (!load.body) return set({ status: gemini.usage.models.length ? "ok" : "error", note: `erro ${load.status}` });
+      if (!load.body) return set({ status: gemini.usage.models.length ? "ok" : "error", note: t("services.providers2Gemini.error", { status: load.status }) });
       const p = load.body.cloudaicompanionProject;
       project = (typeof p === "string" ? p : p?.id) || envProject || null;
       plan = load.body.paidTier?.name ?? load.body.currentTier?.name ?? "";
-      if (!project) return set({ status: "error", note: "sem projeto", plan });
+      if (!project) return set({ status: "error", note: t("services.providers2Gemini.noProject"), plan });
     }
     const quota = await post<{ buckets?: { remainingFraction?: number; resetTime?: string; modelId?: string; tokenType?: string }[] }>(
       "retrieveUserQuota",
@@ -121,7 +122,7 @@ export async function refreshGemini() {
       project = null;
       return set({ status: "expired", note: "abra o Gemini CLI", plan });
     }
-    if (!quota.body) return set({ status: gemini.usage.models.length ? "ok" : "error", note: `erro ${quota.status}`, plan });
+    if (!quota.body) return set({ status: gemini.usage.models.length ? "ok" : "error", note: t("services.providers2Gemini.error", { status: quota.status }), plan });
     const models = new Map<string, GeminiModelQuota>();
     for (const b of quota.body.buckets ?? []) {
       if (typeof b.remainingFraction !== "number" || !b.modelId) continue;
@@ -132,7 +133,7 @@ export async function refreshGemini() {
     }
     set({ status: "ok", note: "", plan, models: [...models.values()].sort((a, b) => b.used - a.used) });
   } catch (error) {
-    set({ status: gemini.usage.models.length ? "ok" : "error", note: "sem conexão" });
+    set({ status: gemini.usage.models.length ? "ok" : "error", note: t("services.providers2Gemini.noConnection") });
     console.error("[providers2] gemini", error);
   } finally {
     busy = false;

@@ -1,15 +1,16 @@
 import type { AppHandle, VNode } from "@tarve/core";
 import type { DockMenuItem } from "../menu/dock-menu";
 
+import { t } from "../i18n";
 export type WidgetCategory = "clock" | "apps" | "system" | "media" | "finance" | "productivity";
 
 export const categoryLabels: Record<WidgetCategory, string> = {
-  clock: "Relógio e clima",
+  clock: t("widgets.categories.clockAndWeather"),
   apps: "Apps",
-  system: "Sistema",
-  media: "Mídia",
-  finance: "Finanças",
-  productivity: "Produtividade",
+  system: t("widgets.categories.system"),
+  media: t("widgets.categories.media"),
+  finance: t("widgets.categories.finance"),
+  productivity: t("widgets.categories.productivity"),
 };
 
 /** Keys of C whose value is a V. */

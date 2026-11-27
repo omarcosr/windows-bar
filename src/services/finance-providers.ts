@@ -7,6 +7,7 @@
 
 import { expireRemote, remoteGet } from "./remote";
 
+import { t as tr, language } from "../i18n";
 const DAY_MS = 86_400_000;
 const UA = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" };
 
@@ -42,7 +43,7 @@ export type Period = "7d" | "30d" | "month" | "prevmonth" | "90d" | "365d";
 /** What a revenue change compares against: the equal period before it or the same days a year earlier. */
 export type CompareTo = "previous" | "year";
 
-export const periodLabels: Record<Period, string> = { "7d": "7 dias", "30d": "30 dias", month: "no mês", prevmonth: "mês anterior", "90d": "90 dias", "365d": "12 meses" };
+export const periodLabels: Record<Period, string> = { "7d": "7 dias", "30d": "30 dias", month: tr("services.financeProviders.thisMonth"), prevmonth: tr("services.financeProviders.lastMonth"), "90d": "90 dias", "365d": "12 meses" };
 
 export function asPeriod(value: unknown): Period {
   return value === "7d" || value === "month" || value === "prevmonth" || value === "90d" || value === "365d" ? value : "30d";
@@ -222,7 +223,7 @@ const numberFormats = new Map<string, Intl.NumberFormat>();
 function numberFormat(options: Intl.NumberFormatOptions) {
   const key = JSON.stringify(options);
   let format = numberFormats.get(key);
-  if (!format) numberFormats.set(key, (format = new Intl.NumberFormat("pt-BR", options)));
+  if (!format) numberFormats.set(key, (format = new Intl.NumberFormat(language, options)));
   return format;
 }
 
@@ -273,11 +274,11 @@ export function priceIn(value: number, currency: string, digits = priceDigits(va
 /** One short, user-facing line for a failed fetch. */
 export function errorText(error: unknown) {
   const text = error instanceof Error ? error.message : String(error);
-  if (/\b(401|403)\b/.test(text)) return "chave inválida";
-  if (/\b429\b/.test(text)) return "limite de uso";
-  if (/\b404\b/.test(text)) return "não encontrado";
-  if (/\b451\b/.test(text)) return "bloqueado na região";
-  return "sem conexão";
+  if (/\b(401|403)\b/.test(text)) return tr("services.financeProviders.invalidKey");
+  if (/\b429\b/.test(text)) return tr("services.financeProviders.usageLimit");
+  if (/\b404\b/.test(text)) return tr("services.financeProviders.notFound");
+  if (/\b451\b/.test(text)) return tr("services.financeProviders.blockedInThisRegion");
+  return tr("services.financeProviders.noConnection");
 }
 
 // ---------- revenue providers ----------
@@ -508,7 +509,7 @@ export function fxRate(from: string, to: string): Promise<number> {
   const t = to.toUpperCase();
   if (f === t) return Promise.resolve(1);
   return cached(`fx:${f}`, 60 * 60_000, () =>
-    json<{ result: string; rates: Record<string, number> }>("Câmbio", `https://open.er-api.com/v6/latest/${f}`),
+    json<{ result: string; rates: Record<string, number> }>(tr("services.financeProviders.exchangeRate"), `https://open.er-api.com/v6/latest/${f}`),
   ).then((body) => {
     const rate = body.rates?.[t];
     if (body.result !== "success" || !rate) throw new Error("Câmbio 404");
@@ -567,7 +568,7 @@ export function fxPoints(from: string, to: string, days: number): Promise<Point[
   const t = to.toUpperCase();
   return cached(`fxs:${f}:${t}:${days}`, 15 * 60_000, async () => {
     const url = `https://api.frankfurter.dev/v1/${ymd(Date.now() - days * DAY_MS)}..?from=${f}&to=${t}`;
-    const body = await json<{ rates: Record<string, Record<string, number>> }>("Câmbio", url);
+    const body = await json<{ rates: Record<string, Record<string, number>> }>(tr("services.financeProviders.exchangeRate"), url);
     const points = Object.keys(body.rates)
       .sort()
       .map((day) => ({ at: Date.parse(`${day}T12:00:00`), v: body.rates[day]![t]! }))

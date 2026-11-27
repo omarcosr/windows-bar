@@ -7,12 +7,13 @@ import type { DockMenuItem } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { Metric, Ring, loadTone } from "./shared";
 
+import { t, language } from "../../../i18n";
 const taskManager = () => launch("taskmgr.exe");
 
 const perfMenu = (): DockMenuItem[][] => [
   [
-    { label: "Gerenciador de Tarefas", icon: "info", onSelect: taskManager },
-    { label: "Monitor de Recursos", icon: "search", onSelect: () => launch("resmon.exe") },
+    { label: t("widgets.hardware.rings.taskManager"), icon: "info", onSelect: taskManager },
+    { label: t("widgets.hardware.rings.resourceMonitor"), icon: "search", onSelect: () => launch("resmon.exe") },
   ],
 ];
 
@@ -32,8 +33,8 @@ function RingTile(props: { label: string; percent: number; detail: string; tipId
 
 export const cpuRing = defineWidget({
   type: "hardware-cpu-ring",
-  name: "Anel de CPU",
-  description: "Uso do processador num anel, com o valor ao centro.",
+  name: t("widgets.hardware.rings.cpuRing"),
+  description: t("widgets.hardware.rings.processorUsageInRing"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -43,15 +44,15 @@ export const cpuRing = defineWidget({
   menu: perfMenu,
   View({ ctx, preview }) {
     const cpu = preview && !system.cpuHistory.length ? 23 : system.cpu;
-    const tip = () => [`Processador: ${system.cpu}% em uso (todos os núcleos)`, "Clique: Gerenciador de Tarefas"];
+    const tip = () => [t("widgets.hardware.rings.processorInUseAll", { cpu: system.cpu }), t("widgets.hardware.rings.clickTaskManager")];
     return <RingTile label="CPU" percent={cpu} detail={`${cpu}%`} tipId={`tip:${ctx.instanceId}`} tip={tip} preview={preview} />;
   },
 });
 
 export const ramRing = defineWidget({
   type: "hardware-ram-ring",
-  name: "Anel de RAM",
-  description: "Memória em uso num anel, com GB usados e total.",
+  name: t("widgets.hardware.rings.ramRing"),
+  description: t("widgets.hardware.rings.memoryInUseIn"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -64,8 +65,8 @@ export const ramRing = defineWidget({
     const load = demo ? 58 : system.ram;
     const used = demo ? 9.3 : system.ramUsedGb;
     const total = demo ? 16 : system.ramTotalGb;
-    const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
-    const tip = () => [`Memória: ${fmt(system.ramUsedGb)} de ${fmt(system.ramTotalGb)} GB em uso (${system.ram}%)`, "Clique: Gerenciador de Tarefas"];
+    const fmt = (n: number) => n.toLocaleString(language, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+    const tip = () => [t("widgets.hardware.rings.memoryOfGbIn", { p0: fmt(system.ramUsedGb), p1: fmt(system.ramTotalGb), ram: system.ram }), t("widgets.hardware.rings.clickTaskManager")];
     return <RingTile label="RAM" percent={load} detail={`${fmt(used)}/${Math.round(total)} GB`} tipId={`tip:${ctx.instanceId}`} tip={tip} preview={preview} />;
   },
 });

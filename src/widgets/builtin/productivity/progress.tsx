@@ -7,6 +7,7 @@ import { defineWidget } from "../../types";
 import { launch } from "../../../services/windows";
 import { every, onClock, type ClockUnit } from "../../../services/clock";
 
+import { t, formatDecimal } from "../../../i18n";
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const DAY_MS = 86_400_000;
 
@@ -24,15 +25,15 @@ function ticking(unit: ClockUnit) {
 
 const percent = (v: number) => `${Math.floor(Math.max(0, Math.min(1, v)) * 100)}%`;
 
-const exact = (v: number) => `${(Math.max(0, Math.min(1, v)) * 100).toFixed(1).replace(".", ",")}%`;
+const exact = (v: number) => `${formatDecimal((Math.max(0, Math.min(1, v)) * 100), 1)}%`;
 
 const styleSetting = {
   kind: "choice" as const,
   key: "style" as const,
-  label: "Estilo",
+  label: t("widgets.productivity.progress.style"),
   options: [
-    { value: "bar", label: "Barra" },
-    { value: "ring", label: "Anel" },
+    { value: "bar", label: t("widgets.productivity.progress.bar") },
+    { value: "ring", label: t("widgets.productivity.progress.ring") },
   ],
 };
 
@@ -44,7 +45,7 @@ const styleSetting = {
 function Bar(props: { id: string; preview: boolean; title: string; detail: string; tip: string[]; value: number; color: string; width: number; style?: string }) {
   const inner = props.width - 20;
   const tall = ui.tile.height >= 34;
-  const tip = () => [`${props.title}: ${exact(props.value)}`, ...props.tip, "Clique para abrir o calendário"];
+  const tip = () => [`${props.title}: ${exact(props.value)}`, ...props.tip, t("widgets.productivity.progress.clickToOpenCalendar")];
   const open = props.preview ? undefined : () => launch("ms-actioncenter:");
   if (props.style === "ring") {
     return (
@@ -84,8 +85,8 @@ const WINDOWS: Record<string, [number, number]> = { full: [0, 24], work: [9, 18]
 
 export const dayProgress = defineWidget({
   type: "productivity-day",
-  name: "Progresso do dia",
-  description: "Quanto do dia (ou do expediente) já passou.",
+  name: t("widgets.productivity.progress.dayProgress"),
+  description: t("widgets.productivity.progress.howMuchOfDay"),
   category: "productivity",
   defaultConfig: { range: "full", style: "bar" },
   settings: [
@@ -93,9 +94,9 @@ export const dayProgress = defineWidget({
     {
       kind: "choice",
       key: "range",
-      label: "Período",
+      label: t("widgets.productivity.progress.period"),
       options: [
-        { value: "full", label: "Dia inteiro" },
+        { value: "full", label: t("widgets.productivity.progress.wholeDay") },
         { value: "work8", label: "8h–17h" },
         { value: "work", label: "9h–18h" },
         { value: "work10", label: "10h–19h" },
@@ -109,17 +110,17 @@ export const dayProgress = defineWidget({
     const hours = d.getHours() + d.getMinutes() / 60;
     const value = (hours - from) / (to - from);
     const leftMin = Math.max(0, Math.round((to - hours) * 60));
-    const detail = value >= 1 ? (from === 0 ? "Dia encerrado" : "Expediente encerrado") : value < 0 ? `Começa às ${from}h` : `Faltam ${Math.floor(leftMin / 60)}h${String(leftMin % 60).padStart(2, "0")}`;
+    const detail = value >= 1 ? (from === 0 ? t("widgets.productivity.progress.dayOver") : t("widgets.productivity.progress.workdayOver")) : value < 0 ? t("widgets.productivity.progress.startsAtH", { from }) : t("widgets.productivity.progress.hLeft", { p0: Math.floor(leftMin / 60), p1: String(leftMin % 60).padStart(2, "0") });
     const span = `${String(from).padStart(2, "0")}:00–${String(to % 24).padStart(2, "0")}:00`;
-    const tip = [`Período: ${from === 0 ? "dia inteiro (00:00–24:00)" : span}`, value >= 1 || value < 0 ? detail : `Faltam ${Math.floor(leftMin / 60)} h ${leftMin % 60} min (até ${String(to % 24).padStart(2, "0")}:00)`];
-    return <Bar id={`tip:${ctx.instanceId}`} preview={preview} style={String(ctx.config.style)} title={from === 0 ? "Hoje" : "Expediente"} detail={detail} tip={tip} value={value} color={ui.blue} width={132} />;
+    const tip = [t("widgets.productivity.progress.period2", { p0: from === 0 ? t("widgets.productivity.progress.wholeDay0000") : span }), value >= 1 || value < 0 ? detail : t("widgets.productivity.progress.hMinLeftUntil", { p0: Math.floor(leftMin / 60), p1: leftMin % 60, p2: String(to % 24).padStart(2, "0") })];
+    return <Bar id={`tip:${ctx.instanceId}`} preview={preview} style={String(ctx.config.style)} title={from === 0 ? t("widgets.productivity.progress.today") : t("widgets.productivity.progress.workday")} detail={detail} tip={tip} value={value} color={ui.blue} width={132} />;
   },
 });
 
 export const monthProgress = defineWidget({
   type: "productivity-month",
-  name: "Progresso do mês",
-  description: "Quanto do mês já passou.",
+  name: t("widgets.productivity.progress.monthProgress"),
+  description: t("widgets.productivity.progress.howMuchOfMonth"),
   category: "productivity",
   defaultConfig: { style: "bar" },
   settings: [styleSetting],
@@ -137,9 +138,9 @@ export const monthProgress = defineWidget({
         id={`tip:${ctx.instanceId}`}
         preview={preview}
         style={String(ctx.config.style)}
-        tip={[`Dia ${d.getDate()} de ${days}`, left === 0 ? "Último dia do mês" : `Faltam ${left} dia${left > 1 ? "s" : ""}`]}
+        tip={[t("widgets.productivity.progress.dayOf", { p0: d.getDate(), days }), left === 0 ? t("widgets.productivity.progress.lastDayOfMonth") : t("widgets.productivity.progress.dayLeft", { count: left })]}
         title={`${MONTHS[d.getMonth()]![0]!.toUpperCase()}${MONTHS[d.getMonth()]!.slice(1)} ${d.getFullYear()}`}
-        detail={`Dia ${d.getDate()} de ${days} · ${left === 0 ? "último dia" : `faltam ${left}`}`}
+        detail={t("widgets.productivity.progress.dayOf2", { p0: d.getDate(), days, p2: left === 0 ? t("widgets.productivity.progress.lastDay") : t("widgets.productivity.progress.left", { left }) })}
         value={value}
         color={ui.green}
         width={132}
@@ -151,19 +152,19 @@ export const monthProgress = defineWidget({
 /** The year as GitHub-style columns of weeks (rows Sunday–Saturday), one dot per day. */
 export const yearProgress = defineWidget({
   type: "productivity-year",
-  name: "Progresso do ano",
-  description: "O ano como uma grade de pontos, um por dia; os dias que já passaram acendem.",
+  name: t("widgets.productivity.progress.yearProgress"),
+  description: t("widgets.productivity.progress.yearAsGridOf"),
   category: "productivity",
   defaultConfig: { color: "accent" },
   settings: [
     {
       kind: "choice",
       key: "color",
-      label: "Cor",
+      label: t("widgets.productivity.progress.color"),
       options: [
-        { value: "accent", label: "Azul" },
-        { value: "green", label: "Verde" },
-        { value: "orange", label: "Laranja" },
+        { value: "accent", label: t("widgets.productivity.progress.blue") },
+        { value: "green", label: t("widgets.productivity.progress.green") },
+        { value: "orange", label: t("widgets.productivity.progress.orange") },
       ],
     },
   ],
@@ -192,7 +193,7 @@ export const yearProgress = defineWidget({
     // left; below that (the 40 px bar) only the first line fits and the rest is in the tooltip.
     const stacked = ui.tile.height >= 44;
     const showLeft = ui.tile.height >= 34;
-    const tip = () => [`${y}: ${exact(today / days)} do ano`, `Dia ${today + 1} de ${days}`, left === 0 ? "Último dia do ano" : `Faltam ${left} dias`];
+    const tip = () => [t("widgets.productivity.progress.ofYear", { y, p1: exact(today / days) }), t("widgets.productivity.progress.dayOf", { p0: today + 1, days }), left === 0 ? t("widgets.productivity.progress.lastDayOfYear") : t("widgets.productivity.progress.daysLeft", { left })];
     return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
         <Tile padding={{ left: 10, right: 10 }} gap={8} onClick={preview ? undefined : () => launch("ms-actioncenter:")}>
@@ -210,7 +211,7 @@ export const yearProgress = defineWidget({
             </Row>
             {showLeft ? (
               <Text size={9} color={ui.muted} style={{ ...numeric, lineHeight: 1.2 }}>
-                {`faltam ${left} d`}
+                {t("widgets.productivity.progress.dLeft", { left })}
               </Text>
             ) : null}
           </Column>

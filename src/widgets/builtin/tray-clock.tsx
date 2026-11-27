@@ -10,16 +10,17 @@ import { clockShowsSeconds, formatDate, formatDayMonth, formatTime } from "../..
 import { onWatchChange } from "../../native/shell-events";
 import { every, onClock } from "../../services/clock";
 
+import { t } from "../../i18n";
 /** Time over date, right-aligned, as at the end of the Windows 11 taskbar. */
 export default defineWidget({
   type: "tray-clock",
   sideForm: "full",
-  name: "Relógio da barra",
-  description: "Hora e data nos formatos regionais do Windows. Clique abre a central de notificações.",
+  name: t("widgets.trayClock.taskbarClock"),
+  description: t("widgets.trayClock.timeAndDateIn"),
   category: "clock",
   // Time and date formats, and the seconds, follow Windows (Formato regional; Barra de tarefas).
   defaultConfig: { showDate: true },
-  settings: [{ kind: "toggle", key: "showDate", label: "Mostrar data" }],
+  settings: [{ kind: "toggle", key: "showDate", label: t("widgets.trayClock.showDate") }],
   setup(ctx) {
     const state = store({ now: new Date(), seconds: clockShowsSeconds() });
     // One wake per shown minute (or second), on the shared clock, as Explorer's clock does.
@@ -41,9 +42,9 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Notificações e calendário", icon: "bell", onSelect: openNotificationCenter },
-        { label: "Ajustar data e hora", icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
-        { label: "Abrir Relógio do Windows", icon: "bell", onSelect: () => launch("ms-clock:") },
+        { label: t("widgets.trayClock.notificationsAndCalendar"), icon: "bell", onSelect: openNotificationCenter },
+        { label: t("widgets.trayClock.adjustDateAndTime"), icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
+        { label: t("widgets.trayClock.openWindowsClock"), icon: "bell", onSelect: () => launch("ms-clock:") },
       ],
     ];
   },

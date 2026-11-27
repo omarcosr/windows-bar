@@ -1,5 +1,6 @@
 import { store } from "@tarve/core";
 import { acquireForecast, type MeteoData } from "./weather";
+import { language } from "../i18n";
 
 /**
  * Forecast data for the weather-media widgets: the same provider (Open-Meteo) and location
@@ -127,8 +128,8 @@ export function upcomingDays(count: number, now = Date.now()) {
   return forecast.days.filter((d) => d.date + 24 * 3600_000 > today.getTime() + 3600_000).slice(0, count);
 }
 
-/** Wind direction (degrees it comes from) -> Portuguese compass point. */
+/** Wind direction (degrees it comes from) -> compass point in the UI language. */
 export function compass(deg: number) {
-  const points = ["N", "NE", "L", "SE", "S", "SO", "O", "NO"];
+  const points = language === "pt-BR" ? ["N", "NE", "L", "SE", "S", "SO", "O", "NO"] : ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   return points[Math.round((((deg % 360) + 360) % 360) / 45) % 8]!;
 }

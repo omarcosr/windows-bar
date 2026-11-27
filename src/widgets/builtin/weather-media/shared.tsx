@@ -3,6 +3,7 @@ import { forecast, type DayForecast, type HourForecast } from "../../../services
 import { formatDatePicture, formatTime } from "../../../native/locale-format";
 import { weatherLabel } from "../../../services/weather";
 
+import { t } from "../../../i18n";
 export type Forecast = typeof forecast;
 
 const H = 3600_000;
@@ -148,7 +149,7 @@ export type TempUnit = "c" | "f";
 export const unitSetting = {
   kind: "choice" as const,
   key: "unit" as const,
-  label: "Unidade",
+  label: t("widgets.weatherMedia.shared.unit"),
   options: [
     { value: "c", label: "Celsius (°C, km/h)" },
     { value: "f", label: "Fahrenheit (°F, mph)" },
@@ -169,13 +170,13 @@ const SLOT = 15 * 60_000;
  * are those of the slot that started at `slot`.
  */
 export function weatherTip(f: Forecast, unit: unknown, extra: string[] = []) {
-  if (!f.ready) return ["Clima: carregando…", "Fonte: Open-Meteo"];
+  if (!f.ready) return [t("widgets.weatherMedia.shared.weatherLoading"), "Fonte: Open-Meteo"];
   const slot = new Date(Math.floor(Date.now() / SLOT) * SLOT);
   return [
     `${f.city ? `${f.city}: ` : ""}${temp(f.temperature, unit)}° · ${weatherLabel(f.code)}`,
-    `Sensação ${temp(f.feelsLike, unit)}° · umidade ${f.humidity}% · vento ${windSpeed(f.wind, unit)}`,
+    t("widgets.weatherMedia.shared.feelsLikeHumidityWind", { p0: temp(f.feelsLike, unit), humidity: f.humidity, p2: windSpeed(f.wind, unit) }),
     ...extra,
-    `Open-Meteo, local pelo IP · dados das ${formatTime(slot)} (a cada 15 min)`,
-    "Clique para abrir o app Clima",
+    t("widgets.weatherMedia.shared.openMeteoLocationFrom", { p0: formatTime(slot) }),
+    t("widgets.weatherMedia.shared.clickToOpenWeather"),
   ];
 }

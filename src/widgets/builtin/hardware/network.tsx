@@ -6,6 +6,7 @@ import { numeric, ui } from "../../../theme";
 import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 
+import { t } from "../../../i18n";
 const DOWN = ui.blue;
 const UP = "#bf5af2";
 const DEMO_DOWN = [2, 3, 2.5, 6, 9, 7, 12, 10, 8, 14, 18, 15, 11, 9, 13, 20, 24, 19, 16, 12, 10, 14, 17, 21, 18, 15, 22, 26, 23, 20].map((v) => v * 120_000);
@@ -48,8 +49,8 @@ function Rate(props: { arrow: string; color: string; value: number }) {
 
 export const networkSpeed = defineWidget({
   type: "hardware-network",
-  name: "Rede",
-  description: "Velocidade de download e upload ao vivo com gráfico, somando os adaptadores físicos conectados.",
+  name: t("widgets.hardware.network.network"),
+  description: t("widgets.hardware.network.liveDownloadAndUpload"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -59,9 +60,9 @@ export const networkSpeed = defineWidget({
   menu() {
     return [
       [
-        { label: "Gerenciador de Tarefas", icon: "info", onSelect: () => launch("taskmgr.exe") },
-        { label: "Rede e internet", icon: "settings", onSelect: () => launch("ms-settings:network") },
-        { label: "Uso de dados", icon: "settings", onSelect: () => launch("ms-settings:datausage") },
+        { label: t("widgets.hardware.network.taskManager"), icon: "info", onSelect: () => launch("taskmgr.exe") },
+        { label: t("widgets.hardware.network.networkInternet"), icon: "settings", onSelect: () => launch("ms-settings:network") },
+        { label: t("widgets.hardware.network.dataUsage"), icon: "settings", onSelect: () => launch("ms-settings:datausage") },
       ],
     ];
   },

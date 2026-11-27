@@ -9,6 +9,7 @@ import { defineWidget } from "../types";
 import { formatDatePicture, formatTime } from "../../native/locale-format";
 import { every, onClock } from "../../services/clock";
 
+import { t } from "../../i18n";
 /** "seg." → "Seg": Windows' abbreviated weekday, capitalised for the label. */
 const weekday = (d: Date) => {
   const day = formatDatePicture(d, "ddd").replace(/\.$/, "");
@@ -17,13 +18,13 @@ const weekday = (d: Date) => {
 
 export default defineWidget({
   type: "clock-weather",
-  name: "Relógio e clima",
-  description: "Hora, dia e temperatura num bloco só.",
+  name: t("widgets.clockWeather.clockAndWeather"),
+  description: t("widgets.clockWeather.timeDayAndTemperature"),
   category: "clock",
   // The time and the weekday follow Windows' regional format.
   defaultConfig: { showWeather: true },
   settings: [
-    { kind: "toggle", key: "showWeather", label: "Mostrar temperatura", description: "O círculo com a temperatura atual." },
+    { kind: "toggle", key: "showWeather", label: t("widgets.clockWeather.showTemperature"), description: t("widgets.clockWeather.circleWithCurrentTemperature") },
   ],
   setup(ctx) {
     const state = store({ now: new Date() });
@@ -35,8 +36,8 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Abrir Relógio do Windows", icon: "bell", onSelect: () => launch("ms-clock:") },
-        { label: "Ajustar data e hora", icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
+        { label: t("widgets.clockWeather.openWindowsClock"), icon: "bell", onSelect: () => launch("ms-clock:") },
+        { label: t("widgets.clockWeather.adjustDateAndTime"), icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
       ],
     ];
   },

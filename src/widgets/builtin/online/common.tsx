@@ -1,6 +1,7 @@
 import { Row, Text, View, toRaw, type Child } from "@tarve/core";
 import { ui } from "../../../theme";
 
+import { t, language } from "../../../i18n";
 /** Each instance's "refresh now", keyed by its raw state (menu() only receives the state). */
 export const refreshers = new WeakMap<object, () => Promise<void>>();
 
@@ -12,7 +13,7 @@ export function refreshNow(state: object) {
   void refreshers.get(toRaw(state))?.();
 }
 
-const compactFormat = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+const compactFormat = new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
 
 /** Compact pt-BR number: 1,2 mil, 3,4 mi. */
 export function compact(n: number) {
@@ -45,7 +46,7 @@ export function Title(props: { text: string; demo: boolean; error?: string }) {
       </Text>
       {props.error ? (
         <Text size={10} color={ui.danger} style={{ shrink: 0 }}>
-          erro
+          {t("widgets.online.common.error")}
         </Text>
       ) : props.demo ? (
         <Text size={10} color={ui.faint} style={{ shrink: 0 }}>
@@ -57,8 +58,8 @@ export function Title(props: { text: string; demo: boolean; error?: string }) {
 }
 
 /** The last lines of every online tip: where the numbers come from (or why they are samples) and the click. */
-export function sourceLines(state: { demo: boolean; error: string }, source: string, click: string, setup = "informe a chave nas configurações") {
-  return [state.demo ? `Dados de exemplo: ${setup}` : state.error ? `Falha ao ler: ${state.error}` : `Fonte: ${source}`, click];
+export function sourceLines(state: { demo: boolean; error: string }, source: string, click: string, setup = t("widgets.online.common.enterKeyInSettings")) {
+  return [state.demo ? t("widgets.online.common.sampleData", { setup }) : state.error ? t("widgets.online.common.couldntRead", { error: state.error }) : t("widgets.online.common.source", { source }), click];
 }
 
 /** "▲ 18%" for the tips. */

@@ -5,6 +5,7 @@ import { createPoller } from "./poller";
 import { openReadonly, type ReadonlyDatabase } from "../runtime/sqlite";
 import { acquireWatch, onWatchChange, type WatchId } from "../native/shell-events";
 
+import { t, language } from "../i18n";
 /**
  * Usage limits of the AI coding tools the user already has, read from what those tools keep on
  * disk (read-only; nothing here ever writes their files):
@@ -159,9 +160,9 @@ export async function refreshClaude() {
   const set = (patch: Partial<LimitUsage>) => (aiUsage.claude = { ...aiUsage.claude, ...patch, updated: Date.now() });
   try {
     const path = join(claudeDir(), ".credentials.json");
-    if (!existsSync(path)) return set({ status: "missing", note: "não instalado" });
+    if (!existsSync(path)) return set({ status: "missing", note: t("services.aiUsage.notInstalled") });
     const oauth = (JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as ClaudeCredentials).claudeAiOauth;
-    if (!oauth?.accessToken) return set({ status: "missing", note: "sem login" });
+    if (!oauth?.accessToken) return set({ status: "missing", note: t("services.aiUsage.notSignedIn") });
     const plan = oauth.subscriptionType ? oauth.subscriptionType.charAt(0).toUpperCase() + oauth.subscriptionType.slice(1) : "";
     // Claude Code renews its own token; the dock never refreshes it (that would rewrite its file).
     if (oauth.expiresAt && oauth.expiresAt <= Date.now()) return set({ status: "expired", note: "abra o Claude Code", plan });
@@ -169,14 +170,14 @@ export async function refreshClaude() {
       headers: { Authorization: `Bearer ${oauth.accessToken}`, "anthropic-beta": "oauth-2025-04-20", Accept: "application/json" },
     });
     if (res.status === 401 || res.status === 403) return set({ status: "expired", note: "abra o Claude Code", plan });
-    if (!res.ok) return set({ status: aiUsage.claude.session ? "ok" : "error", note: `erro ${res.status}`, plan });
+    if (!res.ok) return set({ status: aiUsage.claude.session ? "ok" : "error", note: t("services.aiUsage.error", { status: res.status }), plan });
     const body = (await res.json()) as Record<string, unknown>;
     const opus = claudeWindow(body.seven_day_opus);
     const sonnet = claudeWindow(body.seven_day_sonnet);
     const sub = opus && (!sonnet || opus.used >= sonnet.used) ? { ...opus, label: "Opus" } : sonnet ? { ...sonnet, label: "Sonnet" } : null;
     set({ status: "ok", note: "", plan, session: claudeWindow(body.five_hour), weekly: claudeWindow(body.seven_day), weeklyModel: sub });
   } catch (error) {
-    set({ status: aiUsage.claude.session ? "ok" : "error", note: "sem conexão" });
+    set({ status: aiUsage.claude.session ? "ok" : "error", note: t("services.aiUsage.noConnection") });
     console.error("[ai-usage] claude", error);
   } finally {
     claudeBusy = false;
@@ -297,7 +298,7 @@ function lastRateLimits(path: string): { limits: CodexRateLimits; at: number } |
 export function refreshCodex() {
   const set = (patch: Partial<LimitUsage>) => (aiUsage.codex = { ...aiUsage.codex, ...patch, updated: Date.now() });
   const root = join(codexDir(), "sessions");
-  if (!existsSync(root)) return set({ status: "missing", note: "não instalado" });
+  if (!existsSync(root)) return set({ status: "missing", note: t("services.aiUsage.notInstalled") });
   // sessions/YYYY/MM/DD: the newest few days, newest file first (a session keeps the folder of the day it began).
   const days: string[] = [];
   for (const y of entries(root).filter((e) => e.dir).map((e) => e.name).sort().reverse()) {
@@ -314,7 +315,7 @@ export function refreshCodex() {
     .flatMap((dir) => entries(dir).filter((e) => !e.dir && e.name.endsWith(".jsonl")).map((e) => join(dir, e.name)))
     .map((path) => ({ path, mtime: mtime(path) }))
     .sort((a, b) => b.mtime - a.mtime);
-  if (!files.length) return set({ status: "missing", note: "sem sessões" });
+  if (!files.length) return set({ status: "missing", note: t("services.aiUsage.noSessions") });
   if (codexSeen.path === files[0]!.path && codexSeen.mtime === files[0]!.mtime && aiUsage.codex.status === "ok") {
     // Nothing new: only let windows whose reset time passed start over.
     return set({ session: fresh(aiUsage.codex.session), weekly: fresh(aiUsage.codex.weekly) });
@@ -326,7 +327,7 @@ export function refreshCodex() {
     const plan = found.limits.plan_type ? found.limits.plan_type.charAt(0).toUpperCase() + found.limits.plan_type.slice(1) : "";
     return set({ status: "ok", note: "", plan, session: fresh(codexWindow(found.limits.primary)), weekly: fresh(codexWindow(found.limits.secondary)) });
   }
-  set({ status: "error", note: "sem dados de limite" });
+  set({ status: "error", note: t("services.aiUsage.noLimitData") });
 }
 
 // ---------------------------------------------------------------- OpenCode
@@ -340,7 +341,7 @@ export async function refreshOpencode() {
   const set = (patch: Partial<LocalUsage>) => (aiUsage.opencode = { ...aiUsage.opencode, ...patch, updated: Date.now() });
   try {
     const path = opencodeDb();
-    if (!existsSync(path)) return set({ status: "missing", note: "não instalado" });
+    if (!existsSync(path)) return set({ status: "missing", note: t("services.aiUsage.notInstalled") });
     ocDb ??= await openReadonly(path);
     const now = Date.now();
     const since = Math.floor(now - WEEK);
@@ -371,7 +372,7 @@ export async function refreshOpencode() {
     ocDb?.close();
     ocDb = null;
     if (!String(error).includes("locked")) {
-      set({ status: aiUsage.opencode.status === "ok" ? "ok" : "error", note: "banco ilegível" });
+      set({ status: aiUsage.opencode.status === "ok" ? "ok" : "error", note: t("services.aiUsage.unreadableDatabase") });
       console.error("[ai-usage] opencode", error);
     }
   } finally {
@@ -412,14 +413,14 @@ export const opencodePoller = fileDriven("opencode", refreshOpencode);
 
 // ---------------------------------------------------------------- formatting
 
-const weekdayFormat = new Intl.DateTimeFormat("pt-BR", { weekday: "short" });
-const millionsFormat = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+const weekdayFormat = new Intl.DateTimeFormat(language, { weekday: "short" });
+const millionsFormat = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
 
 /** "2h 13min", "45min", "seg 14:00" (more than a day away), "" when unknown. */
 export function resetLabel(resetsAt: number | null) {
   if (!resetsAt) return "";
   const ms = resetsAt - Date.now();
-  if (ms <= 0) return "agora";
+  if (ms <= 0) return t("services.aiUsage.now");
   const minutes = Math.ceil(ms / 60_000);
   if (minutes < 60) return `${minutes}min`;
   if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}min`;

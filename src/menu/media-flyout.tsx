@@ -10,6 +10,7 @@ import { hideTip } from "./hover-tip";
 import { menuOpen } from "./dock-menu";
 import { previewOpen } from "./window-preview";
 
+import { t } from "../i18n";
 /**
  * The media flyout over the now-playing tile, like the one Windows 11 shows in quick settings:
  * the player and its sessions, artwork, timeline, transport buttons and the master volume. It opens
@@ -212,7 +213,7 @@ function FlyoutView() {
           </Pressable>
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
             <Text size={14} weight={650} color={ui.text} style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
-              {active ? media.title : "Nada tocando"}
+              {active ? media.title : t("menu.mediaFlyout.nothingPlaying")}
             </Text>
             {media.artist ? (
               <Text size={12} color={ui.muted} style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>

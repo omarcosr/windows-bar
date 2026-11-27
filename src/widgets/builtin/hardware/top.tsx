@@ -8,6 +8,7 @@ import type { DockMenuItem } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { loadTone } from "./shared";
 
+import { t, language } from "../../../i18n";
 const taskManager = () => launch("taskmgr.exe");
 
 const DEMO_CPU: TopProcess[] = [
@@ -52,17 +53,17 @@ function Entry(props: { item: TopProcess; value: string; color: string }) {
 
 const menu = (): DockMenuItem[][] => [
   [
-    { label: "Gerenciador de Tarefas", icon: "info", onSelect: taskManager },
-    { label: "Monitor de Recursos", icon: "search", onSelect: () => launch("resmon.exe") },
+    { label: t("widgets.hardware.top.taskManager"), icon: "info", onSelect: taskManager },
+    { label: t("widgets.hardware.top.resourceMonitor"), icon: "search", onSelect: () => launch("resmon.exe") },
   ],
 ];
 
-const pctText = (v: number) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: v < 10 ? 1 : 0, minimumFractionDigits: v < 10 ? 1 : 0 })}%`;
+const pctText = (v: number) => `${v.toLocaleString(language, { maximumFractionDigits: v < 10 ? 1 : 0, minimumFractionDigits: v < 10 ? 1 : 0 })}%`;
 
 export const topCpu = defineWidget({
   type: "hardware-top-cpu",
   name: "Top CPU",
-  description: "Os 3 programas que mais usam o processador agora, agrupados por executável. Clique abre o Gerenciador de Tarefas.",
+  description: t("widgets.hardware.top.n3ProgramsUsingProcessor"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -85,7 +86,7 @@ export const topCpu = defineWidget({
 export const topRam = defineWidget({
   type: "hardware-top-ram",
   name: "Top RAM",
-  description: "Os 3 programas com mais memória (conjunto de trabalho privado), agrupados por executável como no Gerenciador de Tarefas.",
+  description: t("widgets.hardware.top.n3ProgramsWithMost"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {

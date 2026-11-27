@@ -7,6 +7,7 @@ import { desktop, windowsPoller } from "./windows";
 import { onExit } from "./exit";
 import { awaitInput, onShellEvent } from "../native/shell-events";
 
+import { t as tr } from "../i18n";
 /**
  * Screen time: which app is in front while the user is at the computer. Time is credited to the
  * app in front when the foreground changes (shell events), and by one timer set for the moment the
@@ -231,13 +232,13 @@ export function formatDuration(seconds: number) {
 export type AppKind = "browser" | "dev" | "chat" | "media" | "office" | "game" | "other";
 
 export const kindInfo: Record<AppKind, { label: string; color: string }> = {
-  browser: { label: "Navegação", color: "#0a84ff" },
-  dev: { label: "Desenvolvimento", color: "#bf5af2" },
-  chat: { label: "Comunicação", color: "#30d158" },
-  media: { label: "Mídia", color: "#ff9f0a" },
-  office: { label: "Escritório", color: "#64d2ff" },
-  game: { label: "Jogos", color: "#ff453a" },
-  other: { label: "Outros", color: "#8e8e93" },
+  browser: { label: tr("services.launcherScreenTime.browsing"), color: "#0a84ff" },
+  dev: { label: tr("services.launcherScreenTime.development"), color: "#bf5af2" },
+  chat: { label: tr("services.launcherScreenTime.communication"), color: "#30d158" },
+  media: { label: tr("services.launcherScreenTime.media"), color: "#ff9f0a" },
+  office: { label: tr("services.launcherScreenTime.office"), color: "#64d2ff" },
+  game: { label: tr("services.launcherScreenTime.games"), color: "#ff453a" },
+  other: { label: tr("services.launcherScreenTime.other"), color: "#8e8e93" },
 };
 
 const KIND_RULES: [AppKind, RegExp][] = [

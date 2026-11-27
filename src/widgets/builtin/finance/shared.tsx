@@ -34,6 +34,7 @@ import { Sparkline, Tile, compactView } from "../../ui";
 import { BrandIcon, type BrandName } from "../../brand-icons";
 import { defineWidget, type WidgetContext, type WidgetSetting } from "../../types";
 
+import { t, language, formatDecimal } from "../../../i18n";
 /**
  * Below 34 px (a 40–44 px bar) two rows do not fit the tile: the tiles put the change beside the
  * value on one row and leave the chart out (the tip still explains every number).
@@ -83,28 +84,28 @@ export function TileTitle(props: { text: string; demo: boolean; error: string })
 // ---------- shared options ----------
 
 const CURRENCY_NAMES: Record<string, string> = {
-  BRL: "Real",
-  USD: "Dólar americano",
+  BRL: t("widgets.finance.shared.brazilianReal"),
+  USD: t("widgets.finance.shared.usDollar"),
   EUR: "Euro",
   GBP: "Libra esterlina",
-  JPY: "Iene",
-  CAD: "Dólar canadense",
-  AUD: "Dólar australiano",
-  CHF: "Franco suíço",
-  MXN: "Peso mexicano",
-  ARS: "Peso argentino",
+  JPY: t("widgets.finance.shared.japaneseYen"),
+  CAD: t("widgets.finance.shared.canadianDollar"),
+  AUD: t("widgets.finance.shared.australianDollar"),
+  CHF: t("widgets.finance.shared.swissFranc"),
+  MXN: t("widgets.finance.shared.mexicanPeso"),
+  ARS: t("widgets.finance.shared.argentinePeso"),
   CNY: "Yuan",
-  INR: "Rúpia indiana",
-  KRW: "Won",
-  TRY: "Lira turca",
-  ZAR: "Rand",
-  SEK: "Coroa sueca",
-  NOK: "Coroa norueguesa",
-  DKK: "Coroa dinamarquesa",
+  INR: t("widgets.finance.shared.indianRupee"),
+  KRW: t("widgets.finance.shared.southKoreanWon"),
+  TRY: t("widgets.finance.shared.turkishLira"),
+  ZAR: t("widgets.finance.shared.southAfricanRand"),
+  SEK: t("widgets.finance.shared.swedishKrona"),
+  NOK: t("widgets.finance.shared.norwegianKrone"),
+  DKK: t("widgets.finance.shared.danishKrone"),
   PLN: "Złoty",
-  NZD: "Dólar neozelandês",
-  SGD: "Dólar de Singapura",
-  HKD: "Dólar de Hong Kong",
+  NZD: t("widgets.finance.shared.newZealandDollar"),
+  SGD: t("widgets.finance.shared.singaporeDollar"),
+  HKD: t("widgets.finance.shared.hongKongDollar"),
 };
 
 /** Display currencies for revenue and quotes (all on open.er-api). */
@@ -113,13 +114,13 @@ export const DISPLAY_CURRENCIES = ["BRL", "USD", "EUR", "GBP", "JPY", "CAD", "AU
 export const currencyOptions = (codes: readonly string[]) => codes.map((code) => ({ value: code, label: `${code} · ${CURRENCY_NAMES[code] ?? code}` }));
 
 /** "Original" plus the display currencies. */
-export const displayCurrencyOptions = (original = "Original da conta") => [{ value: "original", label: original }, ...currencyOptions(DISPLAY_CURRENCIES)];
+export const displayCurrencyOptions = (original = t("widgets.finance.shared.accountsOriginal")) => [{ value: "original", label: original }, ...currencyOptions(DISPLAY_CURRENCIES)];
 
 /** "Atualizar a cada" (minutes as strings). */
 export const refreshSetting = {
   kind: "choice" as const,
   key: "refresh" as const,
-  label: "Atualizar a cada",
+  label: t("widgets.finance.shared.refreshEvery"),
   options: [
     { value: "5", label: "5 min" },
     { value: "15", label: "15 min" },
@@ -161,12 +162,12 @@ export const revenueDefaults = {
 const periodSetting = {
   kind: "choice" as const,
   key: "period" as const,
-  label: "Período",
+  label: t("widgets.finance.shared.period"),
   options: [
     { value: "7d", label: "7 dias" },
     { value: "30d", label: "30 dias" },
-    { value: "month", label: "Mês atual" },
-    { value: "prevmonth", label: "Mês anterior" },
+    { value: "month", label: t("widgets.finance.shared.currentMonth") },
+    { value: "prevmonth", label: t("widgets.finance.shared.previousMonth") },
       { value: "90d", label: "90 dias" },
       { value: "365d", label: "12 meses" },
   ],
@@ -176,10 +177,10 @@ const periodSetting = {
 export const clickSetting = {
 kind: "choice" as const,
 key: "click" as const,
-label: "Ao clicar",
+label: t("widgets.finance.shared.onClick"),
 options: [
-  { value: "panel", label: "Abrir painel" },
-  { value: "site", label: "Abrir site da fonte" },
+  { value: "panel", label: t("widgets.finance.shared.openPanel") },
+  { value: "site", label: t("widgets.finance.shared.openSourceWebsite") },
 ],
 };
 
@@ -193,8 +194,8 @@ return () => (click === "site" && url ? launch(url) : toggleChartPanel(source())
 
 /** "Abrir gráfico" and "Abrir site da fonte", for the right-click menu. */
 export function chartMenu(source: () => ChartSource, url?: string): DockMenuItem[] {
-const items: DockMenuItem[] = [{ label: "Abrir gráfico", icon: { fluent: 0xe9d2 /* AreaChart */ }, onSelect: () => toggleChartPanel(source()) }];
-if (url) items.push({ label: "Abrir site da fonte", icon: "star", onSelect: () => launch(url) });
+const items: DockMenuItem[] = [{ label: t("widgets.finance.shared.openChart"), icon: { fluent: 0xe9d2 /* AreaChart */ }, onSelect: () => toggleChartPanel(source()) }];
+if (url) items.push({ label: t("widgets.finance.shared.openSourceWebsite"), icon: "star", onSelect: () => launch(url) });
 return items;
 }
 
@@ -204,39 +205,39 @@ export function revenueSettings(options: { original: boolean; gross: boolean; si
     {
       kind: "choice",
       key: "currency",
-      label: "Moeda de exibição",
-      description: options.original ? "Converte pelo câmbio do dia; sem câmbio mostra a moeda da conta." : "Os provedores são convertidos pelo câmbio do dia; a meta usa esta moeda.",
+      label: t("widgets.finance.shared.displayCurrency"),
+      description: options.original ? t("widgets.finance.shared.convertsAtTodaysExchange") : t("widgets.finance.shared.providersAreConvertedAt"),
       options: options.original ? displayCurrencyOptions() : currencyOptions(DISPLAY_CURRENCIES),
     },
     periodSetting,
     {
       kind: "choice",
       key: "chart",
-      label: "Gráfico",
+      label: t("widgets.finance.shared.chart"),
       options: [
-        { value: "bars", label: "Barras" },
-        { value: "line", label: "Linha" },
-        { value: "none", label: "Nenhum" },
+        { value: "bars", label: t("widgets.finance.shared.bars") },
+        { value: "line", label: t("widgets.finance.shared.line") },
+        { value: "none", label: t("widgets.finance.shared.none") },
       ],
     },
-    { kind: "toggle", key: "compare", label: "Variação", description: "Compara o total com outro período." },
+    { kind: "toggle", key: "compare", label: t("widgets.finance.shared.change"), description: t("widgets.finance.shared.comparesTotalWithAnother") },
     {
       kind: "choice",
       key: "compareTo",
-      label: "Comparar com",
+      label: t("widgets.finance.shared.compareWith"),
       options: [
-        { value: "previous", label: "Período anterior" },
-        { value: "year", label: "Mesmo período do ano passado" },
+        { value: "previous", label: t("widgets.finance.shared.previousPeriod") },
+        { value: "year", label: t("widgets.finance.shared.samePeriodLastYear") },
       ],
       when: (c) => c.compare !== false,
     },
     {
       kind: "choice",
       key: "format",
-      label: "Formato",
+      label: t("widgets.finance.shared.format"),
       options: [
         { value: "compact", label: "Compacto (R$ 12,3 mil)" },
-        { value: "full", label: "Completo (com centavos)" },
+        { value: "full", label: t("widgets.finance.shared.fullWithCents") },
       ],
     },
   ];
@@ -245,10 +246,10 @@ export function revenueSettings(options: { original: boolean; gross: boolean; si
     out.push({
       kind: "choice",
       key: "value",
-      label: "Valor",
+      label: t("widgets.finance.shared.amount"),
       options: [
-        { value: "net", label: "Líquido" },
-        { value: "gross", label: "Bruto" },
+        { value: "net", label: t("widgets.finance.shared.net") },
+        { value: "gross", label: t("widgets.finance.shared.gross") },
       ],
     });
   out.push(refreshSetting);
@@ -299,7 +300,7 @@ export function demoDaily(base = 90, seed = 1, days = 186): number[] {
 /** "Atualizar agora" handlers per widget state. */
 export const refreshers = new WeakMap<object, () => Promise<void>>();
 
-export function refreshItem(state: object, label = "Atualizar agora"): DockMenuItem {
+export function refreshItem(state: object, label = t("widgets.finance.shared.refreshNow")): DockMenuItem {
   return { label, icon: "download", onSelect: () => void refreshers.get(toRaw(state))?.() };
 }
 
@@ -365,19 +366,19 @@ export type ChartKind = "line" | "bars" | "none";
 export const chartSetting = {
   kind: "choice" as const,
   key: "chart" as const,
-  label: "Gráfico",
+  label: t("widgets.finance.shared.chart"),
   options: [
-    { value: "line", label: "Linha" },
-    { value: "bars", label: "Barras" },
-    { value: "none", label: "Nenhum" },
+    { value: "line", label: t("widgets.finance.shared.line") },
+    { value: "bars", label: t("widgets.finance.shared.bars") },
+    { value: "none", label: t("widgets.finance.shared.none") },
   ],
 };
 
 export const asChart = (value: unknown, fallback: ChartKind = "line"): ChartKind =>
   value === "line" || value === "bars" || value === "none" ? value : fallback;
 
-const dayFormat = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
-const timeFormat = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const dayFormat = new Intl.DateTimeFormat(language, { weekday: "short", day: "2-digit", month: "2-digit" });
+const timeFormat = new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit" });
 
 /** "hoje", "ontem" or "seg., 12/05". */
 export function dayLabel(ms: number) {
@@ -387,17 +388,17 @@ export function dayLabel(ms: number) {
   const day = new Date(d);
   day.setHours(0, 0, 0, 0);
   const diff = Math.round((today.getTime() - day.getTime()) / 86_400_000);
-  return diff === 0 ? "hoje" : diff === 1 ? "ontem" : dayFormat.format(d);
+  return diff === 0 ? t("widgets.finance.shared.today") : diff === 1 ? t("widgets.finance.shared.yesterday") : dayFormat.format(d);
 }
 
 /** "hoje às 14:05", "ontem às 21:00", "seg., 12/05 às 09:30". */
 export function momentLabel(ms: number) {
-  return `${dayLabel(ms)} às ${timeFormat.format(new Date(ms))}`;
+  return t("widgets.finance.shared.at", { p0: dayLabel(ms), p1: timeFormat.format(new Date(ms)) });
 }
 
 /** "▲ 1,34%" / "▼ 0,25%", as the tile shows it. */
 export function changeText(value: number, digits = 2) {
-  return `${value >= 0 ? "▲" : "▼"} ${Math.abs(value).toFixed(digits).replace(".", ",")}%`;
+  return `${value >= 0 ? "▲" : "▼"} ${formatDecimal(Math.abs(value), digits)}%`;
 }
 
 /** Round brand mark with a letter. */
@@ -437,7 +438,7 @@ export function Delta(props: { value: number; digits?: number; inline?: boolean 
     // Flush right in whatever room is left (a flexed Text only grows to its own width).
     <View style={{ flex: props.inline ? undefined : 1, align: "end", shrink: 0 }}>
       <Text size={10} weight={700} color={up ? ui.green : ui.danger} style={numeric}>
-        {`${up ? "▲" : "▼"} ${props.digits ? v.toFixed(props.digits).replace(".", ",") : Math.round(v)}%`}
+        {`${up ? "▲" : "▼"} ${props.digits ? formatDecimal(v, props.digits) : Math.round(v)}%`}
       </Text>
     </View>
   );
@@ -559,11 +560,11 @@ export function revenueWidget<C extends { label: string }>(spec: RevenueSpec<C>)
           daily: state.daily,
           currency: state.currency,
           config: c,
-          source: spec.source ?? `API do ${spec.name.replace(/ \(.*\)$/, "")}`,
+          source: spec.source ?? t("widgets.finance.shared.api", { p0: spec.name.replace(/ \(.*\)$/, "") }),
           gross: spec.gross,
           demo: state.demo,
           error: state.error,
-          click: c.click === "site" ? "Clique para abrir o site do provedor" : "Clique para abrir o gráfico",
+          click: c.click === "site" ? t("widgets.finance.shared.clickToOpenProviders") : t("widgets.finance.shared.clickToOpenChart"),
         });
       // Compact (side-edge column): the brand's badge over the period's total.
       if (compactView(preview))
@@ -605,16 +606,16 @@ export function revenueWidget<C extends { label: string }>(spec: RevenueSpec<C>)
 export const REVENUE_RANGES: readonly PanelOption[] = [
   { value: "7d", label: "7D" },
   { value: "30d", label: "30D" },
-  { value: "month", label: "Mês atual" },
-  { value: "prevmonth", label: "Mês anterior" },
+  { value: "month", label: t("widgets.finance.shared.currentMonth") },
+  { value: "prevmonth", label: t("widgets.finance.shared.previousMonth") },
   { value: "90d", label: "90D" },
-  { value: "365d", label: "Ano" },
+  { value: "365d", label: t("widgets.finance.shared.year") },
 ];
 
 export const REVENUE_COMPARES: readonly PanelOption[] = [
-  { value: "none", label: "Nenhum" },
-  { value: "previous", label: "Período anterior" },
-  { value: "year", label: "Ano passado" },
+  { value: "none", label: t("widgets.finance.shared.none") },
+  { value: "previous", label: t("widgets.finance.shared.previousPeriod") },
+  { value: "year", label: t("widgets.finance.shared.lastYear") },
 ];
 
 const DAY = 86_400_000;
@@ -696,7 +697,7 @@ function providerSource<C extends { label: string }>(spec: RevenueSpec<C>, ctx: 
     anchor: tileAnchor(ctx),
     title: String(ctx.config.label || spec.name),
     brand: spec.brand,
-    source: spec.source ?? `API do ${spec.name.replace(/ \(.*\)$/, "")}`,
+    source: spec.source ?? t("widgets.finance.shared.api", { p0: spec.name.replace(/ \(.*\)$/, "") }),
     url: spec.dashboard,
     config: ctx.config,
     save: () => ctx.save(),
@@ -757,7 +758,7 @@ export function QuoteTile(props: {
         </Text>
         {delta ? (
           <Text size={9} weight={700} color={color} style={numeric}>
-            {`${up ? "▲" : "▼"} ${Math.abs(state.change).toFixed(1).replace(".", ",")}%`}
+            {`${up ? "▲" : "▼"} ${formatDecimal(Math.abs(state.change), 1)}%`}
           </Text>
         ) : null}
       </Tile>
@@ -825,12 +826,12 @@ export function demoSeries(last: number, n = 48, seed = 1) {
   return Array.from({ length: n }, (_, i) => last * (1 - 0.012 + 0.012 * (i / (n - 1)) + 0.004 * Math.sin(i * 0.6 + seed)));
 }
 const PERIOD_TEXT: Record<Period, { now: string; before: string }> = {
-  "7d": { now: "nos últimos 7 dias", before: "os 7 dias anteriores" },
-  "30d": { now: "nos últimos 30 dias", before: "os 30 dias anteriores" },
-  month: { now: "no mês atual (desde o dia 1º)", before: "os mesmos dias do mês passado" },
-  prevmonth: { now: "no mês anterior", before: "o mês antes dele" },
-  "90d": { now: "nos últimos 90 dias", before: "os 90 dias anteriores" },
-  "365d": { now: "nos últimos 12 meses", before: "os 12 meses anteriores" },
+  "7d": { now: t("widgets.finance.shared.inLast7Days"), before: t("widgets.finance.shared.previous7Days") },
+  "30d": { now: t("widgets.finance.shared.inLast30Days"), before: t("widgets.finance.shared.previous30Days") },
+  month: { now: t("widgets.finance.shared.thisMonthSince1st"), before: t("widgets.finance.shared.sameDaysLastMonth") },
+  prevmonth: { now: t("widgets.finance.shared.lastMonth"), before: t("widgets.finance.shared.monthBeforeIt") },
+  "90d": { now: t("widgets.finance.shared.inLast90Days"), before: t("widgets.finance.shared.previous90Days") },
+  "365d": { now: t("widgets.finance.shared.inLast12Months"), before: t("widgets.finance.shared.previous12Months") },
 };
 
 /**
@@ -851,16 +852,16 @@ export function revenueTip(options: {
   const period = asPeriod(options.config.period);
   const format = options.config.format === "full" ? "full" : "compact";
   const total = periodSum(options.daily, period);
-  const kind = options.gross ? (options.config.value === "gross" ? " brutos" : " líquidos") : "";
+  const kind = options.gross ? (options.config.value === "gross" ? " brutos" : t("widgets.finance.shared.net2")) : "";
   const lines = [`${options.label}: ${money(total, options.currency, format)}${kind} ${PERIOD_TEXT[period].now}`];
   const to = asCompareTo(options.config.compareTo);
   const change = options.config.compare !== false ? periodChange(options.daily, period, to) : null;
   if (change !== null) {
     const before = compareSum(options.daily, period, to);
-    lines.push(`${changeText(change, 1)} contra ${to === "year" ? "o mesmo período do ano passado" : PERIOD_TEXT[period].before} (${money(before, options.currency, format)})`);
+    lines.push(t("widgets.finance.shared.vs", { p0: changeText(change, 1), p1: to === "year" ? t("widgets.finance.shared.samePeriodLastYear2") : PERIOD_TEXT[period].before, p2: money(before, options.currency, format) }));
   }
-  if (options.error) lines.push(`Falha ao ler: ${options.error}`);
-  lines.push(options.demo ? `Dados de exemplo: informe a chave nas configurações (${options.source})` : `Fonte: ${options.source}`);
+  if (options.error) lines.push(t("widgets.finance.shared.couldntRead", { error: options.error }));
+  lines.push(options.demo ? t("widgets.finance.shared.sampleDataEnterKey", { source: options.source }) : t("widgets.finance.shared.source", { source: options.source }));
   if (options.click) lines.push(options.click);
   return lines;
 }

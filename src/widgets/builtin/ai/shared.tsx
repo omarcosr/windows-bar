@@ -6,6 +6,7 @@ import { onClock, type ClockSubscription } from "../../../services/clock";
 import { aiUsage, resetLabel, type LimitUsage, type LocalUsage, type UsageWindow } from "../../../services/ai-usage";
 import { oneRow } from "../finance/shared";
 
+import { t, language } from "../../../i18n";
 /**
  * Below 34 px (the 40–44 px bar's 28 px tile) the AI tiles follow finance/shared's oneRow: a title
  * and its value go on one row, and two meter rows tighten to 1.1 lines with no gap between them so
@@ -107,7 +108,7 @@ export function LimitRow(props: { label: string; window: UsageWindow | null; met
 /** The line shown instead of the meters when there is nothing to draw ("não instalado", "abra o Claude Code"). */
 export function StatusLine(props: { usage: LimitUsage | LocalUsage }) {
   const u = props.usage;
-  const text = u.status === "loading" ? "carregando…" : u.note || (u.status === "error" ? "indisponível" : "");
+  const text = u.status === "loading" ? t("widgets.ai.shared.loading") : u.note || (u.status === "error" ? t("widgets.ai.shared.unavailable") : "");
   return (
     <Text size={10} color={u.status === "expired" ? "#ff9f0a" : ui.muted}>
       {text}
@@ -117,8 +118,8 @@ export function StatusLine(props: { usage: LimitUsage | LocalUsage }) {
 
 export const showsData = (u: LimitUsage | LocalUsage) => u.status === "ok";
 
-const timeFormat = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
-const dayFormat = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+const timeFormat = new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit" });
+const dayFormat = new Intl.DateTimeFormat(language, { weekday: "short", day: "2-digit", month: "2-digit" });
 
 /** "hoje às 16:40", "amanhã às 09:00", "dom., 18/05 às 01:00". */
 export function whenLabel(ms: number) {
@@ -127,15 +128,15 @@ export function whenLabel(ms: number) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diff = Math.round((day.getTime() - today.getTime()) / 86_400_000);
-  const date = diff === 0 ? "hoje" : diff === 1 ? "amanhã" : diff === -1 ? "ontem" : dayFormat.format(new Date(ms));
-  return `${date} às ${timeFormat.format(new Date(ms))}`;
+  const date = diff === 0 ? t("widgets.ai.shared.today") : diff === 1 ? t("widgets.ai.shared.tomorrow") : diff === -1 ? t("widgets.ai.shared.yesterday") : dayFormat.format(new Date(ms));
+  return t("widgets.ai.shared.at", { date, p1: timeFormat.format(new Date(ms)) });
 }
 
 /** "Sessão de 5 h: 37% usado, renova em 2h 12min (hoje às 16:40)". */
 export function windowLine(label: string, w: UsageWindow | null) {
-  if (!w) return `${label}: sem dados`;
-  const reset = w.resetsAt ? `, renova em ${resetLabel(w.resetsAt)} (${whenLabel(w.resetsAt)})` : "";
-  return `${label}: ${w.used}% usado${reset}`;
+  if (!w) return t("widgets.ai.shared.noData", { label });
+  const reset = w.resetsAt ? t("widgets.ai.shared.resetsIn", { p0: resetLabel(w.resetsAt), p1: whenLabel(w.resetsAt) }) : "";
+  return t("widgets.ai.shared.used", { label, used: w.used, reset });
 }
 
 /**
@@ -144,15 +145,15 @@ export function windowLine(label: string, w: UsageWindow | null) {
  */
 export function limitTip(options: { name: string; usage: LimitUsage; source: string; preview?: boolean; click?: string; windows?: ("session" | "weekly" | "model")[] }) {
   const u = options.usage;
-  const lines = [`${options.name}${u.plan ? ` (plano ${u.plan})` : ""}`];
-  if (u.status !== "ok") lines.push(u.note || (u.status === "loading" ? "Carregando…" : "Indisponível"));
+  const lines = [`${options.name}${u.plan ? t("widgets.ai.shared.plan", { plan: u.plan }) : ""}`];
+  if (u.status !== "ok") lines.push(u.note || (u.status === "loading" ? t("widgets.ai.shared.loading2") : t("widgets.ai.shared.unavailable2")));
   else {
     const windows = options.windows ?? ["session", "weekly", "model"];
-    if (windows.includes("session")) lines.push(windowLine("Sessão de 5 h", u.session));
-    if (windows.includes("weekly") && u.weekly) lines.push(windowLine("Limite semanal", u.weekly));
-    if (windows.includes("model") && u.weeklyModel) lines.push(windowLine(`Semanal do ${u.weeklyModel.label}`, u.weeklyModel));
+    if (windows.includes("session")) lines.push(windowLine(t("widgets.ai.shared.n5HourSession"), u.session));
+    if (windows.includes("weekly") && u.weekly) lines.push(windowLine(t("widgets.ai.shared.weeklyLimit"), u.weekly));
+    if (windows.includes("model") && u.weeklyModel) lines.push(windowLine(t("widgets.ai.shared.weeklyFor", { label: u.weeklyModel.label }), u.weeklyModel));
   }
-  lines.push(options.preview ? "Dados de exemplo" : `Fonte: ${options.source}${u.updated ? `, lido ${whenLabel(u.updated)}` : ""}`);
+  lines.push(options.preview ? t("widgets.ai.shared.sampleData") : t("widgets.ai.shared.source", { source: options.source, p1: u.updated ? t("widgets.ai.shared.read", { p0: whenLabel(u.updated) }) : "" }));
   if (options.click) lines.push(options.click);
   return lines;
 }

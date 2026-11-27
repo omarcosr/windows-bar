@@ -6,6 +6,7 @@ import { devicePx, numeric, ui } from "../../../theme";
 import { RoundButton, Tile, glyphs } from "../../ui";
 import { defineWidget, type WidgetContext } from "../../types";
 
+import { t as tr } from "../../../i18n";
 /** What the tiles draw: the Windows media session, or a demo track in the gallery when nothing plays. */
 function track(preview: boolean, progress: number) {
   if (preview && !(media.active && media.title)) {
@@ -15,8 +16,8 @@ function track(preview: boolean, progress: number) {
   const second = media.artist || (media.app ? sourceName(media.app) : "");
   return {
     active,
-    title: active ? media.title : "Nada tocando",
-    artist: active ? second : "Abra um player",
+    title: active ? media.title : tr("widgets.weatherMedia.media.nothingPlaying"),
+    artist: active ? second : tr("widgets.weatherMedia.media.openPlayer"),
     playing: media.playing,
     progress,
     position: mediaPosition(),
@@ -29,8 +30,8 @@ const defaultConfig = { hideWhenIdle: true };
 const idleSetting = {
   kind: "toggle",
   key: "hideWhenIdle",
-  label: "Ocultar quando nada estiver tocando",
-  description: "Some do dock enquanto nenhum player tem mídia aberta.",
+  label: tr("widgets.weatherMedia.media.hideWhenNothingIs"),
+  description: tr("widgets.weatherMedia.media.disappearsFromDockWhile"),
 } as const;
 
 function setup<C extends object>(ctx: WidgetContext<C>): { progress: number } {
@@ -49,12 +50,12 @@ function hidden<C extends typeof defaultConfig>({ ctx }: { ctx: WidgetContext<C>
 
 function menu(): DockMenuItem[][] {
   const items: DockMenuItem[] = [
-    { label: media.playing ? "Pausar" : "Tocar", icon: media.playing ? "pause" : "play", onSelect: mediaControls.playPause },
-    { label: "Próxima", icon: "skip-forward", onSelect: mediaControls.next },
-    { label: "Anterior", icon: "skip-back", onSelect: mediaControls.previous },
+    { label: media.playing ? tr("widgets.weatherMedia.media.pause") : tr("widgets.weatherMedia.media.play"), icon: media.playing ? "pause" : "play", onSelect: mediaControls.playPause },
+    { label: tr("widgets.weatherMedia.media.next"), icon: "skip-forward", onSelect: mediaControls.next },
+    { label: tr("widgets.weatherMedia.media.previous"), icon: "skip-back", onSelect: mediaControls.previous },
   ];
   const sections = [items];
-  if (media.app) sections.push([{ label: `Abrir ${sourceName(media.app)}`, icon: { fluent: 0xe8a7 /* OpenInNewWindow */ }, onSelect: () => openPlayer() }]);
+  if (media.app) sections.push([{ label: tr("widgets.weatherMedia.media.open", { p0: sourceName(media.app) }), icon: { fluent: 0xe8a7 /* OpenInNewWindow */ }, onSelect: () => openPlayer() }]);
   return sections;
 }
 
@@ -88,8 +89,8 @@ function TrackText(props: { title: string; artist: string; open?: () => void }) 
 
 const nowCompact = defineWidget({
   type: "weather-media-now-compact",
-  name: "Tocando agora (compacto)",
-  description: "Título, artista e um botão de tocar/pausar.",
+  name: tr("widgets.weatherMedia.media.nowPlayingCompact"),
+  description: tr("widgets.weatherMedia.media.titleArtistAndPlay"),
   category: "media",
   defaultConfig,
   settings: [idleSetting],
@@ -119,8 +120,8 @@ function ringPath(cx: number, cy: number, r: number, p: number) {
 
 const nowMini = defineWidget({
   type: "weather-media-now-mini",
-  name: "Tocando agora (mini)",
-  description: "Um botão redondo de tocar/pausar com o progresso da música em volta.",
+  name: tr("widgets.weatherMedia.media.nowPlayingMini"),
+  description: tr("widgets.weatherMedia.media.roundPlayPauseButton"),
   category: "media",
   defaultConfig,
   settings: [idleSetting],
@@ -134,7 +135,7 @@ const nowMini = defineWidget({
     const stroke = 2.4;
     const r = ring / 2 - stroke / 2;
     return (
-      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => (t.active ? [t.title, t.artist] : ["Nada tocando"])} disabled={preview}>
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => (t.active ? [t.title, t.artist] : [tr("widgets.weatherMedia.media.nothingPlaying")])} disabled={preview}>
         <Tile width={size} padding={0} onClick={preview ? undefined : mediaControls.playPause} style={{ justify: "center" }}>
           <View style={{ width: ring, height: ring, align: "center", justify: "center" }}>
             <View style={{ position: "absolute", left: 0, top: 0 }}>
@@ -155,11 +156,11 @@ const nowMini = defineWidget({
 
 const nowBar = defineWidget({
   type: "weather-media-now-bar",
-  name: "Tocando agora (barra)",
-  description: "A música com barra de progresso, tempo e botões de tocar e pular.",
+  name: tr("widgets.weatherMedia.media.nowPlayingBar"),
+  description: tr("widgets.weatherMedia.media.songWithProgressBar"),
   category: "media",
   defaultConfig: { ...defaultConfig, showTime: true },
-  settings: [idleSetting, { kind: "toggle", key: "showTime", label: "Mostrar tempo", description: "Tempo tocado e duração ao lado da barra." }],
+  settings: [idleSetting, { kind: "toggle", key: "showTime", label: tr("widgets.weatherMedia.media.showTime"), description: tr("widgets.weatherMedia.media.timePlayedAndDuration") }],
   setup: (ctx) => setup(ctx),
   hidden: (p) => hidden(p),
   menu,

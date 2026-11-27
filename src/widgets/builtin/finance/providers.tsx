@@ -9,16 +9,17 @@ import {
 } from "../../../services/finance-providers";
 import { revenueWidget } from "./shared";
 
-const label = (placeholder: string) => ({ kind: "text" as const, key: "label" as const, label: "Título", placeholder });
+import { t } from "../../../i18n";
+const label = (placeholder: string) => ({ kind: "text" as const, key: "label" as const, label: t("widgets.finance.providers.title"), placeholder });
 const env = [
-  { value: "live", label: "Produção" },
+  { value: "live", label: t("widgets.finance.providers.production") },
   { value: "test", label: "Teste (sandbox)" },
 ] as const;
 
 export const stripeChart = revenueWidget({
   type: "finance-stripe",
-  name: "Stripe (gráfico)",
-  description: "Receita do Stripe no período escolhido, com gráfico diário e variação.",
+  name: t("widgets.finance.providers.stripeChart"),
+  description: t("widgets.finance.providers.stripeRevenueInChosen"),
   brand: { color: "#635bff", letter: "S" },
   logo: "stripe",
   dashboard: "https://dashboard.stripe.com",
@@ -29,8 +30,8 @@ export const stripeChart = revenueWidget({
     {
       kind: "text",
       key: "key",
-      label: "Chave restrita",
-      description: "Permissão de leitura em Balance (rk_live_…). Vazia mostra dados de exemplo.",
+      label: t("widgets.finance.providers.restrictedKey"),
+      description: t("widgets.finance.providers.readPermissionOnBalance"),
       placeholder: "rk_live_…",
       secret: true,
     },
@@ -42,7 +43,7 @@ export const stripeChart = revenueWidget({
 export const polar = revenueWidget({
   type: "finance-polar",
   name: "Polar",
-  description: "Receita da Polar (API de métricas) no período escolhido, com gráfico diário.",
+  description: t("widgets.finance.providers.polarRevenueMetricsApi"),
   brand: { color: "#0062ff", letter: "P" },
   dashboard: "https://polar.sh/dashboard",
   cacheKey: "polar:",
@@ -53,8 +54,8 @@ export const polar = revenueWidget({
     {
       kind: "text",
       key: "key",
-      label: "Token da organização",
-      description: "Organization Access Token com escopo metrics:read. Vazio mostra dados de exemplo.",
+      label: t("widgets.finance.providers.organizationToken"),
+      description: t("widgets.finance.providers.organizationAccessTokenWith"),
       placeholder: "polar_oat_…",
       secret: true,
     },
@@ -66,7 +67,7 @@ export const polar = revenueWidget({
 export const lemon = revenueWidget({
   type: "finance-lemonsqueezy",
   name: "Lemon Squeezy",
-  description: "Receita dos pedidos do Lemon Squeezy no período (líquida: sem impostos e reembolsos).",
+  description: t("widgets.finance.providers.lemonSqueezyOrderRevenue"),
   brand: { color: "#ffc233", letter: "L" },
   logo: "lemonsqueezy",
   dashboard: "https://app.lemonsqueezy.com/dashboard",
@@ -77,8 +78,8 @@ export const lemon = revenueWidget({
     {
       kind: "text",
       key: "key",
-      label: "Chave de API",
-      description: "Settings › API. Vazia mostra dados de exemplo.",
+      label: t("widgets.finance.providers.apiKey"),
+      description: t("widgets.finance.providers.settingsApiEmptyShows"),
       placeholder: "eyJ0eXAiOiJKV1Qi…",
       secret: true,
     },
@@ -90,7 +91,7 @@ export const lemon = revenueWidget({
 export const paddle = revenueWidget({
   type: "finance-paddle",
   name: "Paddle Billing",
-  description: "Ganhos do Paddle Billing no período (líquido: após impostos e taxa), na moeda de repasse.",
+  description: t("widgets.finance.providers.paddleBillingEarningsIn"),
   brand: { color: "#1d1d1f", letter: "P" },
   logo: "paddle",
   dashboard: "https://vendors.paddle.com",
@@ -101,12 +102,12 @@ export const paddle = revenueWidget({
     {
       kind: "text",
       key: "key",
-      label: "Chave de API",
-      description: "Developer tools › Authentication, com permissão transaction.read. Vazia mostra dados de exemplo.",
+      label: t("widgets.finance.providers.apiKey"),
+      description: t("widgets.finance.providers.developerToolsAuthenticationWith"),
       placeholder: "pdl_live_apikey_…",
       secret: true,
     },
-    { kind: "choice", key: "env", label: "Ambiente", options: env },
+    { kind: "choice", key: "env", label: t("widgets.finance.providers.environment"), options: env },
   ],
   gross: true,
   load: (c, days) => (c.key ? paddleRevenue(c.key, c.env === "test" || c.key.startsWith("pdl_sdbx"), days) : null),
@@ -115,7 +116,7 @@ export const paddle = revenueWidget({
 export const gumroad = revenueWidget({
   type: "finance-gumroad",
   name: "Gumroad",
-  description: "Vendas do Gumroad no período (líquido: descontada a taxa da plataforma).",
+  description: t("widgets.finance.providers.gumroadSalesInPeriod"),
   brand: { color: "#ff90e8", letter: "G" },
   logo: "gumroad",
   dashboard: "https://app.gumroad.com/dashboard",
@@ -127,7 +128,7 @@ export const gumroad = revenueWidget({
       kind: "text",
       key: "key",
       label: "Access token",
-      description: "Settings › Advanced › Applications, escopo view_sales. Vazio mostra dados de exemplo.",
+      description: t("widgets.finance.providers.settingsAdvancedApplicationsView"),
       secret: true,
     },
   ],
@@ -138,7 +139,7 @@ export const gumroad = revenueWidget({
 export const shopify = revenueWidget({
   type: "finance-shopify",
   name: "Shopify",
-  description: "Vendas da loja Shopify no período via Admin API (líquido: sem impostos, após reembolsos).",
+  description: t("widgets.finance.providers.shopifyStoreSalesIn"),
   brand: { color: "#5e8e3e", letter: "S" },
   logo: "shopify",
   dashboard: "https://admin.shopify.com",
@@ -146,12 +147,12 @@ export const shopify = revenueWidget({
   defaultConfig: { label: "Shopify", domain: "", key: "" },
   settings: [
     label("Shopify"),
-    { kind: "text", key: "domain", label: "Domínio da loja", placeholder: "minhaloja.myshopify.com" },
+    { kind: "text", key: "domain", label: t("widgets.finance.providers.storeDomain"), placeholder: t("widgets.finance.providers.mystoreMyshopifyCom") },
     {
       kind: "text",
       key: "key",
-      label: "Token da Admin API",
-      description: "App personalizado com escopo read_orders. Vazio mostra dados de exemplo.",
+      label: t("widgets.finance.providers.adminApiToken"),
+      description: t("widgets.finance.providers.customAppWithRead"),
       placeholder: "shpat_…",
       secret: true,
     },
@@ -163,15 +164,15 @@ export const shopify = revenueWidget({
 export const dodo = revenueWidget({
   type: "finance-dodo",
   name: "Dodo Payments",
-  description: "Pagamentos concluídos da Dodo Payments no período, com gráfico diário.",
+  description: t("widgets.finance.providers.completedDodoPaymentsPayments"),
   brand: { color: "#111827", letter: "D" },
   dashboard: "https://app.dodopayments.com",
   cacheKey: "dodo:",
   defaultConfig: { label: "Dodo", key: "", env: "live" },
   settings: [
     label("Dodo"),
-    { kind: "text", key: "key", label: "Chave de API", description: "Vazia mostra dados de exemplo.", secret: true },
-    { kind: "choice", key: "env", label: "Ambiente", options: env },
+    { kind: "text", key: "key", label: t("widgets.finance.providers.apiKey"), description: t("widgets.finance.providers.emptyShowsSampleData"), secret: true },
+    { kind: "choice", key: "env", label: t("widgets.finance.providers.environment"), options: env },
   ],
   load: (c, days) => (c.key ? dodoRevenue(c.key, c.env === "test", days) : null),
 });

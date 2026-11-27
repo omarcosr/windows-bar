@@ -7,6 +7,7 @@ import { Tile } from "../ui";
 import { HoverTip } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
+import { t } from "../../i18n";
 /*
  * The notification area's system icons are glyphs of Windows' icon font (Segoe Fluent Icons on
  * Windows 11, Segoe MDL2 Assets before it), the same characters the taskbar draws, at its 16 px.
@@ -60,30 +61,30 @@ function BatteryGlyph() {
 }
 
 function networkTip() {
-  const access = status.internet ? "Acesso à Internet" : "Sem acesso à Internet";
-  if (status.network === "none") return ["Não conectado", "Nenhuma conexão disponível"];
+  const access = status.internet ? t("widgets.trayStatus.internetAccess") : t("widgets.trayStatus.noInternetAccess");
+  if (status.network === "none") return [t("widgets.trayStatus.notConnected"), t("widgets.trayStatus.noConnectionsAvailable")];
   if (status.network === "wifi") return [status.ssid || "Wi-Fi", access];
-  return ["Rede", access];
+  return [t("widgets.trayStatus.network"), access];
 }
 
 /** "Fone de ouvido (CORSAIR …): 36%", with the device's own name, as the taskbar's volume tip. */
 function volumeTip() {
-  if (!status.hasAudio) return ["Nenhum dispositivo de saída de áudio está instalado"];
-  const device = status.audioDevice || "Alto-falantes";
-  return [status.muted ? `${device}: sem áudio` : `${device}: ${status.volume}%`];
+  if (!status.hasAudio) return [t("widgets.trayStatus.noAudioOutputDevice")];
+  const device = status.audioDevice || t("widgets.trayStatus.speakers");
+  return [status.muted ? t("widgets.trayStatus.muted", { device }) : `${device}: ${status.volume}%`];
 }
 
 function batteryTip() {
   const pct = Math.round(status.battery);
-  return [status.charging ? `Bateria: ${pct}% disponível (conectado)` : `Bateria: ${pct}% restante`];
+  return [status.charging ? t("widgets.trayStatus.batteryAvailablePluggedIn", { pct }) : t("widgets.trayStatus.batteryRemaining", { pct })];
 }
 
 /** Network, volume and battery in one block, as Windows groups them; a click opens Quick Settings. */
 export default defineWidget({
   type: "tray-status",
   sideForm: "full",
-  name: "Rede, volume e bateria",
-  description: "Status da conexão, do volume e da bateria. Clique abre as configurações rápidas (Win+A).",
+  name: t("widgets.trayStatus.networkVolumeAndBattery"),
+  description: t("widgets.trayStatus.connectionVolumeAndBattery"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -92,11 +93,11 @@ export default defineWidget({
   },
   menu() {
     return [
-      [{ label: "Configurações rápidas", icon: "settings", onSelect: openQuickSettings }],
+      [{ label: t("widgets.trayStatus.quickSettings"), icon: "settings", onSelect: openQuickSettings }],
       [
-        { label: "Rede e internet", icon: "settings", onSelect: () => launch("ms-settings:network") },
-        { label: "Som", icon: "settings", onSelect: () => launch("ms-settings:sound") },
-        { label: "Energia e bateria", icon: "settings", onSelect: () => launch("ms-settings:powersleep") },
+        { label: t("widgets.trayStatus.networkInternet"), icon: "settings", onSelect: () => launch("ms-settings:network") },
+        { label: t("widgets.trayStatus.sound"), icon: "settings", onSelect: () => launch("ms-settings:sound") },
+        { label: t("widgets.trayStatus.powerBattery"), icon: "settings", onSelect: () => launch("ms-settings:powersleep") },
       ],
     ];
   },

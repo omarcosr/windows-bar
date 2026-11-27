@@ -22,7 +22,8 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@tarve/core": "0.13.7"
+    "@tarve/core": "0.13.7",
+    "i18next": "^27.2.9"
   },
   "version": "0.5.0",
   "tarve": {

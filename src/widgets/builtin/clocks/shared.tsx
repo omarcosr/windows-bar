@@ -9,6 +9,7 @@ import type { WidgetContext } from "../../types";
 import { every, onClock, type ClockUnit } from "../../../services/clock";
 import { onConfigSaved } from "../../../config";
 
+import { t as tr } from "../../../i18n";
 /**
  * A store with `now`, moved on the shared clock at each `unit` boundary (the coarsest the face
  * shows: seconds, minutes, or the day for date-only faces) while the dock is visible.
@@ -34,9 +35,9 @@ export type HourFormat = "system" | "24" | "12";
 export const hourFormatSetting = {
   kind: "choice" as const,
   key: "hourFormat" as const,
-  label: "Formato da hora",
+  label: tr("widgets.clocks.shared.timeFormat"),
   options: [
-    { value: "system", label: "Do Windows (formato regional)" },
+    { value: "system", label: tr("widgets.clocks.shared.fromWindowsRegionalFormat") },
     { value: "24", label: "24 horas" },
     { value: "12", label: "12 horas" },
   ],
@@ -81,9 +82,9 @@ export const monthName = (d: Date, long = false) => capital(formatDatePicture(d,
 export function clockMenu(): DockMenuItem[][] {
   return [
     [
-      { label: "Notificações e calendário", icon: "bell", onSelect: openNotificationCenter },
-      { label: "Abrir Relógio do Windows", icon: "bell", onSelect: () => launch("ms-clock:") },
-      { label: "Ajustar data e hora", icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
+      { label: tr("widgets.clocks.shared.notificationsAndCalendar"), icon: "bell", onSelect: openNotificationCenter },
+      { label: tr("widgets.clocks.shared.openWindowsClock"), icon: "bell", onSelect: () => launch("ms-clock:") },
+      { label: tr("widgets.clocks.shared.adjustDateAndTime"), icon: "settings", onSelect: () => launch("ms-settings:dateandtime") },
     ],
   ];
 }

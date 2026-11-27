@@ -9,6 +9,7 @@ import { fullForm } from "./form";
 import { formatDatePicture } from "../native/locale-format";
 import { tileDragProps } from "../dock/state";
 
+import { t } from "../i18n";
 /**
  * The graphite card every dock widget sits on. Its content is one row, centred vertically, padded
  * 10 px on both sides (8 px on the left when it starts with a round icon or ring: `lead="round"`).
@@ -493,12 +494,12 @@ export function Spacer() {
 }
 
 export const hoverEffects: { value: HoverEffect; label: string }[] = [
-  { value: "zoom", label: "Ampliar" },
+  { value: "zoom", label: t("widgets.ui.zoom") },
   { value: "macos", label: "macOS" },
-  { value: "lift", label: "Elevar" },
-  { value: "glow", label: "Brilho" },
-  { value: "highlight", label: "Realce do Windows" },
-  { value: "none", label: "Nenhum" },
+  { value: "lift", label: t("widgets.ui.lift") },
+  { value: "glow", label: t("widgets.ui.glow") },
+  { value: "highlight", label: t("widgets.ui.windowsHighlight") },
+  { value: "none", label: t("widgets.ui.none") },
 ];
 
 /**
@@ -507,12 +508,12 @@ export const hoverEffects: { value: HoverEffect; label: string }[] = [
  * only tints its slot. Animated both ways.
  */
 export const glowColors: { value: GlowColor; label: string; color: string | null }[] = [
-  { value: "accent", label: "Destaque do Windows", color: null },
-  { value: "white", label: "Branco", color: "#ffffff" },
-  { value: "blue", label: "Azul", color: "#0a84ff" },
-  { value: "purple", label: "Roxo", color: "#bf5af2" },
-  { value: "green", label: "Verde", color: "#30d158" },
-  { value: "orange", label: "Laranja", color: "#ff9f0a" },
+  { value: "accent", label: t("widgets.ui.windowsAccent"), color: null },
+  { value: "white", label: t("widgets.ui.white"), color: "#ffffff" },
+  { value: "blue", label: t("widgets.ui.blue"), color: "#0a84ff" },
+  { value: "purple", label: t("widgets.ui.purple"), color: "#bf5af2" },
+  { value: "green", label: t("widgets.ui.green"), color: "#30d158" },
+  { value: "orange", label: t("widgets.ui.orange"), color: "#ff9f0a" },
 ];
 
 export function glowColor(): string {

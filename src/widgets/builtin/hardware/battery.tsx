@@ -19,6 +19,7 @@ import {
   type BatteryReading,
 } from "./shared";
 
+import { t as tr } from "../../../i18n";
 /** Every battery tile follows Windows' power notifications and hides itself on a desktop without a battery. */
 function batterySetup(ctx: { onDispose(fn: () => void): void }) {
   ctx.onDispose(batteryWatch.acquire());
@@ -108,8 +109,8 @@ function BatteryShape(props: { b: BatteryReading; width: number; height: number 
 export const batteryFill = defineWidget({
   ...base,
   type: "hardware-battery",
-  name: "Bateria",
-  description: "Carga da bateria num ícone que enche, com raio quando está carregando.",
+  name: tr("widgets.hardware.battery.battery"),
+  description: tr("widgets.hardware.battery.batteryChargeInIcon"),
   setup: batterySetup,
   View({ ctx, preview }) {
     const b = battery(preview);
@@ -127,8 +128,8 @@ export const batteryFill = defineWidget({
 export const batteryRing = defineWidget({
   ...base,
   type: "hardware-battery-ring",
-  name: "Anel de bateria",
-  description: "Carga num anel; uma faísca acende enquanto está na tomada.",
+  name: tr("widgets.hardware.battery.batteryRing"),
+  description: tr("widgets.hardware.battery.chargeInRingSpark"),
   setup(ctx) {
     const state = store({ pulse: false });
     chargeBlink(ctx, state, "pulse", 700);
@@ -149,7 +150,7 @@ export const batteryRing = defineWidget({
             </Text>
           )}
         </Ring>
-        <Metric label={b.plugged ? "Na tomada" : "Bateria"} value={`${b.percent}%`} />
+        <Metric label={b.plugged ? tr("widgets.hardware.battery.pluggedIn") : tr("widgets.hardware.battery.battery")} value={`${b.percent}%`} />
       </Tile>
     );
   },
@@ -175,8 +176,8 @@ function waterPath(size: number, level: number) {
 export const batteryLiquid = defineWidget({
   ...base,
   type: "hardware-battery-liquid",
-  name: "Bateria líquida",
-  description: "Um quadrado que se enche de água até a carga, com o número e um raio quando está na tomada.",
+  name: tr("widgets.hardware.battery.liquidBattery"),
+  description: tr("widgets.hardware.battery.squareThatFillsWith"),
   setup: batterySetup,
   View({ ctx, preview }) {
     const b = battery(preview);
@@ -224,8 +225,8 @@ const CELLS = 12;
 export const batteryCore = defineWidget({
   ...base,
   type: "hardware-battery-core",
-  name: "Núcleo de bateria",
-  description: "Doze células acendem com a carga; a próxima pisca enquanto carrega.",
+  name: tr("widgets.hardware.battery.batteryCore"),
+  description: tr("widgets.hardware.battery.twelveCellsLightUp"),
   setup(ctx) {
     const state = store({ blink: false });
     chargeBlink(ctx, state, "blink", 600);
@@ -274,8 +275,8 @@ const DOT_ROWS = 3;
 export const batteryDots = defineWidget({
   ...base,
   type: "hardware-battery-dots",
-  name: "Bateria em pontos",
-  description: "Matriz de pontos que se preenche da esquerda para a direita com a carga.",
+  name: tr("widgets.hardware.battery.dotBattery"),
+  description: tr("widgets.hardware.battery.dotMatrixThatFills"),
   setup: batterySetup,
   View({ ctx, preview }) {
     const b = battery(preview);
@@ -316,8 +317,8 @@ export const batteryDots = defineWidget({
 export const batteryGauge = defineWidget({
   ...base,
   type: "hardware-battery-gauge",
-  name: "Medidor de bateria",
-  description: "Ponteiro de combustível de E (vazia) a F (cheia).",
+  name: tr("widgets.hardware.battery.batteryGauge"),
+  description: tr("widgets.hardware.battery.fuelNeedleFromE"),
   setup: batterySetup,
   View({ ctx, preview }) {
     const b = battery(preview);

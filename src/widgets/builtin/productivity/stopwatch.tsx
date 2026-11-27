@@ -8,6 +8,7 @@ import { showDockMenu } from "../../../menu/dock-menu";
 import { Stack, buttonSize, clockTenths } from "./shared";
 import { onClock } from "../../../services/clock";
 
+import { t as tr } from "../../../i18n";
 const actions = new WeakMap<object, { toggle(): void; lap(): void; reset(): void; showLaps(): void }>();
 
 /** Segoe Fluent Icons glyphs, as the Windows Clock app's stopwatch draws its lap and reset buttons. */
@@ -21,8 +22,8 @@ const resetGlyph = fluent(0xe72c /* Refresh */);
 
 export default defineWidget({
   type: "productivity-stopwatch",
-  name: "Cronômetro",
-  description: "Iniciar, pausar e marcar voltas. As voltas aparecem no menu.",
+  name: tr("widgets.productivity.stopwatch.stopwatch"),
+  description: tr("widgets.productivity.stopwatch.startPauseAndRecord"),
   category: "productivity",
   defaultConfig: {},
   setup(ctx) {
@@ -62,11 +63,11 @@ export default defineWidget({
       showLaps: () => {
         const laps = state.laps;
         showDockMenu({
-          title: "Voltas",
-          subtitle: laps.length ? `${laps.length} volta${laps.length > 1 ? "s" : ""} · total ${clockTenths(elapsed())}` : "Nenhuma volta ainda",
+          title: tr("widgets.productivity.stopwatch.laps"),
+          subtitle: laps.length ? tr("widgets.productivity.stopwatch.lapTotal", { count: laps.length, total: clockTenths(elapsed()) }) : tr("widgets.productivity.stopwatch.noLapsYet"),
           sections: [
             laps
-              .map((t, i) => ({ label: `Volta ${i + 1}   ${clockTenths(t - (laps[i - 1] ?? 0))}   (${clockTenths(t)})`, onSelect: () => {} }))
+              .map((t, i) => ({ label: tr("widgets.productivity.stopwatch.lap", { n: i + 1, p1: clockTenths(t - (laps[i - 1] ?? 0)), p2: clockTenths(t) }), onSelect: () => {} }))
               .reverse(),
           ].filter((s) => s.length),
         });
@@ -78,10 +79,10 @@ export default defineWidget({
     const a = actions.get(toRaw(state))!;
     return [
       [
-        { label: state.running ? "Pausar" : state.acc ? "Continuar" : "Iniciar", icon: state.running ? "pause" : "play", onSelect: a.toggle },
-        ...(state.running ? [{ label: "Marcar volta", icon: "star" as const, onSelect: a.lap }] : []),
-        { label: `Ver voltas (${state.laps.length})`, icon: "info", onSelect: () => setTimeout(a.showLaps, 0) },
-        { label: "Zerar", icon: "x", onSelect: a.reset },
+        { label: state.running ? tr("widgets.productivity.stopwatch.pause") : state.acc ? tr("widgets.productivity.stopwatch.resume") : tr("widgets.productivity.stopwatch.start"), icon: state.running ? "pause" : "play", onSelect: a.toggle },
+        ...(state.running ? [{ label: tr("widgets.productivity.stopwatch.recordLap"), icon: "star" as const, onSelect: a.lap }] : []),
+        { label: tr("widgets.productivity.stopwatch.seeLaps", { p0: state.laps.length }), icon: "info", onSelect: () => setTimeout(a.showLaps, 0) },
+        { label: tr("widgets.productivity.stopwatch.reset"), icon: "x", onSelect: a.reset },
       ],
     ];
   },
@@ -96,15 +97,15 @@ export default defineWidget({
         const total = state.acc + (state.running ? Date.now() - state.startAt : 0);
         const last = state.laps.slice(-3).map((t, i, all) => {
           const n = state.laps.length - all.length + i;
-          return `Volta ${n + 1}: ${clockTenths(t - (state.laps[n - 1] ?? 0))}`;
+          return tr("widgets.productivity.stopwatch.lap2", { n: n + 1, p1: clockTenths(t - (state.laps[n - 1] ?? 0)) });
         });
-        return [`Total ${clockTenths(total)}${state.running ? "" : total ? " · pausado" : ""}`, ...last, state.running ? "Clique para pausar · bandeira marca volta" : "Clique para iniciar"];
+        return [tr("widgets.productivity.stopwatch.total", { p0: clockTenths(total), p1: state.running ? "" : total ? tr("widgets.productivity.stopwatch.paused") : "" }), ...last, state.running ? tr("widgets.productivity.stopwatch.clickToPauseFlag") : tr("widgets.productivity.stopwatch.clickToStart")];
       };
       return (
         <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
           <Tile icon={<FluentGlyph code={0xe916} size={ui.app.icon - 4} color={ui.text} />} value={clockTenths(ms)} valueColor={ms || state.running ? ui.text : ui.muted} width={156} onClick={a?.toggle}>
             <Stack
-              label={laps ? `Volta ${laps} · ${clockTenths(lapTime)}` : state.running ? "Cronômetro" : ms ? "Pausado" : "Cronômetro"}
+              label={laps ? tr("widgets.productivity.stopwatch.lap3", { laps, p1: clockTenths(lapTime) }) : state.running ? tr("widgets.productivity.stopwatch.stopwatch") : ms ? tr("widgets.productivity.stopwatch.paused2") : tr("widgets.productivity.stopwatch.stopwatch")}
             value={clockTenths(ms)}
               valueColor={ms || state.running ? ui.text : ui.muted}
             />

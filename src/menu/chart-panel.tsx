@@ -6,6 +6,7 @@ import { launch } from "../services/windows";
 import { FluentGlyph } from "./dock-menu";
 import { hideTip } from "./hover-tip";
 
+import { t as tr, language, formatDecimal } from "../i18n";
 /**
  * The chart panel of the finance tiles: a flyout above the tile, like the taskbar's calendar
  * flyout, with the tile's series over a chosen range, the value under the pointer, a span picked by
@@ -92,10 +93,10 @@ let dragged = false;
 
 // ---------- formatting ----------
 
-const dateFormat = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
-const dayFormat = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
-const timeFormat = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
-const longFormat = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+const dateFormat = new Intl.DateTimeFormat(language, { day: "2-digit", month: "2-digit", year: "2-digit" });
+const dayFormat = new Intl.DateTimeFormat(language, { day: "2-digit", month: "2-digit" });
+const timeFormat = new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit" });
+const longFormat = new Intl.DateTimeFormat(language, { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
 
 function when(ms: number, intraday: boolean, long = false) {
   const d = new Date(ms);
@@ -103,7 +104,7 @@ function when(ms: number, intraday: boolean, long = false) {
   return long ? longFormat.format(d).replace(/\.,/g, ",") : dateFormat.format(d);
 }
 
-const compactFormat = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+const compactFormat = new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
 
 /** An axis label: short, without the currency (the header and the readout carry it). */
 function axisText(value: number) {
@@ -111,10 +112,10 @@ function axisText(value: number) {
   if (v === 0) return "0";
   if (v >= 10_000) return compactFormat.format(value);
   const digits = v >= 100 ? 0 : v >= 1 ? 2 : 4;
-  return value.toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return value.toLocaleString(language, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
-const pct = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2).replace(".", ",")}%`;
+const pct = (value: number) => `${value >= 0 ? "+" : "−"}${formatDecimal(Math.abs(value), 2)}%`;
 
 // ---------- data ----------
 
@@ -155,7 +156,7 @@ async function load(withMain: boolean) {
     const [m, o] = await Promise.all([
       withMain ? s.load(range) : Promise.resolve(main),
       compare !== "none" && s.loadCompare ? s.loadCompare(range, compare).catch((error: unknown) => {
-        panel.compareError = error instanceof Error && /404/.test(error.message) ? "não encontrado" : "sem dados";
+        panel.compareError = error instanceof Error && /404/.test(error.message) ? tr("menu.chartPanel.notFound") : tr("menu.chartPanel.noData");
         return null;
       }) : Promise.resolve(null),
     ]);
@@ -164,7 +165,7 @@ async function load(withMain: boolean) {
     other = o;
   } catch (error) {
     if (id !== seq || src !== s) return;
-    panel.error = error instanceof Error && /\b404\b/.test(error.message) ? "Símbolo não encontrado" : "Sem conexão com a fonte";
+    panel.error = error instanceof Error && /\b404\b/.test(error.message) ? tr("menu.chartPanel.symbolNotFound") : tr("menu.chartPanel.cantReachSource");
     main = null;
     other = null;
   }
@@ -311,7 +312,7 @@ function Header(props: { data: NonNullable<ReturnType<typeof series>> | null }) 
     value = s.format(last, d.currency);
     if (s.mode === "price") {
       const first = d.values[0]!;
-      change = { abs: last - first, rel: first ? ((last - first) / first) * 100 : null, text: `em ${rangeLabel}` };
+      change = { abs: last - first, rel: first ? ((last - first) / first) * 100 : null, text: tr("menu.chartPanel.in", { rangeLabel }) };
     } else if (d.compare) {
       const before = d.compare[d.compare.length - 1]!;
       change = { abs: last - before, rel: before ? ((last - before) / Math.abs(before)) * 100 : null, text: `vs ${compareLabel()}` };
@@ -331,12 +332,12 @@ function Header(props: { data: NonNullable<ReturnType<typeof series>> | null }) 
         </Text>
         {main?.demo ? (
           <Text size={11} color={ui.faint}>
-            {"dados de exemplo"}
+            {tr("menu.chartPanel.sampleData")}
           </Text>
         ) : null}
         {panel.loading ? (
           <Text size={11} color={ui.muted}>
-            {"carregando…"}
+            {tr("menu.chartPanel.loading")}
           </Text>
         ) : null}
       </Row>
@@ -381,7 +382,7 @@ function Readout(props: { data: NonNullable<ReturnType<typeof series>> }) {
       const delta = to - from;
       const rel = from ? ` (${pct((delta / Math.abs(from)) * 100)})` : "";
       return {
-        first: [{ text: `de ${when(d.at[a]!, d.intraday)} a ${when(d.at[b]!, d.intraday)}${sum ? " (acumulado)" : ""}` }],
+        first: [{ text: tr("menu.chartPanel.fromTo", { p0: when(d.at[a]!, d.intraday), p1: when(d.at[b]!, d.intraday), p2: sum ? tr("menu.chartPanel.cumulative") : "" }) }],
         second: [
           { text: `${f(from)} → ${f(to)}`, bold: true },
           { text: `Δ ${delta >= 0 ? "+" : "−"}${f(Math.abs(delta))}${rel}`, color: delta >= 0 ? ui.green : ui.danger, bold: true },
@@ -389,24 +390,24 @@ function Readout(props: { data: NonNullable<ReturnType<typeof series>> }) {
         clear: true,
       };
     }
-    if (panel.a >= 0) return { first: [{ text: `de ${when(d.at[panel.a]!, d.intraday)} a …` }], second: [{ text: "Clique em outro ponto do gráfico", color: ui.muted }], clear: true };
+    if (panel.a >= 0) return { first: [{ text: tr("menu.chartPanel.fromTo2", { p0: when(d.at[panel.a]!, d.intraday) }) }], second: [{ text: tr("menu.chartPanel.clickAnotherPointOn"), color: ui.muted }], clear: true };
     if (panel.hover >= 0) {
       const i = panel.hover;
       const second: Line[] = [];
-      if (sum) second.push({ text: `no dia ${f(d.raw[i]!)}`, color: ui.muted });
+      if (sum) second.push({ text: tr("menu.chartPanel.onDay", { p0: f(d.raw[i]!) }), color: ui.muted });
       if (d.compare) {
         const j = Math.round((i / Math.max(1, d.values.length - 1)) * (d.compare.length - 1));
         if (panel.compare.startsWith("sym:")) {
           const mine = d.values[0] ? (d.values[i]! / d.values[0] - 1) * 100 : 0;
           const theirs = d.compare[0] ? (d.compare[j]! / d.compare[0] - 1) * 100 : 0;
-          second.push({ text: `${s.title.split("/")[0]} ${pct(mine)} · ${compareLabel()} ${pct(theirs)} desde o início`, color: ui.muted });
+          second.push({ text: tr("menu.chartPanel.sinceStart", { p0: s.title.split("/")[0], p1: pct(mine), p2: compareLabel(), p3: pct(theirs) }), color: ui.muted });
         } else second.push({ text: `${compareLabel()}: ${f(d.compare[j]!)}`, color: ui.muted });
       }
       return { first: [{ text: when(d.at[i]!, d.intraday, true) }, { text: f(d.values[i]!), bold: true }], second, clear: false };
     }
     return {
-      first: [{ text: "Passe o mouse para ver cada valor", color: ui.muted }],
-      second: [{ text: "Arraste (ou clique em dois pontos) para comparar datas", color: ui.muted }],
+      first: [{ text: tr("menu.chartPanel.hoverToSeeEach"), color: ui.muted }],
+      second: [{ text: tr("menu.chartPanel.dragOrClickTwo"), color: ui.muted }],
       clear: false,
     };
   })();
@@ -493,7 +494,7 @@ function Chart() {
     return (
       <View style={{ height: PLOT_H + 18 + 20, align: "center", justify: "center", gap: 6 }}>
         <Text size={12} color={panel.error ? ui.danger : ui.muted}>
-          {panel.error || (panel.loading ? "Carregando…" : "Sem dados para este período")}
+          {panel.error || (panel.loading ? tr("menu.chartPanel.loading2") : tr("menu.chartPanel.noDataForThis"))}
         </Text>
       </View>
     );
@@ -562,7 +563,7 @@ function Compare() {
   return (
     <View style={{ gap: 4 }}>
       <Text size={11} color={ui.muted}>
-        {"Comparar com"}
+        {tr("menu.chartPanel.compareWith")}
       </Text>
       <Row style={{ align: "center", gap: 2, wrap: true, rowGap: 4 }}>
       {s.compares.map((o) => (
@@ -608,7 +609,7 @@ function Footer() {
   const s = src!;
   const applied = s.applied?.();
   const inUse = !!applied && applied.range === panel.range && (applied.compare === undefined || applied.compare === panel.compare);
-  const stamp = main?.demo ? "dados de exemplo" : main ? `dados de ${when(main.asOf, true)}` : "";
+  const stamp = main?.demo ? tr("menu.chartPanel.sampleData") : main ? tr("menu.chartPanel.dataFrom", { p0: when(main.asOf, true) }) : "";
   return (
     <View style={{ gap: 8 }}>
       <View style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
@@ -618,11 +619,11 @@ function Footer() {
         </Text>
       </Row>
       <Row style={{ align: "center", gap: 8, justify: "end" }}>
-        {s.url ? <Button id="cp-site" label="Abrir no site" glyph={0xe8a7 /* OpenInNewWindow */} onClick={() => launch(s.url!)} /> : null}
+        {s.url ? <Button id="cp-site" label={tr("menu.chartPanel.openOnWebsite")} glyph={0xe8a7 /* OpenInNewWindow */} onClick={() => launch(s.url!)} /> : null}
         {s.apply ? (
           <Button
             id="cp-apply"
-            label={inUse ? "Em uso no tile" : "Usar no tile"}
+            label={inUse ? tr("menu.chartPanel.inUseOnTile") : tr("menu.chartPanel.useOnTile")}
             glyph={inUse ? 0xe73e /* CheckMark */ : undefined}
             accent
             disabled={inUse}

@@ -8,6 +8,7 @@ import { defineWidget } from "../types";
 import { MediaHover, hideMediaFlyout } from "../../menu/media-flyout";
 import type { DockMenuItem } from "../../menu/dock-menu";
 
+import { t } from "../../i18n";
 type Size = "compact" | "normal" | "wide";
 type SecondLine = "artist" | "album" | "app";
 type ClickAction = "open" | "playPause" | "none";
@@ -57,7 +58,7 @@ function Art() {
 }
 
 function secondLine(kind: SecondLine) {
-  if (!(media.active && media.title)) return "Abra um player";
+  if (!(media.active && media.title)) return t("widgets.nowPlaying.openPlayer");
   const app = media.app ? sourceName(media.app) : "";
   if (kind === "album") return media.album || media.artist || app;
   if (kind === "app") return app || media.artist;
@@ -66,8 +67,8 @@ function secondLine(kind: SecondLine) {
 
 export default defineWidget({
   type: "now-playing",
-  name: "Tocando agora",
-  description: "Música de qualquer player (Spotify, navegador, Apple Music) com controles, volume e troca de player ao passar o mouse.",
+  name: t("widgets.nowPlaying.nowPlaying"),
+  description: t("widgets.nowPlaying.musicFromAnyPlayer"),
   category: "media",
   defaultConfig: {
     hideWhenIdle: true,
@@ -83,65 +84,65 @@ export default defineWidget({
     flyoutVolume: true,
   },
   settings: [
-    { kind: "toggle", key: "hideWhenIdle", label: "Ocultar quando nada estiver tocando", description: "Some do dock enquanto nenhum player tem mídia aberta." },
+    { kind: "toggle", key: "hideWhenIdle", label: t("widgets.nowPlaying.hideWhenNothingIs"), description: t("widgets.nowPlaying.disappearsFromDockWhile") },
     {
       kind: "toggle",
       key: "hideWhenPaused",
-      label: "Ocultar também quando pausado",
-      description: "Só aparece enquanto algo está tocando.",
+      label: t("widgets.nowPlaying.alsoHideWhenPaused"),
+      description: t("widgets.nowPlaying.onlyShowsWhileSomething"),
       when: (c) => c.hideWhenIdle,
     },
     {
       kind: "choice",
       key: "size",
-      label: "Largura",
+      label: t("widgets.nowPlaying.width"),
       options: [
-        { value: "compact", label: "Compacta" },
-        { value: "normal", label: "Normal" },
-        { value: "wide", label: "Larga" },
+        { value: "compact", label: t("widgets.nowPlaying.compact") },
+        { value: "normal", label: t("widgets.nowPlaying.normal") },
+        { value: "wide", label: t("widgets.nowPlaying.wide") },
       ],
     },
-    { kind: "toggle", key: "showArt", label: "Mostrar capa do álbum", description: "Sem capa, mostra o ícone do player." },
+    { kind: "toggle", key: "showArt", label: t("widgets.nowPlaying.showAlbumArt"), description: t("widgets.nowPlaying.withoutArtShowsPlayer") },
     {
       kind: "choice",
       key: "secondLine",
-      label: "Segunda linha",
+      label: t("widgets.nowPlaying.secondLine"),
       options: [
-        { value: "artist", label: "Artista" },
-        { value: "album", label: "Álbum" },
+        { value: "artist", label: t("widgets.nowPlaying.artist") },
+        { value: "album", label: t("widgets.nowPlaying.album") },
         { value: "app", label: "Player" },
       ],
     },
-    { kind: "toggle", key: "showControls", label: "Mostrar controles", description: "Botões de mídia no próprio bloco." },
+    { kind: "toggle", key: "showControls", label: t("widgets.nowPlaying.showControls"), description: t("widgets.nowPlaying.mediaButtonsOnBlock") },
     {
       kind: "choice",
       key: "controlSet",
-      label: "Botões",
+      label: t("widgets.nowPlaying.buttons"),
       options: [
-        { value: "full", label: "Anterior, tocar e próxima" },
-        { value: "playPause", label: "Só tocar/pausar" },
+        { value: "full", label: t("widgets.nowPlaying.previousPlayAndNext") },
+        { value: "playPause", label: t("widgets.nowPlaying.playPauseOnly") },
       ],
       when: (c) => c.showControls,
     },
-    { kind: "toggle", key: "showProgress", label: "Mostrar barra de progresso" },
+    { kind: "toggle", key: "showProgress", label: t("widgets.nowPlaying.showProgressBar") },
     {
       kind: "choice",
       key: "clickAction",
-      label: "Clique na música",
-      description: "O que acontece ao clicar na capa ou no título.",
+      label: t("widgets.nowPlaying.clickOnSong"),
+      description: t("widgets.nowPlaying.whatHappensWhenYou"),
       options: [
-        { value: "open", label: "Abrir o player" },
+        { value: "open", label: t("widgets.nowPlaying.openPlayer2") },
         { value: "playPause", label: "Tocar/pausar" },
-        { value: "none", label: "Nada" },
+        { value: "none", label: t("widgets.nowPlaying.nothing") },
       ],
     },
     {
       kind: "toggle",
       key: "hoverFlyout",
-      label: "Painel ao passar o mouse",
-      description: "Capa grande, tempo, controles, volume e troca entre players, como o painel de mídia do Windows.",
+      label: t("widgets.nowPlaying.panelOnHover"),
+      description: t("widgets.nowPlaying.largeArtTimeControls"),
     },
-    { kind: "toggle", key: "flyoutVolume", label: "Volume no painel", description: "Volume geral do dispositivo de som padrão.", when: (c) => c.hoverFlyout },
+    { kind: "toggle", key: "flyoutVolume", label: t("widgets.nowPlaying.volumeInPanel"), description: t("widgets.nowPlaying.overallVolumeOfDefault"), when: (c) => c.hoverFlyout },
   ],
   setup(ctx) {
     ctx.onDispose(useMedia());
@@ -162,9 +163,9 @@ export default defineWidget({
   menu() {
     const sections: DockMenuItem[][] = [
       [
-        { label: media.playing ? "Pausar" : "Tocar", icon: media.playing ? "pause" : "play", onSelect: mediaControls.playPause },
-        { label: "Próxima", icon: "skip-forward", onSelect: mediaControls.next },
-        { label: "Anterior", icon: "skip-back", onSelect: mediaControls.previous },
+        { label: media.playing ? t("widgets.nowPlaying.pause") : t("widgets.nowPlaying.play"), icon: media.playing ? "pause" : "play", onSelect: mediaControls.playPause },
+        { label: t("widgets.nowPlaying.next"), icon: "skip-forward", onSelect: mediaControls.next },
+        { label: t("widgets.nowPlaying.previous"), icon: "skip-back", onSelect: mediaControls.previous },
       ],
     ];
     // Every player with a session, the one the tile follows checked, as the Windows flyout pages them.
@@ -181,11 +182,11 @@ export default defineWidget({
       );
     }
     const extra: DockMenuItem[] = [];
-    if (media.app) extra.push({ label: `Abrir ${sourceName(media.app)}`, icon: { fluent: 0xe8a7 /* OpenInNewWindow */ }, onSelect: () => openPlayer() });
+    if (media.app) extra.push({ label: t("widgets.nowPlaying.open", { p0: sourceName(media.app) }), icon: { fluent: 0xe8a7 /* OpenInNewWindow */ }, onSelect: () => openPlayer() });
     if (status.hasAudio) {
-      extra.push({ label: status.muted ? "Ativar som" : "Silenciar", icon: { fluent: status.muted ? 0xe995 : 0xe74f }, onSelect: toggleMute });
+      extra.push({ label: status.muted ? t("widgets.nowPlaying.unmute") : t("widgets.nowPlaying.mute"), icon: { fluent: status.muted ? 0xe995 : 0xe74f }, onSelect: toggleMute });
     }
-    extra.push({ label: "Configurações de som", icon: "settings", onSelect: () => launch("ms-settings:sound") });
+    extra.push({ label: t("widgets.nowPlaying.soundSettings"), icon: "settings", onSelect: () => launch("ms-settings:sound") });
     sections.push(extra);
     return sections;
   },
@@ -207,7 +208,7 @@ export default defineWidget({
         {c.showArt ? <Art /> : null}
         <Column style={{ flex: 1, gap: lines.gap, minWidth: 0 }}>
           <Text size={lines.primary - 1} weight={650} color={ui.text} style={{ lineHeight: lines.lineHeight, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
-            {active ? media.title : "Nada tocando"}
+            {active ? media.title : t("widgets.nowPlaying.nothingPlaying")}
           </Text>
           <Text size={lines.secondary} color={ui.muted} style={{ lineHeight: lines.lineHeight, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
             {secondLine(c.secondLine)}

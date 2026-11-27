@@ -7,6 +7,7 @@ import { defineWidget } from "../../types";
 import { SEARCH_TYPE, dockIndex, dockMetrics, inDockGroup, magnifyStyles, searchLook, searchSlots } from "../../magnify";
 import { Glyph, fluentGlyph } from "./shared";
 
+import { t } from "../../../i18n";
 /** Standalone widths, when the box is not next to Start or Apps. */
 const TILE_WIDTH = { label: 112, normal: 150, wide: 220 };
 
@@ -20,21 +21,21 @@ const TILE_WIDTH = { label: 112, normal: 150, wide: 220 };
  */
 export default defineWidget({
   type: SEARCH_TYPE,
-  name: "Pesquisar",
-  description: "Caixa de pesquisa que abre a pesquisa do Windows. Ao lado do Iniciar, fica como na barra do Windows.",
+  name: t("widgets.launcher.search.search"),
+  description: t("widgets.launcher.search.searchBoxThatOpens"),
   category: "apps",
   defaultConfig: { width: "system" },
   settings: [
     {
       kind: "choice",
       key: "width",
-      label: "Aparência",
+      label: t("widgets.launcher.search.appearance"),
       options: [
-        { value: "system", label: "Seguir o Windows" },
-        { value: "icon", label: "Só o ícone" },
-        { value: "label", label: "Ícone e rótulo" },
-        { value: "normal", label: "Caixa" },
-        { value: "wide", label: "Caixa larga" },
+        { value: "system", label: t("widgets.launcher.search.followWindows") },
+        { value: "icon", label: t("widgets.launcher.search.iconOnly") },
+        { value: "label", label: t("widgets.launcher.search.iconAndLabel") },
+        { value: "normal", label: t("widgets.launcher.search.box") },
+        { value: "wide", label: t("widgets.launcher.search.wideBox") },
       ],
     },
   ],
@@ -47,11 +48,11 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Pesquisar no Windows", icon: "search", onSelect: openStartMenu },
-        { label: "Pesquisar nos arquivos", icon: "folder", onSelect: () => launch("search-ms:") },
-        { label: "Executar", icon: { fluent: fluentGlyph.run }, onSelect: openRunDialog },
+        { label: t("widgets.launcher.search.searchWindows"), icon: "search", onSelect: openStartMenu },
+        { label: t("widgets.launcher.search.searchFiles"), icon: "folder", onSelect: () => launch("search-ms:") },
+        { label: t("widgets.launcher.search.run"), icon: { fluent: fluentGlyph.run }, onSelect: openRunDialog },
       ],
-      [{ label: "Configurações da barra de tarefas", icon: "settings", onSelect: () => launch("ms-settings:taskbar") }],
+      [{ label: t("widgets.launcher.search.taskbarSettings"), icon: "settings", onSelect: () => launch("ms-settings:taskbar") }],
     ];
   },
   View({ ctx, preview }) {
@@ -96,7 +97,7 @@ export default defineWidget({
           <Tile width={width - 8} padding={{ left: 12, right: 12 }} gap={9} onClick={onClick} style={{ radius: ui.tile.height / 2 }}>
             <Glyph code={fluentGlyph.search} size={16} color={ui.muted} />
             <Text size={ui.tile.lines.primary} color={ui.muted} style={{ whiteSpace: "nowrap" }}>
-              Pesquisar
+              {t("widgets.launcher.search.search")}
             </Text>
           </Tile>
         </View>
@@ -114,7 +115,7 @@ export default defineWidget({
       <Tile width={TILE_WIDTH[shown]} padding={{ left: 12, right: 12 }} gap={9} onClick={onClick}>
         <Glyph code={fluentGlyph.search} size={16} color={ui.muted} />
         <Text size={ui.tile.lines.primary} color={ui.muted} style={{ whiteSpace: "nowrap" }}>
-          Pesquisar
+          {t("widgets.launcher.search.search")}
         </Text>
       </Tile>
     );

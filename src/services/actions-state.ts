@@ -20,6 +20,7 @@ import { setEndpointMuted, watchEndpoint, type EndpointState } from "../native/s
 import { onShellEvent, SPI_SETDESKWALLPAPER } from "../native/shell-events";
 import { createPoller } from "./poller";
 
+import { formatDecimal } from "../i18n";
 /** Shared state of the "actions" widgets, polled only while one of them is placed. */
 export const actions = store({
   hasMic: false,
@@ -185,7 +186,7 @@ export function formatBytes(bytes: number) {
     value /= 1024;
     unit++;
   }
-  return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1).replace(".", ",")} ${units[unit]}`;
+  return `${value >= 100 || unit === 0 ? Math.round(value) : formatDecimal(value, 1)} ${units[unit]}`;
 }
 
 // ---------- Wallpaper ----------

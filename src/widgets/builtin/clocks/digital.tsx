@@ -8,6 +8,7 @@ import { Tile, compactView } from "../../ui";
 import { defineWidget } from "../../types";
 import { Colon, SegmentDigit, clockMenu, clockParts, clockState, hourFormatSetting, monthName, timeText, weekdayName, type HourFormat } from "./shared";
 
+import { t } from "../../../i18n";
 /** The clock's date line in the chosen style, from Windows' regional formats. */
 function dateText(now: Date, style: string) {
   switch (style) {
@@ -25,25 +26,25 @@ function dateText(now: Date, style: string) {
 /** Large time with seconds over the short date. */
 export const clock = defineWidget({
   type: "clocks-clock",
-  name: "Relógio",
-  description: "Hora grande com segundos e a data, no formato do Windows ou em 12/24 h.",
+  name: t("widgets.clocks.digital.clock"),
+  description: t("widgets.clocks.digital.largeTimeWithSeconds"),
   category: "clock",
   defaultConfig: { hourFormat: "system", showSeconds: true, showDate: true, dateStyle: "weekday" },
   settings: [
     hourFormatSetting,
-    { kind: "toggle", key: "showSeconds", label: "Mostrar segundos" },
-    { kind: "toggle", key: "showDate", label: "Mostrar data" },
+    { kind: "toggle", key: "showSeconds", label: t("widgets.clocks.digital.showSeconds") },
+    { kind: "toggle", key: "showDate", label: t("widgets.clocks.digital.showDate") },
     {
       kind: "choice",
       key: "dateStyle",
-      label: "Formato da data",
-      description: "Datas no formato regional do Windows.",
+      label: t("widgets.clocks.digital.dateFormat"),
+      description: t("widgets.clocks.digital.datesInWindowsRegional"),
       when: (c) => c.showDate,
       options: [
-        { value: "weekday", label: "Dia da semana e data curta (Qua, 18/11/2026)" },
-        { value: "short", label: "Data curta do Windows (18/11/2026)" },
-        { value: "dayMonth", label: "Dia da semana, dia e mês (Qua, 18 nov)" },
-        { value: "long", label: "Data longa do Windows" },
+        { value: "weekday", label: t("widgets.clocks.digital.weekdayAndShortDate") },
+        { value: "short", label: t("widgets.clocks.digital.windowsShortDate11") },
+        { value: "dayMonth", label: t("widgets.clocks.digital.weekdayDayAndMonth") },
+        { value: "long", label: t("widgets.clocks.digital.windowsLongDate") },
       ],
     },
   ],
@@ -92,11 +93,11 @@ function Flap(props: { text: string; h: number }) {
 /** Split-flap digits, as on an airport board. */
 export const flip = defineWidget({
   type: "clocks-flip",
-  name: "Relógio flip",
-  description: "Dígitos de placas viradas, como um painel de aeroporto.",
+  name: t("widgets.clocks.digital.flipClock"),
+  description: t("widgets.clocks.digital.flippingCardDigitsLike"),
   category: "clock",
   defaultConfig: { hourFormat: "system", showSeconds: false },
-  settings: [hourFormatSetting, { kind: "toggle", key: "showSeconds", label: "Mostrar segundos" }],
+  settings: [hourFormatSetting, { kind: "toggle", key: "showSeconds", label: t("widgets.clocks.digital.showSeconds") }],
   setup(ctx) {
     return clockState(ctx, () => (ctx.config.showSeconds ? "second" : "minute"));
   },
@@ -142,22 +143,22 @@ const segmentColors = { green: ui.green, red: ui.danger, blue: ui.blue, orange: 
 /** Seven-segment digits with the weekday and the date beside them. */
 export const segment = defineWidget({
   type: "clocks-segment",
-  name: "Relógio de segmentos",
-  description: "Dígitos de sete segmentos com dia da semana e data.",
+  name: t("widgets.clocks.digital.segmentClock"),
+  description: t("widgets.clocks.digital.sevenSegmentDigitsWith"),
   category: "clock",
   defaultConfig: { hourFormat: "system", color: "green", showSeconds: false },
   settings: [
     hourFormatSetting,
-    { kind: "toggle", key: "showSeconds", label: "Piscar os dois-pontos a cada segundo" },
+    { kind: "toggle", key: "showSeconds", label: t("widgets.clocks.digital.blinkColonEverySecond") },
     {
       kind: "choice",
       key: "color",
-      label: "Cor",
+      label: t("widgets.clocks.digital.color"),
       options: [
-        { value: "green", label: "Verde" },
-        { value: "red", label: "Vermelho" },
-        { value: "blue", label: "Azul" },
-        { value: "orange", label: "Laranja" },
+        { value: "green", label: t("widgets.clocks.digital.green") },
+        { value: "red", label: t("widgets.clocks.digital.red") },
+        { value: "blue", label: t("widgets.clocks.digital.blue") },
+        { value: "orange", label: t("widgets.clocks.digital.orange") },
       ],
     },
   ],

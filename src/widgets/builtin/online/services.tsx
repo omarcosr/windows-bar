@@ -10,6 +10,7 @@ import { defineWidget } from "../../types";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 import { Badge, Title, Trend, changeLine, compact, errorText, percentChange, refreshNow, registerRefresh, sourceLines, Stat } from "./common";
 
+import { t as tr, language } from "../../../i18n";
 const DAY_MS = 86_400_000;
 
 function ymd(d: Date) {
@@ -33,8 +34,8 @@ function localZone() {
 const periodSetting = {
   kind: "choice" as const,
   key: "period" as const,
-  label: "Período",
-  description: "A variação compara com o mesmo número de dias antes.",
+  label: tr("widgets.online.services.period"),
+  description: tr("widgets.online.services.changeComparesWithSame"),
   options: [
     { value: "7", label: "7 dias" },
     { value: "30", label: "30 dias" },
@@ -95,10 +96,10 @@ interface LinearIssue {
 }
 
 const DEMO_ISSUES: LinearIssue[] = [
-  { identifier: "ENG-142", title: "Corrigir login com SSO", url: "https://linear.app", state: { type: "started", name: "Em andamento" } },
-  { identifier: "ENG-139", title: "Cache das rotas da API", url: "https://linear.app", state: { type: "started", name: "Em andamento" } },
-  { identifier: "ENG-131", title: "Revisar onboarding", url: "https://linear.app", state: { type: "unstarted", name: "Todo" } },
-  { identifier: "ENG-120", title: "Atualizar dependências", url: "https://linear.app", state: { type: "backlog", name: "Backlog" } },
+  { identifier: "ENG-142", title: tr("widgets.online.services.fixSsoLogin"), url: "https://linear.app", state: { type: "started", name: tr("widgets.online.services.inProgress") } },
+  { identifier: "ENG-139", title: tr("widgets.online.services.apiRouteCaching"), url: "https://linear.app", state: { type: "started", name: tr("widgets.online.services.inProgress") } },
+  { identifier: "ENG-131", title: tr("widgets.online.services.reviewOnboarding"), url: "https://linear.app", state: { type: "unstarted", name: "Todo" } },
+  { identifier: "ENG-120", title: tr("widgets.online.services.updateDependencies"), url: "https://linear.app", state: { type: "backlog", name: "Backlog" } },
 ];
 
 const LINEAR_QUERY = `query { viewer { assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled"] } } }) { nodes { identifier title url state { type name } } } } }`;
@@ -106,15 +107,15 @@ const LINEAR_QUERY = `query { viewer { assignedIssues(first: 100, filter: { stat
 const linear = defineWidget({
   type: "online-linear",
   name: "Linear",
-  description: "Issues atribuídas a você e quantas estão em andamento.",
+  description: tr("widgets.online.services.issuesAssignedToYou"),
   category: "productivity",
   defaultConfig: { apiKey: "" },
   settings: [
     {
       kind: "text",
       key: "apiKey",
-      label: "Chave de API pessoal do Linear",
-      description: "Settings → Security & access → Personal API keys. Vazia mostra dados de exemplo.",
+      label: tr("widgets.online.services.linearPersonalApiKey"),
+      description: tr("widgets.online.services.settingsSecurityAccessPersonal"),
       placeholder: "lin_api_…",
       secret: true,
     },
@@ -151,17 +152,17 @@ const linear = defineWidget({
     return [
       [...started, ...rest].slice(0, 8).map(item),
       [
-        { label: "Abrir Linear", icon: "chevron-right", onSelect: () => launch("https://linear.app") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.services.openLinear"), icon: "chevron-right", onSelect: () => launch("https://linear.app") },
+        { label: tr("widgets.online.services.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const started = state.issues.filter((i) => i.state.type === "started").length;
     const tip = () => [
-      `Issues abertas atribuídas a você: ${state.issues.length}`,
-      `Em andamento: ${started} · as outras estão em Todo ou Backlog`,
-      ...sourceLines(state, "API do Linear (GraphQL)", "Clique para abrir o Linear; as issues ficam no botão direito"),
+      tr("widgets.online.services.openIssuesAssignedTo", { length: state.issues.length }),
+      tr("widgets.online.services.inProgressOthersAre", { started }),
+      ...sourceLines(state, tr("widgets.online.services.linearApiGraphql"), tr("widgets.online.services.clickToOpenLinear")),
     ];
     return (
       <Tile icon={<BrandIcon brand="linear" />} value={String(state.issues.length)} width={150} onClick={() => launch("https://linear.app")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
@@ -172,7 +173,7 @@ const linear = defineWidget({
           </Row>
           <Row style={{ align: "center", gap: 8 }}>
             <Stat label="minhas" value={String(state.issues.length)} />
-            <Stat label="em andamento" value={String(started)} color={started ? "#f2c94c" : ui.text} />
+            <Stat label={tr("widgets.online.services.inProgress2")} value={String(started)} color={started ? "#f2c94c" : ui.text} />
           </Row>
         </Column>
       </Tile>
@@ -195,15 +196,15 @@ interface ApiCounts {
 const supabase = defineWidget({
   type: "online-supabase",
   name: "Supabase",
-  description: "Saúde dos serviços do projeto e requisições nas últimas 24 h (Management API).",
+  description: tr("widgets.online.services.healthOfProjectsServices"),
   category: "productivity",
   defaultConfig: { token: "", projectRef: "" },
   settings: [
     {
       kind: "text",
       key: "token",
-      label: "Access token do Supabase",
-      description: "Account → Access Tokens (sbp_…). Vazio mostra dados de exemplo.",
+      label: tr("widgets.online.services.supabaseAccessToken"),
+      description: tr("widgets.online.services.accountAccessTokensSbp"),
       placeholder: "sbp_…",
       secret: true,
     },
@@ -261,14 +262,14 @@ const supabase = defineWidget({
   menu({ state, ctx }) {
     const ref = String(ctx.config.projectRef || "").trim();
     const sections: DockMenuItem[][] = [
-      state.down.length ? state.down.map((name) => ({ label: `${name}: com problema`, danger: true, onSelect: () => {} })) : [],
+      state.down.length ? state.down.map((name) => ({ label: tr("widgets.online.services.havingProblems", { name }), danger: true, onSelect: () => {} })) : [],
       [
         {
-          label: "Abrir projeto",
+          label: tr("widgets.online.services.openProject"),
           icon: "chevron-right",
           onSelect: () => launch(ref ? `https://supabase.com/dashboard/project/${ref}` : "https://supabase.com/dashboard"),
         },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.services.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
     return sections.filter((s) => s.length);
@@ -277,10 +278,10 @@ const supabase = defineWidget({
     const ok = state.healthy === state.services;
     const ref = String(ctx.config.projectRef || "").trim();
     const tip = () => [
-      `${state.requests.toLocaleString("pt-BR")} requisições nas últimas 24 h (auth, REST, storage e realtime)`,
-      ok ? `Serviços saudáveis: ${state.healthy} de ${state.services}` : `Com problema: ${state.down.join(", ")}`,
-      "Gráfico: requisições por hora",
-      ...sourceLines(state, `Management API do Supabase${ref ? `, projeto ${ref}` : ""}`, "Clique para abrir o projeto", "informe o token e o project ref"),
+      tr("widgets.online.services.requestsInLast24", { p0: state.requests.toLocaleString(language) }),
+      ok ? tr("widgets.online.services.healthyServicesOf", { healthy: state.healthy, services: state.services }) : tr("widgets.online.services.havingProblems2", { p0: state.down.join(", ") }),
+      tr("widgets.online.services.chartRequestsPerHour"),
+      ...sourceLines(state, tr("widgets.online.services.supabaseManagementApi", { p0: ref ? tr("widgets.online.services.project", { ref }) : "" }), tr("widgets.online.services.clickToOpenProject"), tr("widgets.online.services.enterTokenAndProject")),
     ];
     return (
       <MetricTile
@@ -288,7 +289,7 @@ const supabase = defineWidget({
         letter="S"
         logo="supabase"
         fg="#3ecf8e"
-        title={ok ? "Supabase" : `${state.services - state.healthy} com falha`}
+        title={ok ? "Supabase" : tr("widgets.online.services.failing", { p0: state.services - state.healthy })}
         value={compact(state.requests)}
         series={state.series}
         change={null}
@@ -316,15 +317,15 @@ const DELIVERED = new Set(["delivered", "opened", "clicked"]);
 const resend = defineWidget({
   type: "online-resend",
   name: "Resend",
-  description: "E-mails enviados nos últimos 7 dias e quantos foram entregues.",
+  description: tr("widgets.online.services.emailsSentInLast"),
   category: "productivity",
   defaultConfig: { apiKey: "" },
   settings: [
     {
       kind: "text",
       key: "apiKey",
-      label: "Chave de API do Resend",
-      description: "Precisa de permissão Full access para listar e-mails. Vazia mostra dados de exemplo.",
+      label: tr("widgets.online.services.resendApiKey"),
+      description: tr("widgets.online.services.needsFullAccessPermission"),
       placeholder: "re_…",
       secret: true,
     },
@@ -378,17 +379,17 @@ const resend = defineWidget({
   menu({ state }) {
     return [
       [
-        { label: "Abrir e-mails no Resend", icon: "chevron-right", onSelect: () => launch("https://resend.com/emails") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.services.openEmailsInResend"), icon: "chevron-right", onSelect: () => launch("https://resend.com/emails") },
+        { label: tr("widgets.online.services.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const rate = state.sent ? Math.round((state.delivered / state.sent) * 100) : 0;
     const tip = () => [
-      `${state.sent.toLocaleString("pt-BR")} e-mails enviados nos últimos 7 dias`,
-      `${state.delivered.toLocaleString("pt-BR")} entregues (${rate}%): último evento entregue, aberto ou clicado`,
-      ...sourceLines(state, "API do Resend (lista de e-mails)", "Clique para abrir os e-mails no Resend"),
+      tr("widgets.online.services.emailsSentInLast7", { p0: state.sent.toLocaleString(language) }),
+      tr("widgets.online.services.deliveredLastEventDelivered", { p0: state.delivered.toLocaleString(language), rate }),
+      ...sourceLines(state, tr("widgets.online.services.resendApiEmailList"), tr("widgets.online.services.clickToOpenEmails")),
     ];
     return (
       <Tile icon={<BrandIcon brand="resend" />} value={compact(state.sent)} width={176} onClick={() => launch("https://resend.com/emails")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
@@ -404,7 +405,7 @@ const resend = defineWidget({
             <Meter value={rate / 100} width={84} color={rate >= 95 ? ui.green : rate >= 80 ? ui.orange : ui.danger} />
             <View style={{ flex: 1, align: "end" }}>
               <Text size={10} weight={700} color={rate >= 95 ? ui.green : ui.text} style={numeric}>
-                {`${rate}% entregues`}
+                {tr("widgets.online.services.delivered", { rate })}
               </Text>
             </View>
           </Row>
@@ -423,19 +424,19 @@ interface PlausibleResult {
 const plausible = defineWidget({
   type: "online-plausible",
   name: "Plausible",
-  description: "Visitantes nos últimos 7 dias e a variação contra a semana anterior (Stats API v2).",
+  description: tr("widgets.online.services.visitorsInLast7"),
   category: "productivity",
   defaultConfig: { apiKey: "", siteId: "", host: "https://plausible.io", period: "7" },
   settings: [
     {
       kind: "text",
       key: "apiKey",
-      label: "Chave da Stats API",
-      description: "Account settings → API Keys (tipo Stats API). Vazia mostra dados de exemplo.",
+      label: tr("widgets.online.services.statsApiKey"),
+      description: tr("widgets.online.services.accountSettingsApiKeys"),
       secret: true,
     },
-    { kind: "text", key: "siteId", label: "Site (domínio)", placeholder: "exemplo.com" },
-    { kind: "text", key: "host", label: "Servidor", description: "Para Plausible auto-hospedado.", placeholder: "https://plausible.io" },
+    { kind: "text", key: "siteId", label: tr("widgets.online.services.siteDomain"), placeholder: tr("widgets.online.services.exampleCom") },
+    { kind: "text", key: "host", label: tr("widgets.online.services.server"), description: tr("widgets.online.services.forSelfHostedPlausible"), placeholder: "https://plausible.io" },
     periodSetting,
   ],
   setup(ctx) {
@@ -476,18 +477,18 @@ const plausible = defineWidget({
   menu({ state, ctx }) {
     return [
       [
-        { label: "Abrir painel do Plausible", icon: "chevron-right", onSelect: () => launch(plausibleUrl(ctx.config)) },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.services.openPlausibleDashboard"), icon: "chevron-right", onSelect: () => launch(plausibleUrl(ctx.config)) },
+        { label: tr("widgets.online.services.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const n = periodOf(ctx.config.period);
     const tip = () => [
-      `${state.visitors.toLocaleString("pt-BR")} visitantes únicos nos últimos ${n} dias`,
-      `${changeLine(state.change)} contra os ${n} dias anteriores (${state.previous.toLocaleString("pt-BR")})`,
-      "Gráfico: visitantes por dia",
-      ...sourceLines(state, `Stats API do Plausible${ctx.config.siteId ? `, ${ctx.config.siteId}` : ""}`, "Clique para abrir o painel do Plausible", "informe a chave e o site"),
+      tr("widgets.online.services.uniqueVisitorsInLast", { p0: state.visitors.toLocaleString(language), n }),
+      tr("widgets.online.services.againstPreviousDays", { p0: changeLine(state.change), n, p2: state.previous.toLocaleString(language) }),
+      tr("widgets.online.services.chartVisitorsPerDay"),
+      ...sourceLines(state, tr("widgets.online.services.plausibleStatsApi", { p0: ctx.config.siteId ? `, ${ctx.config.siteId}` : "" }), tr("widgets.online.services.clickToOpenPlausible"), tr("widgets.online.services.enterKeyAndSite")),
     ];
     return (
       <MetricTile
@@ -520,15 +521,15 @@ function plausibleUrl(config: { siteId: string; host: string }) {
 const dub = defineWidget({
   type: "online-dub",
   name: "Dub",
-  description: "Cliques nos seus links nos últimos 7 dias e a variação contra a semana anterior.",
+  description: tr("widgets.online.services.clicksOnYourLinks"),
   category: "productivity",
   defaultConfig: { apiKey: "", period: "7" },
   settings: [
     {
       kind: "text",
       key: "apiKey",
-      label: "Chave de API do Dub",
-      description: "Workspace → Settings → API Keys (leitura de analytics). Vazia mostra dados de exemplo.",
+      label: tr("widgets.online.services.dubApiKey"),
+      description: tr("widgets.online.services.workspaceSettingsApiKeys"),
       placeholder: "dub_…",
       secret: true,
     },
@@ -568,18 +569,18 @@ const dub = defineWidget({
   menu({ state }) {
     return [
       [
-        { label: "Abrir Dub", icon: "chevron-right", onSelect: () => launch("https://app.dub.co") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.services.openDub"), icon: "chevron-right", onSelect: () => launch("https://app.dub.co") },
+        { label: tr("widgets.online.services.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const n = periodOf(ctx.config.period);
     const tip = () => [
-      `${state.clicks.toLocaleString("pt-BR")} cliques nos seus links nos últimos ${n} dias`,
-      `${changeLine(state.change)} contra os ${n} dias anteriores (${state.previous.toLocaleString("pt-BR")})`,
-      "Gráfico: cliques por dia",
-      ...sourceLines(state, "API de analytics do Dub", "Clique para abrir o Dub"),
+      tr("widgets.online.services.clicksOnYourLinksIn", { p0: state.clicks.toLocaleString(language), n }),
+      tr("widgets.online.services.againstPreviousDays", { p0: changeLine(state.change), n, p2: state.previous.toLocaleString(language) }),
+      tr("widgets.online.services.chartClicksPerDay"),
+      ...sourceLines(state, tr("widgets.online.services.dubAnalyticsApi"), tr("widgets.online.services.clickToOpenDub")),
     ];
     return (
       <MetricTile
@@ -587,7 +588,7 @@ const dub = defineWidget({
         preview={preview}
         color="#000"
         letter="D"
-        title={`Dub · ${n} dias`}
+        title={tr("widgets.online.services.dubDays", { n })}
         value={compact(state.clicks)}
         series={state.series}
         change={state.change}

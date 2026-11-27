@@ -10,11 +10,12 @@ import { DayMark, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Caption, clockMenu, clockState, hourFormatSetting, monthName, timeText, weekdayName, type HourFormat } from "./shared";
 
+import { t } from "../../../i18n";
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The current temperature, or a demo one in the gallery before the first fetch. */
 const temperature = (preview: boolean) => (weather.ready ? `${weather.temperature}°` : preview ? "24°" : "–");
-const conditions = (preview: boolean) => (weather.ready ? weatherLabel(weather.code) : preview ? "Céu limpo" : "");
+const conditions = (preview: boolean) => (weather.ready ? weatherLabel(weather.code) : preview ? t("widgets.clocks.calendar.clearSky") : "");
 
 /** Windows' long date, split into the weekday and the rest when the format starts with it. */
 function longDate(d: Date) {
@@ -26,8 +27,8 @@ function longDate(d: Date) {
 /** The full date in large type. */
 export const date = defineWidget({
   type: "clocks-date",
-  name: "Data",
-  description: "A data completa em letras grandes, no formato longo do Windows.",
+  name: t("widgets.clocks.calendar.date"),
+  description: t("widgets.clocks.calendar.fullDateInLarge"),
   category: "clock",
   defaultConfig: {},
   setup(ctx) {
@@ -56,11 +57,11 @@ export const date = defineWidget({
 /** A tear-off calendar page: month on a red band, the day number below. */
 export const dayNumber = defineWidget({
   type: "clocks-day",
-  name: "Dia do mês",
-  description: "Uma folha de calendário com o mês e o número do dia.",
+  name: t("widgets.clocks.calendar.dayOfMonth"),
+  description: t("widgets.clocks.calendar.calendarSheetWithMonth"),
   category: "clock",
   defaultConfig: { showWeekday: true },
-  settings: [{ kind: "toggle", key: "showWeekday", label: "Mostrar dia da semana" }],
+  settings: [{ kind: "toggle", key: "showWeekday", label: t("widgets.clocks.calendar.showWeekday") }],
   setup(ctx) {
     return clockState(ctx, () => "day");
   },
@@ -99,11 +100,11 @@ export const dayNumber = defineWidget({
 /** Weekday, date, time and the weather in one tile. */
 export const today = defineWidget({
   type: "clocks-today",
-  name: "Hoje",
-  description: "Dia da semana, data, hora e o clima atual.",
+  name: t("widgets.clocks.calendar.today"),
+  description: t("widgets.clocks.calendar.weekdayDateTimeAnd"),
   category: "clock",
   defaultConfig: { hourFormat: "system", showWeather: true },
-  settings: [hourFormatSetting, { kind: "toggle", key: "showWeather", label: "Mostrar clima" }],
+  settings: [hourFormatSetting, { kind: "toggle", key: "showWeather", label: t("widgets.clocks.calendar.showWeather") }],
   setup(ctx) {
     ctx.onDispose(weatherPoller.acquire());
     return clockState(ctx, () => "minute");
@@ -119,7 +120,7 @@ export const today = defineWidget({
             <Text size={ui.tile.lines.primary} weight={700} color={ui.text} style={{ lineHeight: 1.15 }}>
               {weekdayName(now, true)}
             </Text>
-            <Caption>{`${now.getDate()} de ${monthName(now, true).toLowerCase()}`}</Caption>
+            <Caption>{t("widgets.clocks.calendar.de", { p0: now.getDate(), p1: monthName(now, true).toLowerCase() })}</Caption>
           </Column>
           <Text size={Math.round(ui.tile.height * 0.4)} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1 }}>
             {timeText(now, ctx.config.hourFormat as HourFormat)}
@@ -142,10 +143,10 @@ export const today = defineWidget({
 export const week = defineWidget({
   type: "clocks-week",
   name: "7 dias",
-  description: "A semana em faixa, com o dia de hoje destacado e a temperatura atual.",
+  description: t("widgets.clocks.calendar.weekAsStripWith"),
   category: "clock",
   defaultConfig: { showWeather: true },
-  settings: [{ kind: "toggle", key: "showWeather", label: "Mostrar temperatura de hoje" }],
+  settings: [{ kind: "toggle", key: "showWeather", label: t("widgets.clocks.calendar.showTodaysTemperature") }],
   setup(ctx) {
     ctx.onDispose(weatherPoller.acquire());
     return clockState(ctx, () => "day");
@@ -179,7 +180,7 @@ export const week = defineWidget({
               <Text size={ui.tile.lines.primary + 2} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.1 }}>
                 {temperature(preview)}
               </Text>
-              <Caption>hoje</Caption>
+              <Caption>{t("widgets.clocks.calendar.today2")}</Caption>
             </Column>
           ) : null}
         </Tile>

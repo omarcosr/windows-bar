@@ -21,6 +21,7 @@ import { appIdForShortcut, appIdForWindow, defaultAppIdForProgram, readJumpList,
 import { popupSystemMenu } from "../../native/system-menu";
 import { systemScale } from "../../native/shell-icon";
 
+import { t as tr } from "../../i18n";
 /** The last mouse press on the dock: its button and the Shift/Ctrl state Tarve reports with it (pointerEvents). */
 let lastPress: { button: number; shift: boolean; ctrl: boolean; at: number } | null = null;
 /** Each Apps instance's buttons, for the middle click (released over one of them). */
@@ -401,7 +402,7 @@ function OverflowButton(props: { items: Item[]; dockIndex: number; onContextMenu
   const open = () => {
     hidePreview(true);
     showDockMenu({
-      title: "Mais apps",
+      title: tr("widgets.apps.moreApps"),
       grid: true,
       sections: [
         props.items.map((item): DockMenuItem => {
@@ -589,7 +590,7 @@ function jumpAppId(item: Item, windows: readonly AppWindow[]): string {
   return /^[a-z]:\\/i.test(path) ? defaultAppIdForProgram(path) : "";
 }
 
-const JUMP_TITLES: Record<JumpCategory["kind"], string> = { pinned: "Fixado", recent: "Recentes", frequent: "Frequentes", tasks: "Tarefas", custom: "" };
+const JUMP_TITLES: Record<JumpCategory["kind"], string> = { pinned: tr("widgets.apps.pinned"), recent: tr("widgets.apps.recent"), frequent: tr("widgets.apps.frequent"), tasks: tr("widgets.apps.tasks"), custom: "" };
 
 /** The app's jump list as menu sections, each under the heading the taskbar gives it. */
 function jumpSections(appId: string, refresh: () => void): { sections: DockMenuItem[][]; titles: string[] } {
@@ -605,7 +606,7 @@ function jumpSections(appId: string, refresh: () => void): { sections: DockMenuI
           trailing: entry.pinnable
             ? {
                 icon: entry.pinned ? glyph.unpin : glyph.pin,
-                label: entry.pinned ? "Desafixar desta lista" : "Fixar nesta lista",
+                label: entry.pinned ? tr("widgets.apps.unpinFromThisList") : tr("widgets.apps.pinToThisList"),
                 onSelect: () => {
                   entry.togglePin();
                   refresh();
@@ -739,11 +740,11 @@ function applyOrder(items: Item[], order: readonly string[] | undefined): Item[]
 
 export default defineWidget({
   type: "apps",
-  name: "Apps",
-  description: "Os apps fixados da barra de tarefas do Windows, os fixados no dock e os abertos. Clique direito abre o menu do app.",
+  name: tr("widgets.apps.apps"),
+  description: tr("widgets.apps.appsPinnedToWindows"),
   category: "apps",
   defaultConfig: { showUnpinned: true, dockPins: [] as DockPin[], order: [] as string[] },
-  settings: [{ kind: "toggle", key: "showUnpinned", label: "Mostrar apps abertos não fixados" }],
+  settings: [{ kind: "toggle", key: "showUnpinned", label: tr("widgets.apps.showOpenAppsThat") }],
   setup(ctx) {
     watchTaskbarPins();
     ctx.onDispose(windowsPoller.acquire());
@@ -764,8 +765,8 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
-        { label: "Fixar e organizar na barra do Windows", icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
+        { label: tr("widgets.apps.fileExplorer"), icon: "folder", onSelect: () => launch("explorer.exe") },
+        { label: tr("widgets.apps.pinAndArrangeOn"), icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
       ],
     ];
   },
@@ -878,14 +879,14 @@ export default defineWidget({
         if (windows.length > 1) {
           showDockMenu({
             title: item.name,
-            subtitle: `${windows.length} janelas abertas`,
+            subtitle: tr("widgets.apps.openWindows", { count: windows.length }),
             image: icon,
             sections: [
               [
-                { label: "Restaurar todas as janelas", icon: glyph.window, onSelect: () => restoreApp(item.key) },
-                { label: "Minimizar todas as janelas", icon: glyph.window, onSelect: () => minimizeApp(item.key) },
+                { label: tr("widgets.apps.restoreAllWindows"), icon: glyph.window, onSelect: () => restoreApp(item.key) },
+                { label: tr("widgets.apps.minimizeAllWindows"), icon: glyph.window, onSelect: () => minimizeApp(item.key) },
               ],
-              [{ label: "Fechar todas as janelas", icon: "x", danger: true, onSelect: () => closeApp(item.key) }],
+              [{ label: tr("widgets.apps.closeAllWindows"), icon: "x", danger: true, onSelect: () => closeApp(item.key) }],
             ],
           });
           return;
@@ -897,24 +898,24 @@ export default defineWidget({
         onSelect: () => focusWindow(w.hwnd),
       }));
       const actions: DockMenuItem[] = [
-        { label: windows.length ? "Nova janela" : "Abrir", icon: "plus", onSelect: () => launch(item.launch) },
+        { label: windows.length ? tr("widgets.apps.newWindow") : tr("widgets.apps.open"), icon: "plus", onSelect: () => launch(item.launch) },
         item.pin
-          ? { label: "Desafixar da barra de tarefas", icon: glyph.unpin, onSelect: () => void unpinFromTaskbar(item.pin!) }
+          ? { label: tr("widgets.apps.unpinFromTaskbar"), icon: glyph.unpin, onSelect: () => void unpinFromTaskbar(item.pin!) }
           : item.dockPin
-            ? { label: "Desafixar do dock", icon: glyph.unpin, onSelect: () => unpinFromDock(item.dockPin!) }
-            : { label: "Fixar no dock", icon: glyph.pin, onSelect: () => pinToDock(item) },
+            ? { label: tr("widgets.apps.unpinFromDock"), icon: glyph.unpin, onSelect: () => unpinFromDock(item.dockPin!) }
+            : { label: tr("widgets.apps.pinToDock"), icon: glyph.pin, onSelect: () => pinToDock(item) },
         ...(/^[a-z]:\\/i.test(item.exe)
-          ? [{ label: "Abrir local do arquivo", icon: "folder" as const, onSelect: () => openFileLocation(item.exe) }]
+          ? [{ label: tr("widgets.apps.openFileLocation"), icon: "folder" as const, onSelect: () => openFileLocation(item.exe) }]
           : []),
       ];
       const close: DockMenuItem[] = windows.length
         ? [
             // Settings > System > For developers > End task: above "Close", as on the taskbar.
             ...(taskbarPrefs.endTask
-              ? [{ label: "Encerrar tarefa", icon: glyph.endTask, danger: true, onSelect: () => endTask(item.key) }]
+              ? [{ label: tr("widgets.apps.endTask"), icon: glyph.endTask, danger: true, onSelect: () => endTask(item.key) }]
               : []),
             {
-              label: windows.length > 1 ? `Fechar ${windows.length} janelas` : "Fechar janela",
+              label: tr("widgets.apps.closeWindows", { count: windows.length }),
               icon: "x",
               danger: true,
               onSelect: () => closeApp(item.key),
@@ -930,7 +931,7 @@ export default defineWidget({
         return {
           id: menuId,
           title: item.name,
-          subtitle: windows.length ? (windows.length > 1 ? `${windows.length} janelas abertas` : "1 janela aberta") : "Não está aberto",
+          subtitle: windows.length ? tr("widgets.apps.openWindows", { count: windows.length }) : tr("widgets.apps.notOpen"),
           image: icon,
           sections: [...jump.sections, windowItems, actions, close],
           sectionTitles: jump.titles,

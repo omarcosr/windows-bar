@@ -33,6 +33,7 @@ import { HitReach, Tile } from "../ui";
 import { HoverTip, hideTip, hoverTipAt } from "../../menu/hover-tip";
 import { defineWidget } from "../types";
 
+import { t } from "../../i18n";
 type InlineMode = "promoted" | "all" | "none";
 
 /** Tray icons follow the icon size setting (18 px at 100%). */
@@ -269,7 +270,7 @@ function TrayButton(props: { icon: TrayIcon; preview?: boolean; movable?: boolea
   );
 }
 
-const label = (icon: TrayIcon) => icon.tip.split("\n")[0]!.trim() || (icon.exe ? prettyName(icon.exe) : "Ícone");
+const label = (icon: TrayIcon) => icon.tip.split("\n")[0]!.trim() || (icon.exe ? prettyName(icon.exe) : t("widgets.tray.icon"));
 
 const OVERFLOW_MENU = "tray-overflow";
 
@@ -351,7 +352,7 @@ function overflowSpec(icons: TrayIcon[], zones: string[]): DockMenuSpec & { id: 
         }
       : undefined,
   }));
-  return { id: OVERFLOW_MENU, title: "Ícones ocultos", sections: [items], grid: true };
+  return { id: OVERFLOW_MENU, title: t("widgets.tray.hiddenIcons"), sections: [items], grid: true };
 }
 
 /** The row's buttons, with the gap where a dragged icon will land (slot among the others). */
@@ -382,20 +383,20 @@ function rowChildren(inline: TrayIcon[], preview: boolean | undefined, movable: 
 export default defineWidget({
   type: "tray",
   sideForm: "full",
-  name: "Bandeja do sistema",
-  description: "Ícones dos apps em segundo plano. A seta mostra os ocultos.",
+  name: t("widgets.tray.systemTray"),
+  description: t("widgets.tray.iconsOfBackgroundApps"),
   category: "system",
   defaultConfig: { inline: "promoted" as InlineMode, order: [] as string[] },
   settings: [
     {
       kind: "choice",
       key: "inline",
-      label: "Ícones na barra",
-      description: "Quais ícones ficam visíveis; o resto fica atrás da seta.",
+      label: t("widgets.tray.iconsOnBar"),
+      description: t("widgets.tray.whichIconsStayVisible"),
       options: [
-        { value: "promoted", label: "Como o Windows" },
-        { value: "all", label: "Todos" },
-        { value: "none", label: "Nenhum" },
+        { value: "promoted", label: t("widgets.tray.likeWindows") },
+        { value: "all", label: t("widgets.tray.all") },
+        { value: "none", label: t("widgets.tray.none") },
       ],
     },
   ],
@@ -405,7 +406,7 @@ export default defineWidget({
   },
   menu() {
     return [
-      [{ label: "Configurações da barra de tarefas", icon: "settings", onSelect: () => launch("ms-settings:taskbar") }],
+      [{ label: t("widgets.tray.taskbarSettings"), icon: "settings", onSelect: () => launch("ms-settings:taskbar") }],
     ];
   },
   View({ ctx, preview }) {

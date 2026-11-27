@@ -8,22 +8,23 @@ import { Meter, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { fluent, G, Glyph, Percent, volumeGlyph } from "./shared";
 
+import { t } from "../../../i18n";
 /** Default playback device (the taskbar speaker's IAudioEndpointVolume, read by services/status). */
 export default defineWidget({
   type: "actions-audio-output",
-  name: "Saída de áudio",
-  description: "Volume do dispositivo de reprodução padrão. Clique abre o volume do Windows (ou silencia, se preferir).",
+  name: t("widgets.actions.audioOutput.audioOutput"),
+  description: t("widgets.actions.audioOutput.volumeOfDefaultPlayback"),
   category: "media",
   defaultConfig: { showMeter: true, click: "flyout" },
   settings: [
-    { kind: "toggle", key: "showMeter", label: "Mostrar barra de volume" },
+    { kind: "toggle", key: "showMeter", label: t("widgets.actions.audioOutput.showVolumeBar") },
     {
       kind: "choice",
       key: "click",
-      label: "Ao clicar",
+      label: t("widgets.actions.audioOutput.onClick"),
       options: [
-        { value: "flyout", label: "Abrir o volume do Windows (configurações rápidas)" },
-        { value: "mute", label: "Silenciar ou ativar o som" },
+        { value: "flyout", label: t("widgets.actions.audioOutput.openWindowsVolumeQuick") },
+        { value: "mute", label: t("widgets.actions.audioOutput.muteOrUnmute") },
       ],
     },
   ],
@@ -40,14 +41,14 @@ export default defineWidget({
     }));
     return [
       [
-        { label: status.muted ? "Ativar som" : "Silenciar", icon: fluent(status.muted ? G.volume[3] : G.volumeMute), onSelect: toggleMute },
+        { label: status.muted ? t("widgets.actions.audioOutput.unmute") : t("widgets.actions.audioOutput.mute"), icon: fluent(status.muted ? G.volume[3] : G.volumeMute), onSelect: toggleMute },
         { label: "Aumentar 10%", icon: fluent(G.plus), onSelect: () => changeVolume(status.volume + 10) },
         { label: "Diminuir 10%", icon: fluent(G.minus), onSelect: () => changeVolume(status.volume - 10) },
       ],
       steps,
       [
-        { label: "Configurações de som", icon: fluent(G.settings), onSelect: () => launch("ms-settings:sound") },
-        { label: "Mixer de volume", icon: fluent(G.settings), onSelect: () => launch("ms-settings:apps-volume") },
+        { label: t("widgets.actions.audioOutput.soundSettings"), icon: fluent(G.settings), onSelect: () => launch("ms-settings:sound") },
+        { label: t("widgets.actions.audioOutput.volumeMixer"), icon: fluent(G.settings), onSelect: () => launch("ms-settings:apps-volume") },
       ],
     ];
   },
@@ -58,8 +59,8 @@ export default defineWidget({
     // The taskbar's speaker opens quick settings (volume slider, output picker); "mute" keeps the old one-click mute.
     const mute = ctx.config.click === "mute";
     const tip = () => [
-      status.muted ? `${status.audioDevice || "Alto-falantes"}: sem áudio` : `${status.audioDevice || "Alto-falantes"}: ${status.volume}%`,
-      mute ? (status.muted ? "Clique para ativar o som" : "Clique para silenciar") : "Clique para ajustar o volume",
+      status.muted ? t("widgets.actions.audioOutput.muted", { p0: status.audioDevice || t("widgets.actions.audioOutput.speakers") }) : `${status.audioDevice || t("widgets.actions.audioOutput.speakers")}: ${status.volume}%`,
+      mute ? (status.muted ? t("widgets.actions.audioOutput.clickToUnmute") : t("widgets.actions.audioOutput.clickToMute")) : t("widgets.actions.audioOutput.clickToAdjustVolume"),
     ];
     return (
       <HoverTip id={`tip:${ctx.instanceId}:audio`} tip={tip} disabled={preview}>

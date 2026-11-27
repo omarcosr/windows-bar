@@ -12,6 +12,7 @@ import { openWidgetMenu, openWidgetSettings } from "./widget-menu";
 import { FluentGlyph } from "../menu/dock-menu";
 import { toggleDesktop } from "../native/desktop";
 import { currentExtra, dockCount, dockMetrics, dockRoom, fixedGroupSlots, inDockGroup, magnifying, magnifyRowProps, maxExtra, noteSlotWidth } from "../widgets/magnify";
+import { t } from "../i18n";
 export const DOCK_TITLE = "WindowsBar Dock";
 
 /**
@@ -472,7 +473,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
             </View>
             {config.showDesktop && !editing ? (
               <Pressable
-                aria-label="Mostrar área de trabalho"
+                aria-label={t("dock.showDesktop")}
                 onClick={() => { toggleDesktop(); }}
                 onContextMenu={props.onContextMenu}
                 style={{

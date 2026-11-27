@@ -7,6 +7,7 @@ import { activeSettings, editWidgetSettings, setSetting, widgetSettings } from "
 import type { WidgetSetting } from "../widgets/types";
 import { Button, Choice, Setting, Toggle } from "./Settings";
 
+import { t } from "../i18n";
 type AnySetting = WidgetSetting<Record<string, unknown>>;
 
 /** A text option: label above a full-width field, so long keys have room. */
@@ -54,8 +55,8 @@ function FileSetting(props: {
   return (
     <Setting label={props.setting.label} description={props.value ? name : props.setting.description}>
       <Row style={{ gap: 6 }}>
-        {props.value ? <Button label="Remover" onClick={() => props.onChange("")} /> : null}
-        <Button label="Escolher…" onClick={() => void props.pick().then((path) => path && props.onChange(path))} />
+        {props.value ? <Button label={t("widgetSettings.remove")} onClick={() => props.onChange("")} /> : null}
+        <Button label={t("widgetSettings.choose")} onClick={() => void props.pick().then((path) => path && props.onChange(path))} />
       </Row>
     </Setting>
   );
@@ -88,7 +89,7 @@ export function WidgetSettingsModal() {
         // scroll bar's lane, which otherwise lay over the controls' edge.
         <Column style={{ gap: 0, shrink: 0, margin: { top: 4, right: 10 }, radius: 12, overflow: "hidden", background: "rgba(255,255,255,0.04)" }}>
           {siblings.length > 1 ? (
-            <Setting label="Qual deles" description="Há mais de um deste widget no dock; cada um tem suas opções.">
+            <Setting label={t("widgetSettings.whichOne")} description={t("widgetSettings.thereIsMoreThan")}>
               <ChoiceSetting
                 id={`${instance.id}-sibling`}
                 value={instance.id}

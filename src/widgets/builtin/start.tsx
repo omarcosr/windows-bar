@@ -11,6 +11,7 @@ import { dockIndex, dockMetrics, magnifying, magnifyStyles } from "../magnify";
 import { run as runProcess } from "../../runtime/proc";
 import { followForeground } from "../../native/shell-events";
 
+import { t } from "../../i18n";
 /** Segoe Fluent Icons characters, as Windows draws these entries' icons. */
 const glyphs = {
   apps: { fluent: 0xe74c },
@@ -79,14 +80,14 @@ function run(...args: string[]) {
 /** The Windows "power user" menu (Win+X), as right-clicking the Start button shows it. */
 export function showStartMenu() {
   const tools: DockMenuItem[] = [
-    { label: "Aplicativos instalados", icon: glyphs.apps, onSelect: () => launch("ms-settings:appsfeatures") },
-    { label: "Opções de energia", icon: glyphs.battery, onSelect: () => launch("ms-settings:powersleep") },
-    { label: "Visualizador de Eventos", icon: glyphs.list, onSelect: () => launch("eventvwr.msc") },
-    { label: "Sistema", icon: glyphs.monitor, onSelect: () => launch("ms-settings:about") },
-    { label: "Gerenciador de Dispositivos", icon: glyphs.chip, onSelect: () => launch("devmgmt.msc") },
-    { label: "Conexões de rede", icon: glyphs.network, onSelect: () => launch("ms-settings:network") },
-    { label: "Gerenciamento de Disco", icon: glyphs.disk, onSelect: () => launch("diskmgmt.msc") },
-    { label: "Gerenciamento do Computador", icon: glyphs.chip, onSelect: () => launch("compmgmt.msc") },
+    { label: t("widgets.start.installedApps"), icon: glyphs.apps, onSelect: () => launch("ms-settings:appsfeatures") },
+    { label: t("widgets.start.powerOptions"), icon: glyphs.battery, onSelect: () => launch("ms-settings:powersleep") },
+    { label: t("widgets.start.eventViewer"), icon: glyphs.list, onSelect: () => launch("eventvwr.msc") },
+    { label: t("widgets.start.system"), icon: glyphs.monitor, onSelect: () => launch("ms-settings:about") },
+    { label: t("widgets.start.deviceManager"), icon: glyphs.chip, onSelect: () => launch("devmgmt.msc") },
+    { label: t("widgets.start.networkConnections"), icon: glyphs.network, onSelect: () => launch("ms-settings:network") },
+    { label: t("widgets.start.diskManagement"), icon: glyphs.disk, onSelect: () => launch("diskmgmt.msc") },
+    { label: t("widgets.start.computerManagement"), icon: glyphs.chip, onSelect: () => launch("compmgmt.msc") },
     { label: "Terminal", icon: glyphs.terminal, onSelect: () => launch("wt.exe") },
     {
       label: "Terminal (Admin)",
@@ -96,28 +97,28 @@ export function showStartMenu() {
     },
   ];
   const shell: DockMenuItem[] = [
-    { label: "Gerenciador de Tarefas", icon: glyphs.activity, onSelect: () => launch("taskmgr.exe") },
-    { label: "Configurações", icon: "settings", onSelect: () => launch("ms-settings:") },
-    { label: "Explorador de Arquivos", icon: "folder", onSelect: () => launch("explorer.exe") },
-    { label: "Pesquisar", icon: "search", onSelect: openStartMenu },
-    { label: "Executar", icon: glyphs.run, onSelect: openRunDialog },
+    { label: t("widgets.start.taskManager"), icon: glyphs.activity, onSelect: () => launch("taskmgr.exe") },
+    { label: t("widgets.start.settings"), icon: "settings", onSelect: () => launch("ms-settings:") },
+    { label: t("widgets.start.fileExplorer"), icon: "folder", onSelect: () => launch("explorer.exe") },
+    { label: t("widgets.start.search"), icon: "search", onSelect: openStartMenu },
+    { label: t("widgets.start.run"), icon: glyphs.run, onSelect: openRunDialog },
   ];
   // "Desligar ou sair" is a submenu on Windows; the dock menu lists its entries.
   const power: DockMenuItem[] = [
-    { label: "Sair", icon: glyphs.logout, onSelect: signOut },
-    { label: "Suspender", icon: glyphs.moon, onSelect: sleep },
-    { label: "Reiniciar", icon: glyphs.restart, onSelect: () => run("shutdown.exe", "/r", "/t", "0") },
+    { label: t("widgets.start.signOut"), icon: glyphs.logout, onSelect: signOut },
+    { label: t("widgets.start.sleep"), icon: glyphs.moon, onSelect: sleep },
+    { label: t("widgets.start.restart"), icon: glyphs.restart, onSelect: () => run("shutdown.exe", "/r", "/t", "0") },
     // Start's "Desligar" keeps Fast Startup (a hybrid shutdown) when it is on.
-    { label: "Desligar", icon: glyphs.power, danger: true, onSelect: () => run("shutdown.exe", "/s", "/hybrid", "/t", "0") },
+    { label: t("widgets.start.shutDown"), icon: glyphs.power, danger: true, onSelect: () => run("shutdown.exe", "/s", "/hybrid", "/t", "0") },
   ];
-  const desktop: DockMenuItem[] = [{ label: "Área de Trabalho", icon: glyphs.desktop, onSelect: () => toggleDesktop() }];
-  showDockMenu({ title: "Iniciar", subtitle: "Menu de link rápido", sections: [tools, shell, power, desktop] });
+  const desktop: DockMenuItem[] = [{ label: t("widgets.start.desktop"), icon: glyphs.desktop, onSelect: () => toggleDesktop() }];
+  showDockMenu({ title: t("widgets.start.start"), subtitle: t("widgets.start.quickLinkMenu"), sections: [tools, shell, power, desktop] });
 }
 
 export default defineWidget({
   type: "start",
-  name: "Iniciar",
-  description: "Abre o menu Iniciar do Windows.",
+  name: t("widgets.start.start"),
+  description: t("widgets.start.opensWindowsStartMenu"),
   category: "system",
   defaultConfig: {
     look: "tile",
@@ -136,58 +137,58 @@ export default defineWidget({
     {
       kind: "choice",
       key: "look",
-      label: "Estilo",
-      description: "Windows: só o logo, como o botão Iniciar do Windows 11. Cartão: o logo sobre um quadrado.",
+      label: t("widgets.start.style"),
+      description: t("widgets.start.windowsJustLogoLike"),
       options: [
-        { value: "tile", label: "Cartão" },
+        { value: "tile", label: t("widgets.start.tile") },
         { value: "windows", label: "Windows" },
       ],
     },
     {
       kind: "choice",
       key: "logo",
-      label: "Ícone",
+      label: t("widgets.start.icon"),
       options: [
-        { value: "windows", label: "Logo do Windows" },
-        { value: "image", label: "Imagem própria" },
+        { value: "windows", label: t("widgets.start.windowsLogo") },
+        { value: "image", label: t("widgets.start.customImage") },
       ],
     },
     {
       kind: "file",
       key: "image",
-      label: "Imagem",
-      description: "PNG, ICO, SVG, JPEG ou WebP. Sem imagem, o logo do Windows.",
-      filters: [{ name: "Imagens", extensions: ["png", "ico", "svg", "jpg", "jpeg", "webp"] }],
+      label: t("widgets.start.image"),
+      description: t("widgets.start.pngIcoSvgJpeg"),
+      filters: [{ name: t("widgets.start.images"), extensions: ["png", "ico", "svg", "jpg", "jpeg", "webp"] }],
       when: (c) => c.logo === "image",
     },
     {
       kind: "choice",
       key: "logoSize",
-      label: "Tamanho",
+      label: t("widgets.start.size"),
       options: [
-        { value: "small", label: "Pequeno" },
-        { value: "medium", label: "Médio" },
-        { value: "large", label: "Grande" },
-        { value: "max", label: "Máximo" },
+        { value: "small", label: t("widgets.start.small") },
+        { value: "medium", label: t("widgets.start.medium") },
+        { value: "large", label: t("widgets.start.large") },
+        { value: "max", label: t("widgets.start.maximum") },
       ],
     },
     {
       kind: "choice",
       key: "logoColor",
-      label: "Cor do logo",
+      label: t("widgets.start.logoColor"),
       options: [
-        { value: "white", label: "Branco" },
-        { value: "gradient", label: "Gradiente do Windows 11" },
-        { value: "blue", label: "Azul do Windows" },
-        { value: "accent", label: "Cor de destaque" },
-        { value: "custom", label: "Personalizada" },
+        { value: "white", label: t("widgets.start.white") },
+        { value: "gradient", label: t("widgets.start.windows11Gradient") },
+        { value: "blue", label: t("widgets.start.windowsBlue") },
+        { value: "accent", label: t("widgets.start.accentColor") },
+        { value: "custom", label: t("widgets.start.custom") },
       ],
       when: (c) => c.logo !== "image",
     },
     {
       kind: "text",
       key: "logoHex",
-      label: "Cor personalizada do logo",
+      label: t("widgets.start.customLogoColor"),
       description: "Hexadecimal, como #ff8800.",
       placeholder: "#ff8800",
       when: (c) => c.logo !== "image" && c.logoColor === "custom",
@@ -195,20 +196,20 @@ export default defineWidget({
     {
       kind: "choice",
       key: "cardColor",
-      label: "Fundo do cartão",
+      label: t("widgets.start.tileBackground"),
       options: [
-        { value: "graphite", label: "Grafite" },
-        { value: "accent", label: "Cor de destaque" },
-        { value: "blue", label: "Azul" },
-        { value: "glass", label: "Vidro" },
-        { value: "custom", label: "Personalizado" },
+        { value: "graphite", label: t("widgets.start.graphite") },
+        { value: "accent", label: t("widgets.start.accentColor") },
+        { value: "blue", label: t("widgets.start.blue") },
+        { value: "glass", label: t("widgets.start.glass") },
+        { value: "custom", label: t("widgets.start.custom2") },
       ],
       when: (c) => c.look !== "windows",
     },
     {
       kind: "text",
       key: "cardHex",
-      label: "Cor personalizada do cartão",
+      label: t("widgets.start.customTileColor"),
       description: "Hexadecimal, como #202020.",
       placeholder: "#202020",
       when: (c) => c.look !== "windows" && c.cardColor === "custom",
@@ -216,26 +217,26 @@ export default defineWidget({
     {
       kind: "choice",
       key: "cardShape",
-      label: "Forma do cartão",
+      label: t("widgets.start.tileShape"),
       options: [
-        { value: "rounded", label: "Arredondado" },
-        { value: "square", label: "Quadrado" },
-        { value: "circle", label: "Círculo" },
+        { value: "rounded", label: t("widgets.start.rounded") },
+        { value: "square", label: t("widgets.start.square") },
+        { value: "circle", label: t("widgets.start.circle") },
       ],
       when: (c) => c.look !== "windows",
     },
     {
       kind: "choice",
       key: "animation",
-      label: "Animação",
-      description: "Windows 11: um fundo claro ao passar o mouse e o logo encolhe ao pressionar, como o botão Iniciar. Apps: o mesmo efeito dos ícones dos apps.",
+      label: t("widgets.start.animation"),
+      description: t("widgets.start.windows11LightBackground"),
       options: [
         { value: "windows", label: "Windows 11" },
-        { value: "dock", label: "Apps" },
-        { value: "none", label: "Nenhuma" },
+        { value: "dock", label: t("widgets.start.apps") },
+        { value: "none", label: t("widgets.start.none") },
       ],
     },
-    { kind: "toggle", key: "openHighlight", label: "Realçar com o Iniciar aberto", description: "Um fundo claro atrás do botão enquanto o menu Iniciar está aberto, como no Windows 11." },
+    { kind: "toggle", key: "openHighlight", label: t("widgets.start.highlightWhileStartIs"), description: t("widgets.start.lightBackgroundBehindButton") },
   ],
   setup() {
     return {};

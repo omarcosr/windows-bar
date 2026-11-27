@@ -22,8 +22,9 @@ import {
 import { gemini, geminiLimits, geminiPoller } from "../../../services/providers2-gemini";
 import { LimitRow, Logo, StatusLine, brand, demo, limitTip, rowGap, short, showsData, ticker, tone, whenLabel, type Brand } from "./shared";
 
-const CLAUDE_SOURCE = "API de uso da Anthropic, com o login do Claude Code";
-const CODEX_SOURCE = "limites que o Codex CLI recebeu na última sessão";
+import { t, language, formatDecimal } from "../../../i18n";
+const CLAUDE_SOURCE = t("widgets.ai.widgets.anthropicUsageApiWith");
+const CODEX_SOURCE = t("widgets.ai.widgets.limitsCodexCliReceived");
 const tipOf = (id: string, lines: () => string[]) => ({ id: `tip:${id}`, lines });
 
 const CLAUDE_USAGE_URL = "https://claude.ai/settings/usage";
@@ -56,8 +57,8 @@ const limitsOf = (which: "claude" | "codex", preview: boolean): LimitUsage => (p
 
 const claude = defineWidget({
   type: "ai-claude",
-  name: "Uso do Claude",
-  description: "Limite da sessão de 5 h do Claude (Pro/Max) e quando ele renova. Lê o login do Claude Code.",
+  name: t("widgets.ai.widgets.claudeUsage"),
+  description: t("widgets.ai.widgets.claudes5HourSession"),
   category: "productivity",
   defaultConfig: {},
   setup(ctx) {
@@ -67,14 +68,14 @@ const claude = defineWidget({
   hidden: () => aiUsage.claude.status === "missing",
   menu: () => [
     [
-      { label: "Atualizar agora", icon: "download", onSelect: () => void refreshClaude() },
-      { label: "Abrir uso no claude.ai", icon: "star", onSelect: () => launch(CLAUDE_USAGE_URL) },
+      { label: t("widgets.ai.widgets.refreshNow"), icon: "download", onSelect: () => void refreshClaude() },
+      { label: t("widgets.ai.widgets.openUsageOnClaude"), icon: "star", onSelect: () => launch(CLAUDE_USAGE_URL) },
     ],
   ],
   View({ state, ctx, preview }) {
     void state.tick;
     const u = limitsOf("claude", preview);
-    const tip = () => limitTip({ name: "Claude", usage: u, source: CLAUDE_SOURCE, preview, click: "Clique para abrir o uso no claude.ai" });
+    const tip = () => limitTip({ name: "Claude", usage: u, source: CLAUDE_SOURCE, preview, click: t("widgets.ai.widgets.clickToOpenUsage") });
     return (
       <Tile icon={<BrandIcon brand="claude" />} {...usedValue(u, u.session)} width={164} lead={short() ? "round" : undefined} onClick={() => launch(CLAUDE_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         {short() ? (
@@ -104,8 +105,8 @@ const claude = defineWidget({
 
 const claudePlan = defineWidget({
   type: "ai-claude-plan",
-  name: "Plano do Claude",
-  description: "Sessão de 5 h, limite semanal e o modelo mais usado nos últimos 7 dias no Claude Code.",
+  name: t("widgets.ai.widgets.claudePlan"),
+  description: t("widgets.ai.widgets.n5HourSessionWeekly"),
   category: "productivity",
   defaultConfig: {},
   setup(ctx) {
@@ -117,14 +118,14 @@ const claudePlan = defineWidget({
   menu: () => [
     [
       {
-        label: "Atualizar agora",
+        label: t("widgets.ai.widgets.refreshNow"),
         icon: "download",
         onSelect: () => {
           refreshClaudeModels();
           void refreshClaude();
         },
       },
-      { label: "Abrir uso no claude.ai", icon: "star", onSelect: () => launch(CLAUDE_USAGE_URL) },
+      { label: t("widgets.ai.widgets.openUsageOnClaude"), icon: "star", onSelect: () => launch(CLAUDE_USAGE_URL) },
     ],
   ],
   View({ state, ctx, preview }) {
@@ -132,8 +133,8 @@ const claudePlan = defineWidget({
     const u = limitsOf("claude", preview);
     const top = (preview ? demo.claudeModels() : aiUsage.claudeModels)[0];
     const tip = () => {
-      const lines = limitTip({ name: "Claude", usage: u, source: CLAUDE_SOURCE, preview, click: "Clique para abrir o uso no claude.ai" });
-      if (top) lines.splice(lines.length - 2, 0, `Modelo mais usado nos últimos 7 dias: ${top.model} (${top.share}% dos tokens do Claude Code)`);
+      const lines = limitTip({ name: "Claude", usage: u, source: CLAUDE_SOURCE, preview, click: t("widgets.ai.widgets.clickToOpenUsage") });
+      if (top) lines.splice(lines.length - 2, 0, t("widgets.ai.widgets.mostUsedModelIn", { model: top.model, share: top.share }));
       return lines;
     };
     return (
@@ -152,7 +153,7 @@ const claudePlan = defineWidget({
           {showsData(u) ? (
           <Column style={{ flex: 1, gap: rowGap(5) }}>
             <LimitRow label="5h" window={u.session} meter={36} />
-            <LimitRow label="sem" window={u.weekly} meter={36} />
+            <LimitRow label={t("widgets.ai.widgets.wk")} window={u.weekly} meter={36} />
           </Column>
         ) : (
           <StatusLine usage={u} />
@@ -166,8 +167,8 @@ const claudePlan = defineWidget({
 
 const codex = defineWidget({
   type: "ai-codex",
-  name: "Uso do ChatGPT (Codex)",
-  description: "Limites de 5 h e semanal do plano ChatGPT, como o Codex CLI os recebeu na última sessão.",
+  name: t("widgets.ai.widgets.chatgptUsageCodex"),
+  description: t("widgets.ai.widgets.n5HourAndWeekly"),
   category: "productivity",
   defaultConfig: {},
   setup(ctx) {
@@ -177,21 +178,21 @@ const codex = defineWidget({
   hidden: () => aiUsage.codex.status === "missing",
   menu: () => [
     [
-      { label: "Atualizar agora", icon: "download", onSelect: () => refreshCodex() },
-      { label: "Abrir uso no ChatGPT", icon: "star", onSelect: () => launch(CODEX_USAGE_URL) },
+      { label: t("widgets.ai.widgets.refreshNow"), icon: "download", onSelect: () => refreshCodex() },
+      { label: t("widgets.ai.widgets.openUsageOnChatgpt"), icon: "star", onSelect: () => launch(CODEX_USAGE_URL) },
     ],
   ],
   View({ state, ctx, preview }) {
     void state.tick;
     const u = limitsOf("codex", preview);
-    const tip = () => limitTip({ name: "ChatGPT (Codex)", usage: u, source: CODEX_SOURCE, preview, click: "Clique para abrir o uso no ChatGPT" });
+    const tip = () => limitTip({ name: "ChatGPT (Codex)", usage: u, source: CODEX_SOURCE, preview, click: t("widgets.ai.widgets.clickToOpenUsageOn") });
     return (
       <Tile icon={<Logo brand="codex" size={ui.app.icon} />} {...usedValue(u, u.session)} width={196} onClick={() => launch(CODEX_USAGE_URL)} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
         <Column style={{ flex: 1, gap: rowGap(3) }}>
           {showsData(u) ? (
             <>
               <LimitRow label="5h" window={u.session} meter={44} />
-              <LimitRow label="sem" window={u.weekly} meter={44} />
+              <LimitRow label={t("widgets.ai.widgets.wk")} window={u.weekly} meter={44} />
             </>
           ) : (
             <>
@@ -218,18 +219,18 @@ const codex = defineWidget({
 
 const opencode = defineWidget({
   type: "ai-opencode",
-  name: "Uso do OpenCode",
-  description: "Tokens e custo do OpenCode nas últimas 5 h e 7 dias, e o modelo mais usado. Lido do banco local.",
+  name: t("widgets.ai.widgets.opencodeUsage"),
+  description: t("widgets.ai.widgets.opencodeTokensAndCost"),
   category: "productivity",
   defaultConfig: { period: "5h" },
   settings: [
     {
       kind: "choice",
       key: "period",
-      label: "Destaque",
+      label: t("widgets.ai.widgets.highlight"),
       options: [
-        { value: "5h", label: "Últimas 5 h" },
-        { value: "7d", label: "Últimos 7 dias" },
+        { value: "5h", label: t("widgets.ai.widgets.last5H") },
+        { value: "7d", label: t("widgets.ai.widgets.last7Days") },
       ],
     },
   ],
@@ -238,7 +239,7 @@ const opencode = defineWidget({
     return {};
   },
   hidden: () => aiUsage.opencode.status === "missing",
-  menu: () => [[{ label: "Atualizar agora", icon: "download", onSelect: () => void refreshOpencode() }]],
+  menu: () => [[{ label: t("widgets.ai.widgets.refreshNow"), icon: "download", onSelect: () => void refreshOpencode() }]],
   View({ ctx, preview }) {
     const u = preview ? demo.opencode() : aiUsage.opencode;
     const week = ctx.config.period === "7d";
@@ -246,10 +247,10 @@ const opencode = defineWidget({
     const cost = week ? u.cost7d : u.cost5h;
     const top = u.top[0];
     const tip = () => [
-      `OpenCode, ${week ? "últimos 7 dias" : "últimas 5 h"}: ${tokens.toLocaleString("pt-BR")} tokens${cost > 0 ? ` · US$ ${cost.toFixed(2)} (custo que o OpenCode registrou)` : ""}`,
-      `Últimas 5 h: ${tokensLabel(u.tokens5h)} · últimos 7 dias: ${tokensLabel(u.tokens7d)}, ${u.messages7d} mensagens`,
-      ...(top ? [`Modelo mais usado: ${top.model} (${top.share}% dos tokens)`] : []),
-      preview ? "Dados de exemplo" : `Fonte: banco local do OpenCode${u.updated ? `, lido ${whenLabel(u.updated)}` : ""}`,
+      `OpenCode, ${week ? t("widgets.ai.widgets.last7Days2") : t("widgets.ai.widgets.last5H2")}: ${tokens.toLocaleString(language)} tokens${cost > 0 ? t("widgets.ai.widgets.usCostRecordedBy", { p0: cost.toFixed(2) }) : ""}`,
+      t("widgets.ai.widgets.last5HLast", { p0: tokensLabel(u.tokens5h), p1: tokensLabel(u.tokens7d), messages7d: u.messages7d }),
+      ...(top ? [t("widgets.ai.widgets.mostUsedModelOf", { model: top.model, share: top.share })] : []),
+      preview ? t("widgets.ai.widgets.sampleData") : t("widgets.ai.widgets.sourceOpencodeLocalDatabase", { p0: u.updated ? t("widgets.ai.widgets.read", { p0: whenLabel(u.updated) }) : "" }),
     ];
     return (
       <Tile icon={<BrandIcon brand="opencode" />} value={showsData(u) ? tokensLabel(tokens) : undefined} width={168} lead={short() ? "round" : undefined} tip={tipOf(ctx.instanceId, tip)} preview={preview}>
@@ -278,7 +279,7 @@ const opencode = defineWidget({
               </Text>
               <View style={{ flex: 1 }} />
               <Text size={10} color={ui.muted} style={numeric}>
-                {cost > 0 ? `US$ ${cost.toFixed(2).replace(".", ",")}` : "tokens"}
+                {cost > 0 ? `US$ ${formatDecimal(cost, 2)}` : "tokens"}
               </Text>
             </Row>
           ) : (
@@ -297,7 +298,7 @@ type Provider = "claude" | "codex" | "gemini";
 const providerOptions = [
   { value: "claude", label: "Claude" },
   { value: "codex", label: "ChatGPT (Codex)" },
-  { value: "gemini", label: "Gemini CLI (cota diária)" },
+  { value: "gemini", label: t("widgets.ai.widgets.geminiCliDailyQuota") },
 ] as const;
 /** The session's share used, for a minimal tile's value: "37%" in the colour of its meter. */
 function usedValue(u: Parameters<typeof showsData>[0], w: { used: number } | null | undefined) {
@@ -307,8 +308,8 @@ function usedValue(u: Parameters<typeof showsData>[0], w: { used: number } | nul
 
 const asProvider = (value: string, fallback: Provider): Provider => (value === "claude" || value === "codex" || value === "gemini" ? value : fallback);
 const windowOptions = [
-  { value: "session", label: "Sessão de 5 h" },
-  { value: "weekly", label: "Semanal" },
+  { value: "session", label: t("widgets.ai.widgets.n5HourSession") },
+  { value: "weekly", label: t("widgets.ai.widgets.weekly") },
 ] as const;
 
 function ProviderLine(props: { provider: Provider; window: string; preview: boolean }) {
@@ -318,22 +319,22 @@ function ProviderLine(props: { provider: Provider; window: string; preview: bool
   return (
     <Row style={{ align: "center", gap: 6 }}>
       <Logo brand={props.provider} size={12} />
-      {showsData(u) ? <LimitRow label={daily ? "dia" : props.window === "weekly" ? "sem" : "5h"} window={w} meter={40} /> : <StatusLine usage={u} />}
+      {showsData(u) ? <LimitRow label={daily ? t("widgets.ai.widgets.day") : props.window === "weekly" ? t("widgets.ai.widgets.wk") : "5h"} window={w} meter={40} /> : <StatusLine usage={u} />}
     </Row>
   );
 }
 
 const limits = defineWidget({
   type: "ai-limits",
-  name: "Limites de IA",
-  description: "Dois provedores lado a lado (Claude e ChatGPT/Codex) com o quanto já foi usado e quando renova.",
+  name: t("widgets.ai.widgets.aiLimits"),
+  description: t("widgets.ai.widgets.twoProvidersSideBy"),
   category: "productivity",
   defaultConfig: { first: "claude", firstWindow: "session", second: "codex", secondWindow: "session" },
   settings: [
-    { kind: "choice", key: "first", label: "Primeira linha", options: providerOptions },
-    { kind: "choice", key: "firstWindow", label: "Janela da primeira", options: windowOptions },
-    { kind: "choice", key: "second", label: "Segunda linha", options: providerOptions },
-    { kind: "choice", key: "secondWindow", label: "Janela da segunda", options: windowOptions },
+    { kind: "choice", key: "first", label: t("widgets.ai.widgets.firstLine"), options: providerOptions },
+    { kind: "choice", key: "firstWindow", label: t("widgets.ai.widgets.firstLineWindow"), options: windowOptions },
+    { kind: "choice", key: "second", label: t("widgets.ai.widgets.secondLine"), options: providerOptions },
+    { kind: "choice", key: "secondWindow", label: t("widgets.ai.widgets.secondLineWindow"), options: windowOptions },
   ],
   setup(ctx) {
     ctx.onDispose(claudePoller.acquire());
@@ -348,15 +349,15 @@ const limits = defineWidget({
   menu: () => [
     [
       {
-        label: "Atualizar agora",
+        label: t("widgets.ai.widgets.refreshNow"),
         icon: "download",
         onSelect: () => {
           refreshCodex();
           void refreshClaude();
         },
       },
-      { label: "Abrir uso no claude.ai", icon: "star", onSelect: () => launch(CLAUDE_USAGE_URL) },
-      { label: "Abrir uso no ChatGPT", icon: "star", onSelect: () => launch(CODEX_USAGE_URL) },
+      { label: t("widgets.ai.widgets.openUsageOnClaude"), icon: "star", onSelect: () => launch(CLAUDE_USAGE_URL) },
+      { label: t("widgets.ai.widgets.openUsageOnChatgpt"), icon: "star", onSelect: () => launch(CODEX_USAGE_URL) },
     ],
   ],
   View({ state, ctx, preview }) {
@@ -365,10 +366,10 @@ const limits = defineWidget({
     const second = asProvider(ctx.config.second, "codex");
     const lines = (provider: Provider, window: string) => {
       const usage = provider === "gemini" ? geminiLimits(preview) : limitsOf(provider, preview);
-      const name = provider === "gemini" ? "Gemini CLI (cota diária)" : brand[provider].name;
-      const source = provider === "claude" ? CLAUDE_SOURCE : provider === "codex" ? CODEX_SOURCE : "cota do login Google do Gemini CLI";
+      const name = provider === "gemini" ? t("widgets.ai.widgets.geminiCliDailyQuota") : brand[provider].name;
+      const source = provider === "claude" ? CLAUDE_SOURCE : provider === "codex" ? CODEX_SOURCE : t("widgets.ai.widgets.geminiCliGoogleLogin");
       const all = limitTip({ name, usage, source, preview, windows: provider === "gemini" || window !== "weekly" ? ["session"] : ["weekly"] });
-      return provider === "gemini" ? all.map((l) => l.replace("Sessão de 5 h", "Cota do dia")) : all;
+      return provider === "gemini" ? all.map((l) => l.replace(t("widgets.ai.widgets.n5HourSession"), t("widgets.ai.widgets.todaysQuota"))) : all;
     };
     const tip = () => [...lines(first, ctx.config.firstWindow), "", ...lines(second, ctx.config.secondWindow)];
     // Minimal tile: the first line's share.

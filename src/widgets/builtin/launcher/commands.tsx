@@ -10,6 +10,7 @@ import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { Glyph, fluentGlyph, shellMenuIcon } from "./shared";
 
+import { t } from "../../../i18n";
 /**
  * Type a command to start an app: the dock takes no keyboard focus and its menu has no text field,
  * so typing goes to Windows' own command box, the Run dialog (Explorer's File > Run, as the
@@ -28,11 +29,11 @@ function frequent(): DockMenuItem[] {
 
 export default defineWidget({
   type: "launcher-commands",
-  name: "Comandos",
-  description: "Digite um comando ou app para abrir (caixa Executar do Windows) e atalhos dos apps mais usados.",
+  name: t("widgets.launcher.commands.commands"),
+  description: t("widgets.launcher.commands.typeCommandOrApp"),
   category: "productivity",
   defaultConfig: { showLabel: true },
-  settings: [{ kind: "toggle", key: "showLabel", label: "Mostrar o nome" }],
+  settings: [{ kind: "toggle", key: "showLabel", label: t("widgets.launcher.commands.showName") }],
   setup(ctx) {
     ctx.onDispose(acquireScreenTime());
     return {};
@@ -40,19 +41,19 @@ export default defineWidget({
   menu() {
     const apps = frequent();
     return [
-      [{ label: "Executar…", icon: { fluent: fluentGlyph.run }, onSelect: openRunDialog }],
+      [{ label: t("widgets.launcher.commands.run"), icon: { fluent: fluentGlyph.run }, onSelect: openRunDialog }],
       apps,
-      [{ label: "Todos os apps", icon: { fluent: fluentGlyph.apps }, onSelect: () => launch("shell:AppsFolder") }],
+      [{ label: t("widgets.launcher.commands.allApps"), icon: { fluent: fluentGlyph.apps }, onSelect: () => launch("shell:AppsFolder") }],
     ];
   },
   View({ ctx, preview }) {
     return (
-      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => ["Executar (Win+R)", "Digite um programa, pasta ou endereço", "Apps mais usados no botão direito"]} disabled={preview}>
+      <HoverTip id={`tip:${ctx.instanceId}`} tip={() => ["Executar (Win+R)", t("widgets.launcher.commands.typeProgramFolderOr"), t("widgets.launcher.commands.mostUsedAppsOn")]} disabled={preview}>
       <Tile padding={{ left: 10, right: ctx.config.showLabel ? 12 : 10 }} onClick={preview ? undefined : openRunDialog}>
         <Glyph code={fluentGlyph.command} size={18} />
         {ctx.config.showLabel ? (
           <Text size={ui.tile.lines.primary} weight={600} color={ui.text} style={{ whiteSpace: "nowrap" }}>
-            Executar
+            {t("widgets.launcher.commands.run2")}
           </Text>
         ) : null}
       </Tile>

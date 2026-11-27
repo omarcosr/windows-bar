@@ -8,6 +8,7 @@ import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { fluent, G, Glyph } from "./shared";
 
+import { t, language } from "../../../i18n";
 const FOLDER = "shell:RecycleBinFolder";
 const icons = new Map<string, ImageRgbaSource | null>();
 
@@ -27,23 +28,23 @@ function binIcon(size: number, full: boolean) {
   return icons.get(key) ?? null;
 }
 
-const count = (n: number) => (n === 1 ? "1 item" : `${n.toLocaleString("pt-BR")} itens`);
+const count = (n: number) => t("widgets.actions.recycleBin.items", { count: n });
 
 export default defineWidget({
   type: "actions-recycle-bin",
-  name: "Lixeira",
-  description: "Itens e espaço ocupados na Lixeira. Clique abre a Lixeira; o menu a esvazia.",
+  name: t("widgets.actions.recycleBin.recycleBin"),
+  description: t("widgets.actions.recycleBin.itemsAndSpaceUsed"),
   category: "apps",
   defaultConfig: { showDetails: true },
-  settings: [{ kind: "toggle", key: "showDetails", label: "Mostrar quantidade e tamanho" }],
+  settings: [{ kind: "toggle", key: "showDetails", label: t("widgets.actions.recycleBin.showCountAndSize") }],
   setup(ctx) {
     ctx.onDispose(recyclePoller.acquire());
     return {};
   },
   menu() {
     return [
-      [{ label: "Abrir Lixeira", icon: fluent(G.recycle), onSelect: () => launch(FOLDER) }],
-      actions.recycleItems > 0 ? [{ label: "Esvaziar Lixeira", icon: fluent(G.recycle), danger: true, onSelect: emptyRecycle }] : [],
+      [{ label: t("widgets.actions.recycleBin.openRecycleBin"), icon: fluent(G.recycle), onSelect: () => launch(FOLDER) }],
+      actions.recycleItems > 0 ? [{ label: t("widgets.actions.recycleBin.emptyRecycleBin"), icon: fluent(G.recycle), danger: true, onSelect: emptyRecycle }] : [],
     ].filter((section) => section.length > 0);
   },
   View({ ctx, preview }) {
@@ -55,13 +56,13 @@ export default defineWidget({
     const icon = binIcon(size, items > 0);
     const lines = ui.tile.lines;
     return (
-      <HoverTip id={`tip:${ctx.instanceId}:bin`} tip={() => ["Lixeira", actions.recycleItems ? `${count(actions.recycleItems)} · ${formatBytes(actions.recycleBytes)}` : "Vazia"]} disabled={preview}>
+      <HoverTip id={`tip:${ctx.instanceId}:bin`} tip={() => [t("widgets.actions.recycleBin.recycleBin"), actions.recycleItems ? `${count(actions.recycleItems)} · ${formatBytes(actions.recycleBytes)}` : t("widgets.actions.recycleBin.empty")]} disabled={preview}>
         <Tile padding={{ left: 8, right: ctx.config.showDetails ? 12 : 8 }} onClick={preview ? undefined : () => launch(FOLDER)}>
           {icon ? <Image src={icon} width={size} height={size} fit="contain" style={{ radius: 0 }} /> : <Glyph code={G.recycle} />}
           {ctx.config.showDetails ? (
             <Column style={{ gap: lines.gap }}>
               <Text size={lines.primary} weight={600} color={ui.text} style={{ ...numeric, lineHeight: lines.lineHeight }}>
-                {items ? count(items) : "Vazia"}
+                {items ? count(items) : t("widgets.actions.recycleBin.empty")}
               </Text>
               {items ? (
                 <Text size={lines.secondary} color={ui.muted} style={{ ...numeric, lineHeight: lines.lineHeight }}>

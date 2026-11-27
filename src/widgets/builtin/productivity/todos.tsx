@@ -8,6 +8,7 @@ import { openWidgetSettings } from "../../../dock/widget-menu";
 import { Ring, Stack, buttonSize } from "./shared";
 import { formatTasks, parseTasks, type Task } from "./tasks";
 
+import { t as tr } from "../../../i18n";
 interface Config {
   title: string;
   tasks: string;
@@ -15,10 +16,10 @@ interface Config {
 }
 
 const DEMO: Task[] = [
-  { text: "Revisar o pull request", done: true },
-  { text: "Responder e-mails", done: true },
-  { text: "Planejar a sprint", done: false },
-  { text: "Ligar para o cliente", done: false },
+  { text: tr("widgets.productivity.todos.reviewPullRequest"), done: true },
+  { text: tr("widgets.productivity.todos.replyToEmails"), done: true },
+  { text: tr("widgets.productivity.todos.planSprint"), done: false },
+  { text: tr("widgets.productivity.todos.callClient"), done: false },
 ];
 
 /** Segoe Fluent Icons' CheckMark, as the Windows To Do and quick settings draw it. */
@@ -61,13 +62,13 @@ function showList(ctx: WidgetContext<Config>) {
   const tasks = parseTasks(String(ctx.config.tasks ?? ""));
   const left = tasks.filter((t) => !t.done).length;
   showDockMenu({
-    title: String(ctx.config.title || "Tarefas"),
-    subtitle: tasks.length ? `${tasks.length - left} de ${tasks.length} concluídas · clique para marcar` : "Nenhuma tarefa",
+    title: String(ctx.config.title || tr("widgets.productivity.todos.tasks")),
+    subtitle: tasks.length ? tr("widgets.productivity.todos.ofDoneClickTo", { p0: tasks.length - left, length: tasks.length }) : tr("widgets.productivity.todos.noTasks"),
     sections: [
       ...taskItems(ctx, () => setTimeout(() => showList(ctx), 0)),
       [
-        { label: "Adicionar ou editar tarefas…", icon: "plus", onSelect: () => openWidgetSettings(ctx.instanceId) },
-        ...(tasks.length - left ? [{ label: "Limpar concluídas", icon: "x" as const, onSelect: () => clearDone(ctx) }] : []),
+        { label: tr("widgets.productivity.todos.addOrEditTasks"), icon: "plus", onSelect: () => openWidgetSettings(ctx.instanceId) },
+        ...(tasks.length - left ? [{ label: tr("widgets.productivity.todos.clearCompleted"), icon: "x" as const, onSelect: () => clearDone(ctx) }] : []),
       ],
     ],
   });
@@ -75,20 +76,20 @@ function showList(ctx: WidgetContext<Config>) {
 
 export default defineWidget<Config, object>({
   type: "productivity-todos",
-  name: "Tarefas",
-  description: "A próxima tarefa aberta com o progresso do dia. Marque como feita direto no dock.",
+  name: tr("widgets.productivity.todos.tasks"),
+  description: tr("widgets.productivity.todos.nextOpenTaskWith"),
   category: "productivity",
-  defaultConfig: { title: "Tarefas", tasks: "", hideWhenDone: false },
+  defaultConfig: { title: tr("widgets.productivity.todos.tasks"), tasks: "", hideWhenDone: false },
   settings: [
-    { kind: "text", key: "title", label: "Título", placeholder: "Tarefas" },
+    { kind: "text", key: "title", label: tr("widgets.productivity.todos.title"), placeholder: tr("widgets.productivity.todos.tasks") },
     {
       kind: "text",
       key: "tasks",
-      label: "Tarefas",
-      description: 'Separe com ";". Comece com "x " para marcar como concluída (o dock faz isso ao marcar).',
-      placeholder: "Revisar PR; Responder e-mails; x Planejar sprint",
+      label: tr("widgets.productivity.todos.tasks"),
+      description: tr("widgets.productivity.todos.separateWithStartWith"),
+      placeholder: tr("widgets.productivity.todos.reviewPrReplyTo"),
     },
-    { kind: "toggle", key: "hideWhenDone", label: "Ocultar quando tudo estiver feito" },
+    { kind: "toggle", key: "hideWhenDone", label: tr("widgets.productivity.todos.hideWhenEverythingIs") },
   ],
   setup() {
     return {};
@@ -100,7 +101,7 @@ export default defineWidget<Config, object>({
   menu({ ctx }) {
     return [
       ...taskItems(ctx, () => {}),
-      [{ label: "Adicionar ou editar tarefas…", icon: "plus", onSelect: () => openWidgetSettings(ctx.instanceId) }],
+      [{ label: tr("widgets.productivity.todos.addOrEditTasks"), icon: "plus", onSelect: () => openWidgetSettings(ctx.instanceId) }],
     ];
   },
   View({ ctx, preview }) {
@@ -113,12 +114,12 @@ export default defineWidget<Config, object>({
     const b = buttonSize();
       const tip = () => {
         const open = tasks.filter((t) => !t.done);
-        if (empty) return ["Nenhuma tarefa", "Clique para adicionar"];
+        if (empty) return [tr("widgets.productivity.todos.noTasks"), tr("widgets.productivity.todos.clickToAdd")];
         return [
-          `${done} de ${tasks.length} concluídas (${Math.round((done / tasks.length) * 100)}%)`,
+          tr("widgets.productivity.todos.ofDone", { done, length: tasks.length, p2: Math.round((done / tasks.length) * 100) }),
           ...open.slice(0, 5).map((t) => `• ${t.text}`),
-          ...(open.length > 5 ? [`e mais ${open.length - 5}`] : []),
-          next ? "✓ marca a próxima como feita" : "Tudo feito",
+          ...(open.length > 5 ? [tr("widgets.productivity.todos.andMore", { p0: open.length - 5 })] : []),
+          next ? tr("widgets.productivity.todos.marksNextOneAs") : tr("widgets.productivity.todos.allDone"),
         ];
       };
       return (
@@ -126,8 +127,8 @@ export default defineWidget<Config, object>({
           <Tile width={176} onClick={preview ? undefined : () => (empty ? openWidgetSettings(ctx.instanceId) : showList(ctx))}>
           <Ring value={tasks.length ? done / tasks.length : 0} size={size} color={next || empty ? ui.blue : ui.green} label={empty ? "" : String(tasks.length - done)} />
             <Stack
-              label={empty ? String(ctx.config.title || "Tarefas") : `${String(ctx.config.title || "Tarefas")} · ${done}/${tasks.length}`}
-              value={empty ? "Adicionar tarefas" : next ? next.text : "Tudo feito"}
+              label={empty ? String(ctx.config.title || tr("widgets.productivity.todos.tasks")) : `${String(ctx.config.title || "Tarefas")} · ${done}/${tasks.length}`}
+              value={empty ? tr("widgets.productivity.todos.addTasks") : next ? next.text : tr("widgets.productivity.todos.allDone")}
             valueColor={next ? ui.text : ui.muted}
             valueWeight={600}
             valueSize={ui.tile.height < 32 ? 11 : ui.tile.height >= 46 ? 13 : 12}

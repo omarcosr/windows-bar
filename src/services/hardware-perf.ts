@@ -4,6 +4,7 @@ import { exePathOf } from "../native/win32";
 import { createPoller } from "./poller";
 import { onShellEvent } from "../native/shell-events";
 
+import { language } from "../i18n";
 const HISTORY = 30;
 
 // ---------- Network ----------
@@ -158,7 +159,7 @@ export const processPoller = createPoller(2000, () => {
 const formatters = new Map<number, Intl.NumberFormat>();
 function fixed(value: number, d: number) {
   let f = formatters.get(d);
-  if (!f) formatters.set(d, (f = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d })));
+  if (!f) formatters.set(d, (f = new Intl.NumberFormat(language, { minimumFractionDigits: d, maximumFractionDigits: d })));
   return f.format(value);
 }
 

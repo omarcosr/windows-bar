@@ -1,3 +1,4 @@
+import { t as tr } from "../i18n";
 /**
  * Minimal iCalendar (RFC 5545) reader for the calendar widget: VEVENTs with DTSTART/DTEND/DURATION
  * in UTC, TZID or floating time, all-day dates, simple DAILY/WEEKLY RRULEs (INTERVAL, COUNT, UNTIL,
@@ -248,7 +249,7 @@ export function parseIcs(text: string, from: number, to: number): CalendarEvent[
     const start = dt && parseStamp(dt);
     if (!start) continue;
     const uid = get("UID")?.value ?? "";
-    const title = unescape(get("SUMMARY")?.value ?? "(sem título)") || "(sem título)";
+    const title = unescape(get("SUMMARY")?.value ?? tr("services.onlineIcal.untitled")) || tr("services.onlineIcal.untitled");
     const location = unescape(get("LOCATION")?.value ?? "");
     const first = toEpoch(start.wall, start.zone);
     const endProp = get("DTEND");

@@ -5,6 +5,7 @@ import { Lines, Sparkline, Tile } from "../ui";
 import { defineWidget } from "../types";
 import { refreshWidget } from "../../services/remote";
 
+import { t, language } from "../../i18n";
 const DAY = 86_400;
 const refreshers = new WeakMap<object, () => Promise<void>>();
 const DEMO = [62, 70, 66, 74, 71, 80, 77, 84, 82, 90, 86, 95, 99, 94, 104, 101, 110, 108, 118, 115, 124, 131, 127, 138];
@@ -32,44 +33,44 @@ async function stripeTransactions(key: string, since: number) {
 }
 
 function money(amount: number, currency: string) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: currency.toUpperCase(), maximumFractionDigits: 0 }).format(amount);
+  return new Intl.NumberFormat(language, { style: "currency", currency: currency.toUpperCase(), maximumFractionDigits: 0 }).format(amount);
 }
 
 export default defineWidget({
   type: "revenue",
   name: "Receita (Stripe)",
-  description: "Receita líquida dos últimos 30 dias com tendência. Sem chave mostra dados de exemplo.",
+  description: t("widgets.revenue.netRevenueForLast"),
   category: "finance",
-  defaultConfig: { stripeKey: "", label: "Receita", period: "30", change: "percent" },
+  defaultConfig: { stripeKey: "", label: t("widgets.revenue.revenue"), period: "30", change: "percent" },
   settings: [
-    { kind: "text", key: "label", label: "Título", placeholder: "Receita" },
+    { kind: "text", key: "label", label: t("widgets.revenue.title"), placeholder: t("widgets.revenue.revenue") },
     {
       kind: "text",
       key: "stripeKey",
-      label: "Chave restrita do Stripe",
-      description: "Só leitura de saldo (rk_live_…). Vazia mostra dados de exemplo.",
+      label: t("widgets.revenue.stripeRestrictedKey"),
+      description: t("widgets.revenue.balanceReadOnlyRk"),
       placeholder: "rk_live_…",
       secret: true,
     },
     {
       kind: "choice",
       key: "period",
-      label: "Período",
-      description: "A receita soma esse período; a variação compara com o período igual logo antes.",
+      label: t("widgets.revenue.period"),
+      description: t("widgets.revenue.revenueAddsUpThis"),
       options: [
-        { value: "7", label: "Últimos 7 dias" },
-        { value: "30", label: "Últimos 30 dias" },
-        { value: "90", label: "Últimos 90 dias" },
+        { value: "7", label: t("widgets.revenue.last7Days") },
+        { value: "30", label: t("widgets.revenue.last30Days") },
+        { value: "90", label: t("widgets.revenue.last90Days") },
       ],
     },
     {
       kind: "choice",
       key: "change",
-      label: "Variação",
+      label: t("widgets.revenue.change"),
       options: [
-        { value: "percent", label: "Em % (vs período anterior)" },
-        { value: "amount", label: "Em valor (vs período anterior)" },
-        { value: "none", label: "Não mostrar" },
+        { value: "percent", label: t("widgets.revenue.inVsPreviousPeriod") },
+        { value: "amount", label: t("widgets.revenue.inAmountVsPrevious") },
+        { value: "none", label: t("widgets.revenue.dontShow") },
       ],
     },
   ],
@@ -111,8 +112,8 @@ export default defineWidget({
   menu({ state }) {
     return [
       [
-        { label: "Atualizar agora", icon: "download", onSelect: () => void refreshers.get(toRaw(state))?.() },
-        { label: "Abrir painel do Stripe", icon: "star", onSelect: () => launch("https://dashboard.stripe.com") },
+        { label: t("widgets.revenue.refreshNow"), icon: "download", onSelect: () => void refreshers.get(toRaw(state))?.() },
+        { label: t("widgets.revenue.openStripeDashboard"), icon: "star", onSelect: () => launch("https://dashboard.stripe.com") },
       ],
     ];
   },
@@ -130,10 +131,10 @@ export default defineWidget({
         tip={{
           id: `tip:${ctx.instanceId}`,
           lines: () => [
-            `${String(ctx.config.label)}: receita líquida dos últimos ${span} dias${state.demo ? " (exemplo)" : ""}`,
-            `Agora: ${money(state.total, state.currency)} · ${span} dias antes: ${money(state.previous, state.currency)}`,
-            `Variação: ${up ? "+" : "−"}${Math.abs(state.change)}% (${up ? "+" : "−"}${money(Math.abs(state.total - state.previous), state.currency)})`,
-            state.error ? `Erro: ${state.error}` : "Clique: abrir o painel do Stripe",
+            t("widgets.revenue.netRevenueForLastDays", { p0: String(ctx.config.label), span, p2: state.demo ? t("widgets.revenue.sample") : "" }),
+            t("widgets.revenue.nowDaysBefore", { p0: money(state.total, state.currency), span, p2: money(state.previous, state.currency) }),
+            t("widgets.revenue.change2", { p0: up ? "+" : "−", p1: Math.abs(state.change), p2: money(Math.abs(state.total - state.previous), state.currency) }),
+            state.error ? t("widgets.revenue.error", { error: state.error }) : t("widgets.revenue.clickOpenStripeDashboard"),
           ],
         }}
       >
@@ -148,7 +149,7 @@ export default defineWidget({
         />
         <Sparkline values={state.series} width={52} height={spark} color={up ? ui.green : ui.danger} />
         {mode === "none" ? null : (
-          <Lines align="end" valueFirst value={`${up ? "▲" : "▼"} ${delta}`} valueColor={up ? ui.green : ui.danger} label={`vs ${span} d ant.`} />
+          <Lines align="end" valueFirst value={`${up ? "▲" : "▼"} ${delta}`} valueColor={up ? ui.green : ui.danger} label={t("widgets.revenue.vsPrevD", { span })} />
         )}
       </Tile>
     );

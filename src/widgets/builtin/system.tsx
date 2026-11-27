@@ -5,6 +5,7 @@ import { numeric, ui } from "../../theme";
 import { Meter, Tile } from "../ui";
 import { defineWidget } from "../types";
 
+import { t } from "../../i18n";
 const tone = (v: number) => (v >= 85 ? ui.danger : v >= 65 ? "#ff9f0a" : ui.green);
 
 function Line(props: { label: string; value: number }) {
@@ -24,8 +25,8 @@ function Line(props: { label: string; value: number }) {
 
 export default defineWidget({
   type: "system",
-  name: "CPU e RAM",
-  description: "Uso do processador e da memória ao vivo.",
+  name: t("widgets.system.cpuAndRam"),
+  description: t("widgets.system.liveProcessorAndMemory"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -35,9 +36,9 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Gerenciador de Tarefas", icon: "info", onSelect: () => launch("taskmgr.exe") },
-        { label: "Monitor de Recursos", icon: "search", onSelect: () => launch("resmon.exe") },
-        { label: "Informações do sistema", icon: "settings", onSelect: () => launch("ms-settings:about") },
+        { label: t("widgets.system.taskManager"), icon: "info", onSelect: () => launch("taskmgr.exe") },
+        { label: t("widgets.system.resourceMonitor"), icon: "search", onSelect: () => launch("resmon.exe") },
+        { label: t("widgets.system.systemInformation"), icon: "settings", onSelect: () => launch("ms-settings:about") },
       ],
     ];
   },
@@ -50,7 +51,7 @@ export default defineWidget({
         onClick={() => launch("taskmgr.exe")}
         tip={{
           id: `tip:${ctx.instanceId}`,
-          lines: () => ["Uso agora (média de todos os núcleos)", `Processador: ${system.cpu}%`, `Memória: ${system.ram}% em uso`, "Clique: Gerenciador de Tarefas"],
+          lines: () => [t("widgets.system.usageNowAverageOf"), t("widgets.system.processor", { cpu: system.cpu }), t("widgets.system.memoryInUse", { ram: system.ram }), t("widgets.system.clickTaskManager")],
         }}
       >
         <Column style={{ gap: ui.tile.lines.gap + 2, flex: 1, justify: "center" }}>

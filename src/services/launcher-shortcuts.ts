@@ -2,6 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { PKEY, itemStrings, knownFolderPath } from "../native/shell-item";
 
+import { language } from "../i18n";
 /**
  * Shortcut lists read where the shell keeps them: the Recent folder (shell:recent, what Explorer's
  * "Recentes" and the jump lists show) and the two Start menu Programs folders.
@@ -97,7 +98,7 @@ export function startMenuShortcuts(): Shortcut[] {
     const dir = knownFolderPath(id);
     if (dir) walk(dir, 0);
   }
-  list.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  list.sort((a, b) => a.name.localeCompare(b.name, language));
   startCache = { at: Date.now(), list };
   return list;
 }

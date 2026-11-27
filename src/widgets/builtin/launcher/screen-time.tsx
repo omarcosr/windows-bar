@@ -9,6 +9,7 @@ import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 import { shellMenuIcon, fluentGlyph } from "./shared";
 
+import { t } from "../../../i18n";
 const DEMO_HOURS = [0, 0, 0, 0, 0, 0, 0, 0, 1500, 3000, 3300, 2700, 1200, 2400, 3400, 3100];
 
 function appItems(days: number): DockMenuItem[] {
@@ -21,8 +22,8 @@ function appItems(days: number): DockMenuItem[] {
 
 export default defineWidget({
   type: "launcher-screen-time",
-  name: "Tempo de tela",
-  description: "Quanto tempo você passou em cada app hoje e na semana (ignora ausências de mais de 5 min).",
+  name: t("widgets.launcher.screenTime.screenTime"),
+  description: t("widgets.launcher.screenTime.howLongYouSpent"),
   category: "productivity",
   defaultConfig: {},
   setup(ctx) {
@@ -34,10 +35,10 @@ export default defineWidget({
     const week = appItems(7);
     const none = (label: string): DockMenuItem[] => [{ label, icon: { fluent: fluentGlyph.clock }, onSelect: () => {} }];
     return [
-      [{ label: `Hoje: ${formatDuration(usageOf().total)}`, icon: { fluent: fluentGlyph.clock }, onSelect: () => {} }],
-      today.length ? today : none("Nada contado hoje"),
-      [{ label: "Esta semana", icon: { fluent: fluentGlyph.timeline }, onSelect: () => {} }],
-      week.length ? week : none("Nada contado na semana"),
+      [{ label: t("widgets.launcher.screenTime.today", { p0: formatDuration(usageOf().total) }), icon: { fluent: fluentGlyph.clock }, onSelect: () => {} }],
+      today.length ? today : none(t("widgets.launcher.screenTime.nothingCountedToday")),
+      [{ label: t("widgets.launcher.screenTime.thisWeek"), icon: { fluent: fluentGlyph.timeline }, onSelect: () => {} }],
+      week.length ? week : none(t("widgets.launcher.screenTime.nothingCountedThisWeek")),
     ];
   },
   View({ ctx, preview }) {
@@ -49,18 +50,18 @@ export default defineWidget({
     const total = preview && day.total === 0 ? 7.6 * 3600 : day.total;
     const chartHeight = Math.max(14, Math.min(32, ui.tile.height - 14));
     const tip = () => [
-      `Hoje: ${formatDuration(usageOf().total)} com o PC em uso`,
+      t("widgets.launcher.screenTime.todayWithPcIn", { p0: formatDuration(usageOf().total) }),
       ...topApps(1, 3).map((app) => `${app.name || app.key}: ${formatDuration(app.seconds)}`),
-      "Conta o app em primeiro plano enquanto você usa teclado ou mouse;",
-      "mais de 5 min sem uso, tela bloqueada ou desligada não contam.",
-      "Gráfico: minutos por hora, desde a meia-noite",
+      t("widgets.launcher.screenTime.countsAppInForeground"),
+      t("widgets.launcher.screenTime.moreThan5Min"),
+      t("widgets.launcher.screenTime.chartMinutesPerHour"),
       ];
       return (
       <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
       <Tile icon={<FluentGlyph code={0xe7f4} size={ui.app.icon - 4} color={ui.blue} />} value={formatDuration(total)} width={150} padding={{ left: 10, right: 10 }} gap={8}>
         <Column style={{ gap: lines.gap, width: 58 }}>
           <Text size={lines.secondary} color={ui.muted} style={{ lineHeight: lines.lineHeight }}>
-            Hoje
+            {t("widgets.launcher.screenTime.today2")}
           </Text>
           <Text size={lines.primary} weight={700} color={ui.text} style={{ ...numeric, lineHeight: lines.lineHeight, whiteSpace: "nowrap" }}>
             {formatDuration(total)}

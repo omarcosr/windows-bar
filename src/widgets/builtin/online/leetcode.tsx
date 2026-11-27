@@ -8,6 +8,7 @@ import { defineWidget } from "../../types";
 import { Badge, errorText, refreshNow, registerRefresh, sourceLines } from "./common";
 import { refreshWidget } from "../../../services/remote";
 
+import { t as tr } from "../../../i18n";
 const QUERY = `query userStats($username: String!) {
   matchedUser(username: $username) {
     submitStatsGlobal { acSubmissionNum { difficulty count } }
@@ -39,10 +40,10 @@ const DEMO = { solved: 312, easy: 140, medium: 142, hard: 30, streak: 12, best: 
 export default defineWidget({
   type: "online-leetcode",
   name: "LeetCode",
-  description: "Problemas resolvidos (fácil/médio/difícil) e sequência atual de um perfil público.",
+  description: tr("widgets.online.leetcode.problemsSolvedEasyMedium"),
   category: "productivity",
   defaultConfig: { username: "" },
-  settings: [{ kind: "text", key: "username", label: "Usuário do LeetCode", description: "Vazio mostra dados de exemplo.", placeholder: "seu-usuario" }],
+  settings: [{ kind: "text", key: "username", label: tr("widgets.online.leetcode.leetcodeUsername"), description: tr("widgets.online.leetcode.emptyShowsSampleData"), placeholder: "seu-usuario" }],
   setup(ctx) {
     const state = store({ ...DEMO, demo: true, error: "" });
     const load = async () => {
@@ -59,7 +60,7 @@ export default defineWidget({
           } | null;
         }>("https://leetcode.com/graphql", QUERY, { username }, { Referer: "https://leetcode.com" }, "LeetCode");
         const user = data.matchedUser;
-        if (!user) throw new Error("usuário não encontrado");
+        if (!user) throw new Error(tr("widgets.online.leetcode.userNotFound"));
         const n = (d: string) => user.submitStatsGlobal.acSubmissionNum.find((x) => x.difficulty === d)?.count ?? 0;
         let calendar: Record<string, number> = {};
         try {
@@ -87,22 +88,22 @@ export default defineWidget({
     const user = String(ctx.config.username || "").trim();
     return [
       [
-        { label: `Fácil ${state.easy} · Médio ${state.medium} · Difícil ${state.hard}`, onSelect: () => {} },
-        { label: `Maior sequência no ano: ${state.best} dias`, onSelect: () => {} },
+        { label: tr("widgets.online.leetcode.easyMediumHard", { easy: state.easy, medium: state.medium, hard: state.hard }), onSelect: () => {} },
+        { label: tr("widgets.online.leetcode.longestStreakThisYear", { best: state.best }), onSelect: () => {} },
       ],
       [
-        { label: "Abrir perfil", icon: "chevron-right", onSelect: () => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.leetcode.openProfile"), icon: "chevron-right", onSelect: () => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com") },
+        { label: tr("widgets.online.leetcode.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const user = String(ctx.config.username || "").trim();
     const tip = () => [
-      `${user || "LeetCode"}: ${state.solved} problemas resolvidos`,
-      `Fácil ${state.easy} · Médio ${state.medium} · Difícil ${state.hard}`,
-      `Sequência atual: ${state.streak} ${state.streak === 1 ? "dia" : "dias"} · maior no ano: ${state.best}`,
-      ...sourceLines(state, "perfil público do LeetCode", "Clique para abrir o perfil", "informe o usuário nas configurações"),
+      tr("widgets.online.leetcode.problemsSolved", { p0: user || "LeetCode", p1: state.solved }),
+      tr("widgets.online.leetcode.easyMediumHard", { easy: state.easy, medium: state.medium, hard: state.hard }),
+      tr("widgets.online.leetcode.currentStreakLongestThis", { count: state.streak, best: state.best }),
+      ...sourceLines(state, tr("widgets.online.leetcode.leetcodePublicProfile"), tr("widgets.online.leetcode.clickToOpenProfile"), tr("widgets.online.leetcode.enterUsernameInSettings")),
     ];
     return (
       <Tile icon={<BrandIcon brand="leetcode" />} value={String(state.solved)} width={168} onClick={() => launch(user ? `https://leetcode.com/u/${user}/` : "https://leetcode.com")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
@@ -113,7 +114,7 @@ export default defineWidget({
               {String(state.solved)}
             </Text>
             <Text size={9} color={state.error ? ui.danger : ui.muted}>
-              {state.error ? "erro" : state.demo ? "resolvidos · demo" : "resolvidos"}
+              {state.error ? tr("widgets.online.leetcode.error") : state.demo ? tr("widgets.online.leetcode.solvedDemo") : "resolvidos"}
             </Text>
           </Row>
           <Row style={{ align: "center", gap: 5 }}>

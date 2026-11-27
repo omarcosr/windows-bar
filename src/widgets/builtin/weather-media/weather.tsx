@@ -11,6 +11,7 @@ import type { DockMenuItem } from "../../../menu/dock-menu";
 import { HoverTip } from "../../../menu/hover-tip";
 import { WeatherIcon, forecastData, temp, unitSetting, weatherTip, weekday, windSpeed } from "./shared";
 
+import { t as tr, formatDecimal } from "../../../i18n";
 /** The Windows weather app (MSN Weather), which the taskbar's weather opens. */
 const openWeather = () => launch("msnweather:");
 
@@ -23,7 +24,7 @@ function setup<C extends object>(ctx: WidgetContext<C>, unit: ClockUnit | null):
 }
 
 function menu(): DockMenuItem[][] {
-  return [[{ label: "Abrir Clima", icon: { fluent: 0xe8a7 /* OpenInNewWindow */ }, onSelect: openWeather }]];
+  return [[{ label: tr("widgets.weatherMedia.weather.openWeather"), icon: { fluent: 0xe8a7 /* OpenInNewWindow */ }, onSelect: openWeather }]];
 }
 
 const line = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
@@ -49,8 +50,8 @@ function Tip(props: { id: string; preview: boolean; tip: () => string[]; childre
 
 const weatherNow = defineWidget({
   type: "weather-media-weather",
-  name: "Clima",
-  description: "Temperatura agora e a máxima e mínima de hoje.",
+  name: tr("widgets.weatherMedia.weather.weather"),
+  description: tr("widgets.weatherMedia.weather.temperatureNowAndTodays"),
   category: "clock",
   defaultConfig: { unit: "c" },
   settings: [unitSetting],
@@ -63,14 +64,14 @@ const weatherNow = defineWidget({
     const icon = Math.round(ui.tile.control * 0.9);
     const lines = ui.tile.lines;
     return (
-      <Tip id={ctx.instanceId} preview={preview} tip={() => weatherTip(f, u, today ? [`Hoje: máxima ${temp(today.max, u)}° · mínima ${temp(today.min, u)}°`] : [])}>
+      <Tip id={ctx.instanceId} preview={preview} tip={() => weatherTip(f, u, today ? [tr("widgets.weatherMedia.weather.todayHighLow", { p0: temp(today.max, u), p1: temp(today.min, u) })] : [])}>
         <Tile onClick={preview ? undefined : openWeather} padding={{ left: 8, right: 12 }} gap={6}>
           <WeatherIcon code={f.code} isDay={f.isDay} size={icon} />
           <Column style={{ gap: 0, minWidth: 0, justify: "center" }}>
             <Text size={lines.primary + 3} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.1 }}>
               {f.ready ? `${temp(f.temperature, u)}°` : "–"}
             </Text>
-            <Small>{today ? `↑${temp(today.max, u)}° ↓${temp(today.min, u)}°` : "Carregando"}</Small>
+            <Small>{today ? `↑${temp(today.max, u)}° ↓${temp(today.min, u)}°` : tr("widgets.weatherMedia.weather.loading")}</Small>
           </Column>
         </Tile>
       </Tip>
@@ -80,8 +81,8 @@ const weatherNow = defineWidget({
 
 const weatherDetails = defineWidget({
   type: "weather-media-details",
-  name: "Detalhes do clima",
-  description: "Vento, chance de chuva e a variação de temperatura do dia.",
+  name: tr("widgets.weatherMedia.weather.weatherDetails"),
+  description: tr("widgets.weatherMedia.weather.windChanceOfRain"),
   category: "clock",
   defaultConfig: { unit: "c" },
   settings: [unitSetting],
@@ -101,15 +102,15 @@ const weatherDetails = defineWidget({
     );
     const tip = () =>
       weatherTip(f, u, [
-        f.ready ? `Vento de ${compass(f.windDirection)} a ${windSpeed(f.wind, u)}` : "",
-        today ? `Chance de chuva hoje: ${today.rainChance}%${today.rainSum ? ` (${today.rainSum.toFixed(1).replace(".", ",")} mm)` : ""}` : "",
+        f.ready ? tr("widgets.weatherMedia.weather.windFromAt", { p0: compass(f.windDirection), p1: windSpeed(f.wind, u) }) : "",
+        today ? tr("widgets.weatherMedia.weather.chanceOfRainToday", { rainChance: today.rainChance, p1: today.rainSum ? ` (${formatDecimal(today.rainSum, 1)} mm)` : "" }) : "",
       ].filter(Boolean));
     return (
       <Tip id={ctx.instanceId} preview={preview} tip={tip}>
         <Tile onClick={preview ? undefined : openWeather} padding={{ left: 10, right: 12 }} gap={12}>
-          {cell("Vento", f.ready ? `${u === "f" ? Math.round(f.wind / 1.609) : f.wind} ${compass(f.windDirection)}` : "–")}
-          {cell("Chuva", today ? `${today.rainChance}%` : "–")}
-          {cell("Dia", today ? `${temp(today.min, u)}–${temp(today.max, u)}°` : "–")}
+          {cell(tr("widgets.weatherMedia.weather.wind"), f.ready ? `${u === "f" ? Math.round(f.wind / 1.609) : f.wind} ${compass(f.windDirection)}` : "–")}
+          {cell(tr("widgets.weatherMedia.weather.rain"), today ? `${today.rainChance}%` : "–")}
+          {cell(tr("widgets.weatherMedia.weather.day"), today ? `${temp(today.min, u)}–${temp(today.max, u)}°` : "–")}
         </Tile>
       </Tip>
     );
@@ -118,8 +119,8 @@ const weatherDetails = defineWidget({
 
 const weatherForecast = defineWidget({
   type: "weather-media-forecast",
-  name: "Hoje e previsão",
-  description: "Hoje e os próximos 3 dias, com máxima e mínima.",
+  name: tr("widgets.weatherMedia.weather.todayAndForecast"),
+  description: tr("widgets.weatherMedia.weather.todayAndNext3"),
   category: "clock",
   defaultConfig: { unit: "c", days: "4" },
   settings: [
@@ -127,11 +128,11 @@ const weatherForecast = defineWidget({
     {
       kind: "choice",
       key: "days",
-      label: "Dias",
+      label: tr("widgets.weatherMedia.weather.days"),
       options: [
-        { value: "3", label: "Hoje e 2 dias" },
-        { value: "4", label: "Hoje e 3 dias" },
-        { value: "5", label: "Hoje e 4 dias" },
+        { value: "3", label: tr("widgets.weatherMedia.weather.todayAnd2Days") },
+        { value: "4", label: tr("widgets.weatherMedia.weather.todayAnd3Days") },
+        { value: "5", label: tr("widgets.weatherMedia.weather.todayAnd4Days") },
       ],
     },
   ],
@@ -147,7 +148,7 @@ const weatherForecast = defineWidget({
       weatherTip(
         f,
         u,
-        list.map((d, i) => `${i === 0 ? "Hoje" : weekday(new Date(d.date))}: ${weatherLabel(d.code)}, ${temp(d.max, u)}°/${temp(d.min, u)}°, chuva ${d.rainChance}%`),
+        list.map((d, i) => tr("widgets.weatherMedia.weather.rain2", { p0: i === 0 ? tr("widgets.weatherMedia.weather.today") : weekday(new Date(d.date)), p1: weatherLabel(d.code), p2: temp(d.max, u), p3: temp(d.min, u), p4: d.rainChance })),
       );
     return (
       <Tip id={ctx.instanceId} preview={preview} tip={tip}>
@@ -157,7 +158,7 @@ const weatherForecast = defineWidget({
               // Fixed cells: the min temperature of one day no longer runs into the next day's icon.
               <Column style={{ width: 44, align: "center", gap: 1, justify: "center" }}>
                 <Small size={9} weight={i === 0 ? 700 : 500} color={i === 0 ? ui.text : ui.muted}>
-                  {i === 0 ? "Hoje" : weekday(new Date(d.date))}
+                  {i === 0 ? tr("widgets.weatherMedia.weather.today") : weekday(new Date(d.date))}
                 </Small>
                 <Row style={{ align: "center", gap: 2 }}>
                   <WeatherIcon code={d.code} size={13} />
@@ -169,7 +170,7 @@ const weatherForecast = defineWidget({
               </Column>
             ))
           ) : (
-            <Small>Carregando previsão…</Small>
+            <Small>{tr("widgets.weatherMedia.weather.loadingForecast")}</Small>
           )}
         </Tile>
       </Tip>
@@ -179,11 +180,11 @@ const weatherForecast = defineWidget({
 
 const weatherStatus = defineWidget({
   type: "weather-media-status",
-  name: "Condição do tempo",
-  description: "O tempo agora em palavras e a sua cidade.",
+  name: tr("widgets.weatherMedia.weather.weatherCondition"),
+  description: tr("widgets.weatherMedia.weather.weatherNowInWords"),
   category: "clock",
   defaultConfig: { showTemperature: true, unit: "c" },
-  settings: [{ kind: "toggle", key: "showTemperature", label: "Mostrar temperatura" }, unitSetting],
+  settings: [{ kind: "toggle", key: "showTemperature", label: tr("widgets.weatherMedia.weather.showTemperature") }, unitSetting],
   setup: (ctx) => setup(ctx, null),
   menu,
   View({ ctx, preview }) {
@@ -196,10 +197,10 @@ const weatherStatus = defineWidget({
           <WeatherIcon code={f.code} isDay={f.isDay} size={Math.round(ui.tile.control * 0.85)} />
           <Column style={{ flex: 1, gap: lines.gap, minWidth: 0, justify: "center" }}>
             <Text size={lines.primary - 1} weight={650} color={ui.text} style={{ ...line, lineHeight: lines.lineHeight }}>
-              {f.ready ? `${ctx.config.showTemperature ? `${temp(f.temperature, u)}° · ` : ""}${weatherLabel(f.code)}` : "Carregando…"}
+              {f.ready ? `${ctx.config.showTemperature ? `${temp(f.temperature, u)}° · ` : ""}${weatherLabel(f.code)}` : tr("widgets.weatherMedia.weather.loading2")}
             </Text>
             <Text size={lines.secondary - 1} color={ui.muted} style={{ ...line, lineHeight: lines.lineHeight }}>
-              {f.city || "Localizando"}
+              {f.city || tr("widgets.weatherMedia.weather.locating")}
             </Text>
           </Column>
         </Tile>
@@ -210,11 +211,11 @@ const weatherStatus = defineWidget({
 
 const weatherHourly = defineWidget({
   type: "weather-media-hourly",
-  name: "Por hora",
-  description: "Temperatura e tempo das próximas 6 horas.",
+  name: tr("widgets.weatherMedia.weather.hourly"),
+  description: tr("widgets.weatherMedia.weather.temperatureAndWeatherFor"),
   category: "clock",
   defaultConfig: { showRain: false, unit: "c" },
-  settings: [{ kind: "toggle", key: "showRain", label: "Mostrar chance de chuva", description: "No lugar da temperatura." }, unitSetting],
+  settings: [{ kind: "toggle", key: "showRain", label: tr("widgets.weatherMedia.weather.showChanceOfRain"), description: tr("widgets.weatherMedia.weather.inPlaceOfTemperature") }, unitSetting],
   setup: (ctx) => setup(ctx, "hour"),
   menu,
   View({ state, ctx, preview }) {
@@ -223,7 +224,7 @@ const weatherHourly = defineWidget({
     let hours = upcomingHours(6, state.now);
     if (!hours.length) hours = f.hours.slice(0, 6);
     const hourLabel = (time: number) => formatTime(new Date(time));
-    const tip = () => weatherTip(f, u, hours.map((h) => `${hourLabel(h.time)}: ${deg(h.temperature, u)} · ${weatherLabel(h.code)} · chuva ${h.rainChance}%`));
+    const tip = () => weatherTip(f, u, hours.map((h) => tr("widgets.weatherMedia.weather.rain3", { p0: hourLabel(h.time), p1: deg(h.temperature, u), p2: weatherLabel(h.code), rainChance: h.rainChance })));
     return (
       <Tip id={ctx.instanceId} preview={preview} tip={tip}>
         <Tile onClick={preview ? undefined : openWeather} gap={2} padding={{ left: 8, right: 8 }}>
@@ -231,7 +232,7 @@ const weatherHourly = defineWidget({
             hours.map((h, i) => (
               <Column style={{ width: 34, align: "center", gap: 1, justify: "center" }}>
                 <Small size={9} weight={i === 0 ? 700 : 500} color={i === 0 ? ui.text : ui.muted}>
-                  {i === 0 ? "Agora" : `${new Date(h.time).getHours()}h`}
+                  {i === 0 ? tr("widgets.weatherMedia.weather.now") : `${new Date(h.time).getHours()}h`}
                 </Small>
                 <Row style={{ align: "center", gap: 2 }}>
                   <WeatherIcon code={h.code} size={12} />
@@ -242,7 +243,7 @@ const weatherHourly = defineWidget({
               </Column>
             ))
           ) : (
-            <Small>Carregando previsão…</Small>
+            <Small>{tr("widgets.weatherMedia.weather.loadingForecast")}</Small>
           )}
         </Tile>
       </Tip>
@@ -252,8 +253,8 @@ const weatherHourly = defineWidget({
 
 const weatherSun = defineWidget({
   type: "weather-media-sun",
-  name: "Nascer e pôr do sol",
-  description: "A posição do sol no céu entre o nascer e o pôr do sol.",
+  name: tr("widgets.weatherMedia.weather.sunriseAndSunset"),
+  description: tr("widgets.weatherMedia.weather.sunsPositionInSky"),
   category: "clock",
   defaultConfig: { unit: "c" },
   setup: (ctx) => setup(ctx, "minute"),
@@ -284,7 +285,7 @@ const weatherSun = defineWidget({
         id={ctx.instanceId}
         preview={preview}
         tip={() =>
-          weatherTip(f, ctx.config.unit, today ? [`Nascer do sol ${formatTime(new Date(today.sunrise))} · pôr do sol ${formatTime(new Date(today.sunset))}`, `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}% do dia claro`] : [])
+          weatherTip(f, ctx.config.unit, today ? [tr("widgets.weatherMedia.weather.sunriseSunset", { p0: formatTime(new Date(today.sunrise)), p1: formatTime(new Date(today.sunset)) }), tr("widgets.weatherMedia.weather.ofDaylight", { p0: Math.round(Math.max(0, Math.min(1, progress)) * 100) })] : [])
         }
       >
       <Tile onClick={preview ? undefined : openWeather} gap={8} padding={{ left: 10, right: 12 }}>
@@ -298,7 +299,7 @@ const weatherSun = defineWidget({
           <Small size={10} color={ui.text} weight={600}>
             {today ? `↑ ${formatTime(new Date(today.sunrise))}` : "–"}
           </Small>
-          <Small size={10}>{today ? `↓ ${formatTime(new Date(today.sunset))}` : "Carregando"}</Small>
+          <Small size={10}>{today ? `↓ ${formatTime(new Date(today.sunset))}` : tr("widgets.weatherMedia.weather.loading")}</Small>
         </Column>
       </Tile>
       </Tip>

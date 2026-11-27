@@ -10,6 +10,7 @@ import { BrandIcon } from "../../brand-icons";
 import { defineWidget, type WidgetContext } from "../../types";
 import { Badge, Bars, Delta, TileTitle, oneRow, changeText, momentLabel, poll, refreshItem, refreshers } from "../finance/shared";
 
+import { t, language } from "../../../i18n";
 interface Keyed<T> {
   data: T;
   demo: boolean;
@@ -62,7 +63,7 @@ function Title(props: { color: string; letter: string; title: string; demo: bool
 
 function money(value: number, currency: string) {
   try {
-    return new Intl.NumberFormat("pt-BR", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
+    return new Intl.NumberFormat(language, { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
   } catch {
     return `${currency} ${value.toFixed(2)}`;
   }
@@ -76,30 +77,30 @@ const deepseekDemo = (): DeepseekBalance => ({ available: true, currency: "USD",
 
 const deepseek = defineWidget({
   type: "ai-deepseek-balance",
-  name: "Saldo do DeepSeek",
-  description: "Saldo da conta da API do DeepSeek (recarregado e bônus), pela API oficial de saldo. A API não informa gasto por período.",
+  name: t("widgets.providers2.keyed.deepseekBalance"),
+  description: t("widgets.providers2.keyed.deepseekApiAccountBalance"),
   category: "productivity",
   defaultConfig: { key: "", refresh: "15" },
   settings: [
     {
       kind: "text",
       key: "key",
-      label: "Chave de API",
-      description: "platform.deepseek.com › API keys. Enviada só para api.deepseek.com. Vazia mostra dados de exemplo.",
+      label: t("widgets.providers2.keyed.apiKey"),
+      description: t("widgets.providers2.keyed.platformDeepseekComApi"),
       placeholder: "sk-…",
       secret: true,
     },
   ],
   setup: (ctx) => keyed(ctx, deepseekDemo, (c) => (c.key ? deepseekBalance(c.key) : null), 15),
-  menu: ({ state }) => [[refreshItem(state), { label: "Abrir uso no DeepSeek", icon: "star", onSelect: () => launch(DEEPSEEK_URL) }]],
+  menu: ({ state }) => [[refreshItem(state), { label: t("widgets.providers2.keyed.openUsageOnDeepseek"), icon: "star", onSelect: () => launch(DEEPSEEK_URL) }]],
   View({ state, ctx, preview }) {
     const b = state.data;
     const tip = () => [
-      `Saldo da API do DeepSeek: ${money(b.total, b.currency)}${b.available ? "" : " (insuficiente para chamadas)"}`,
-      `Recarregado ${money(b.toppedUp, b.currency)} · bônus ${money(b.granted, b.currency)}`,
-      "A API informa só o saldo atual, não o gasto por período",
-      state.demo ? "Dados de exemplo: informe a chave nas configurações" : state.error ? `DeepSeek: ${state.error}` : "Fonte: API de saldo do DeepSeek (/user/balance)",
-      "Clique para abrir o uso no DeepSeek",
+      t("widgets.providers2.keyed.deepseekApiBalance", { p0: money(b.total, b.currency), p1: b.available ? "" : t("widgets.providers2.keyed.notEnoughForCalls") }),
+      t("widgets.providers2.keyed.toppedUpBonus", { p0: money(b.toppedUp, b.currency), p1: money(b.granted, b.currency) }),
+      t("widgets.providers2.keyed.apiReportsOnlyCurrent"),
+      state.demo ? t("widgets.providers2.keyed.sampleDataEnterKey") : state.error ? `DeepSeek: ${state.error}` : t("widgets.providers2.keyed.sourceDeepseekBalanceApi"),
+      t("widgets.providers2.keyed.clickToOpenUsage"),
     ];
     return (
       <Tile icon={<BrandIcon brand="deepseek" />} value={money(b.total, b.currency)} valueColor={b.available ? ui.text : ui.danger} width={oneRow() ? 196 : 170} onClick={() => launch(DEEPSEEK_URL)} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
@@ -118,7 +119,7 @@ const deepseek = defineWidget({
               {money(b.total, b.currency)}
             </Text>
             <Text size={9} color={ui.faint} style={{ flex: 1 }}>
-              {!b.available ? "sem saldo" : b.granted > 0 ? `bônus ${money(b.granted, b.currency)}` : "saldo"}
+              {!b.available ? t("widgets.providers2.keyed.noBalance") : b.granted > 0 ? t("widgets.providers2.keyed.bonus", { p0: money(b.granted, b.currency) }) : "saldo"}
             </Text>
           </Row>
         </Column>
@@ -160,21 +161,21 @@ function QuotaRow(props: { label: string; used: number | null; right?: string })
 const zai = defineWidget({
   type: "ai-zai-coding-plan",
   name: "GLM Coding Plan (Z.ai)",
-  description: "Uso da janela de 5 h de tokens e das chamadas MCP do mês no GLM Coding Plan, pela mesma consulta do plugin oficial glm-plan-usage.",
+  description: t("widgets.providers2.keyed.usageOf5Hour"),
   category: "productivity",
   defaultConfig: { key: "", region: "global", refresh: "5" },
   settings: [
     {
       kind: "text",
       key: "key",
-      label: "Chave de API do plano",
-      description: "A mesma chave usada no Claude Code/ferramentas com o Coding Plan. Enviada só para a Z.ai (ou Zhipu). Vazia mostra dados de exemplo.",
+      label: t("widgets.providers2.keyed.planApiKey"),
+      description: t("widgets.providers2.keyed.sameKeyUsedIn"),
       secret: true,
     },
     {
       kind: "choice",
       key: "region",
-      label: "Plataforma",
+      label: t("widgets.providers2.keyed.platform"),
       options: [
         { value: "global", label: "Z.ai (api.z.ai)" },
         { value: "cn", label: "Zhipu (open.bigmodel.cn)" },
@@ -182,15 +183,15 @@ const zai = defineWidget({
     },
   ],
   setup: (ctx) => keyed(ctx, zaiDemo, (c) => (c.key ? zaiQuota(c.key, c.region) : null), 5),
-  menu: ({ state, ctx }) => [[refreshItem(state), { label: "Abrir assinatura", icon: "star", onSelect: () => launch(zaiUrl(ctx.config.region)) }]],
+  menu: ({ state, ctx }) => [[refreshItem(state), { label: t("widgets.providers2.keyed.openSubscription"), icon: "star", onSelect: () => launch(zaiUrl(ctx.config.region)) }]],
   View({ state, ctx, preview }) {
     const q = state.data;
     const tip = () => [
       `GLM Coding Plan${q.plan ? ` ${q.plan}` : ""}`,
-      q.tokens ? `Tokens na janela de 5 h: ${q.tokens.used}% usado${q.tokens.resetsAt ? `, renova ${momentLabel(q.tokens.resetsAt)}` : ""}` : "Tokens: sem dados",
-      ...(q.mcp ? [`Chamadas MCP no mês: ${q.mcp.used}%${q.mcp.total ? ` (${q.mcp.current} de ${q.mcp.total})` : ""}`] : []),
-      state.demo ? "Dados de exemplo: informe a chave nas configurações" : state.error ? `Z.ai: ${state.error}` : "Fonte: consulta de cota do plugin oficial glm-plan-usage",
-      "Clique para abrir a assinatura",
+      q.tokens ? t("widgets.providers2.keyed.tokensIn5Hour", { used: q.tokens.used, p1: q.tokens.resetsAt ? t("widgets.providers2.keyed.resets", { p0: momentLabel(q.tokens.resetsAt) }) : "" }) : t("widgets.providers2.keyed.tokensNoData"),
+      ...(q.mcp ? [t("widgets.providers2.keyed.mcpCallsThisMonth", { used: q.mcp.used, p1: q.mcp.total ? ` (${q.mcp.current} de ${q.mcp.total})` : "" })] : []),
+      state.demo ? t("widgets.providers2.keyed.sampleDataEnterKey") : state.error ? `Z.ai: ${state.error}` : t("widgets.providers2.keyed.sourceQuotaQueryFrom"),
+      t("widgets.providers2.keyed.clickToOpenSubscription"),
     ];
       // Three rows (title, 5h, MCP) need a 44 px tile; below it the title gives way to the badge on
       // the left and the reset time moves onto the 5h row.
@@ -214,29 +215,29 @@ const zai = defineWidget({
 // ---------------------------------------------------------------- DataFast
 
 const datafastDemo = () => [212, 240, 198, 260, 301, 280, 190, 230, 275, 262, 318, 344, 296, 251];
-const compact = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+const compact = new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
 
 const datafast = defineWidget({
   type: "online-datafast",
-  name: "DataFast (visitantes)",
-  description: "Visitantes por dia nos últimos 14 dias, o total da semana e a variação contra a semana anterior, pela API do DataFast.",
+  name: t("widgets.providers2.keyed.datafastVisitors"),
+  description: t("widgets.providers2.keyed.visitorsPerDayIn"),
   category: "productivity",
   defaultConfig: { label: "DataFast", key: "", websiteId: "", refresh: "15" },
   settings: [
-    { kind: "text", key: "label", label: "Título", placeholder: "DataFast" },
+    { kind: "text", key: "label", label: t("widgets.providers2.keyed.title"), placeholder: "DataFast" },
     {
       kind: "text",
       key: "key",
-      label: "Chave de API",
-      description: "Chave do site (df_…) ou token da conta (dft_…, com analytics:read). Enviada só para datafa.st. Vazia mostra dados de exemplo.",
+      label: t("widgets.providers2.keyed.apiKey"),
+      description: t("widgets.providers2.keyed.siteKeyDfOr"),
       placeholder: "df_…",
       secret: true,
     },
-    { kind: "text", key: "websiteId", label: "ID do site", description: "Só com token da conta (dft_…).", when: (c) => c.key.startsWith("dft_") },
+    { kind: "text", key: "websiteId", label: t("widgets.providers2.keyed.siteId"), description: t("widgets.providers2.keyed.onlyWithAccountToken"), when: (c) => c.key.startsWith("dft_") },
     {
       kind: "choice",
       key: "refresh",
-      label: "Atualizar a cada",
+      label: t("widgets.providers2.keyed.refreshEvery"),
       options: [
         { value: "5", label: "5 min" },
         { value: "15", label: "15 min" },
@@ -246,17 +247,17 @@ const datafast = defineWidget({
     },
   ],
   setup: (ctx) => keyed(ctx, datafastDemo, (c) => (c.key ? datafastVisitors(c.key, c.websiteId, 14) : null), 15),
-  menu: ({ state }) => [[refreshItem(state), { label: "Abrir DataFast", icon: "star", onSelect: () => launch("https://datafa.st/dashboard") }]],
+  menu: ({ state }) => [[refreshItem(state), { label: t("widgets.providers2.keyed.openDatafast"), icon: "star", onSelect: () => launch("https://datafa.st/dashboard") }]],
   View({ state, ctx, preview }) {
     const days = state.data;
     const week = days.slice(-7).reduce((a, b) => a + b, 0);
     const before = days.slice(-14, -7).reduce((a, b) => a + b, 0);
     const tip = () => [
-      `${String(ctx.config.label || "DataFast")}: ${week.toLocaleString("pt-BR")} visitantes nos últimos 7 dias`,
-      before > 0 ? `${changeText(((week - before) / before) * 100, 1)} contra os 7 dias anteriores (${before.toLocaleString("pt-BR")})` : "Sem dados da semana anterior para comparar",
-      "Barras: visitantes por dia nos últimos 14 dias",
-      state.demo ? "Dados de exemplo: informe a chave nas configurações" : state.error ? `DataFast: ${state.error}` : "Fonte: API do DataFast",
-      "Clique para abrir o DataFast",
+      t("widgets.providers2.keyed.visitorsInLast7", { p0: String(ctx.config.label || "DataFast"), p1: week.toLocaleString(language) }),
+      before > 0 ? t("widgets.providers2.keyed.againstPrevious7Days", { p0: changeText(((week - before) / before) * 100, 1), p1: before.toLocaleString(language) }) : t("widgets.providers2.keyed.noDataFromPrevious"),
+      t("widgets.providers2.keyed.barsVisitorsPerDay"),
+      state.demo ? t("widgets.providers2.keyed.sampleDataEnterKey") : state.error ? `DataFast: ${state.error}` : t("widgets.providers2.keyed.sourceDatafastApi"),
+      t("widgets.providers2.keyed.clickToOpenDatafast"),
     ];
     return (
       <Tile icon={<Badge color="#e7663b" letter="D" size={ui.app.icon} />} value={compact.format(week)} width={196} onClick={() => launch("https://datafa.st/dashboard")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>

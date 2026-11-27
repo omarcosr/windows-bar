@@ -8,6 +8,7 @@ import { RoundButton, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { fluent, G, Glyph } from "./shared";
 
+import { t } from "../../../i18n";
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 function pick(path: string): DockMenuItem {
@@ -22,13 +23,13 @@ function openGallery() {
     launch("ms-settings:personalization-background");
     return;
   }
-  showDockMenu({ title: "Tela de fundo", sections, grid: true });
+  showDockMenu({ title: t("widgets.actions.wallpaper.wallpaper"), sections, grid: true });
 }
 
 export default defineWidget({
   type: "actions-wallpaper",
-  name: "Tela de fundo",
-  description: "Mostra a tela de fundo atual e troca por uma do Windows ou da pasta Imagens.",
+  name: t("widgets.actions.wallpaper.wallpaper"),
+  description: t("widgets.actions.wallpaper.showsCurrentWallpaperAnd"),
   category: "apps",
   defaultConfig: {},
   setup(ctx) {
@@ -38,10 +39,10 @@ export default defineWidget({
   menu() {
     return [
       [
-        { label: "Escolher tela de fundo", icon: fluent(G.photo), onSelect: openGallery },
-        ...(actions.slideshow ? [{ label: "Próxima tela de fundo", icon: fluent(G.next), onSelect: advanceWallpaper }] : []),
+        { label: t("widgets.actions.wallpaper.chooseWallpaper"), icon: fluent(G.photo), onSelect: openGallery },
+        ...(actions.slideshow ? [{ label: t("widgets.actions.wallpaper.nextWallpaper"), icon: fluent(G.next), onSelect: advanceWallpaper }] : []),
       ],
-      [{ label: "Personalizar tela de fundo", icon: fluent(G.settings), onSelect: () => launch("ms-settings:personalization-background") }],
+      [{ label: t("widgets.actions.wallpaper.personalizeWallpaper"), icon: fluent(G.settings), onSelect: () => launch("ms-settings:personalization-background") }],
     ];
   },
   View({ ctx, preview }) {
@@ -49,7 +50,7 @@ export default defineWidget({
     const w = devicePx(h * 1.6, true);
     return (
       <Tile padding={{ left: 5, right: actions.slideshow ? 6 : 5 }} gap={6}>
-        <HoverTip id={`tip:${ctx.instanceId}:wallpaper`} tip={() => ["Tela de fundo", fileName(actions.wallpaper) || "Cor sólida"]} disabled={preview}>
+        <HoverTip id={`tip:${ctx.instanceId}:wallpaper`} tip={() => [t("widgets.actions.wallpaper.wallpaper"), fileName(actions.wallpaper) || t("widgets.actions.wallpaper.solidColor")]} disabled={preview}>
           <Pressable
             onClick={preview ? undefined : openGallery}
             style={{ width: w, height: h, radius: 8, overflow: "hidden", background: "#2a2a2e", cursor: preview ? "default" : "pointer" }}

@@ -5,6 +5,7 @@ import { openQuickSettings } from "../../../native/desktop";
 import { numeric, ui } from "../../../theme";
 import type { DockMenuItem } from "../../../menu/dock-menu";
 
+import { t } from "../../../i18n";
 export const amber = "#ff9f0a";
 
 /** Load colour: green, amber from 65 %, red from 85 % (as the "CPU e RAM" tile). */
@@ -86,7 +87,7 @@ export function battery(preview: boolean): BatteryReading {
 
 export const batteryTone = (b: BatteryReading) => (b.plugged ? ui.green : b.percent <= 10 ? ui.danger : b.percent <= 20 ? amber : ui.green);
 
-export const batteryLabel = (b: BatteryReading) => (b.plugged ? (b.percent >= 100 ? "Carregada" : "Carregando") : "Na bateria");
+export const batteryLabel = (b: BatteryReading) => (b.plugged ? (b.percent >= 100 ? t("widgets.hardware.shared.charged") : t("widgets.hardware.shared.charging")) : t("widgets.hardware.shared.onBattery"));
 
 /** The battery tip, worded as the taskbar battery icon's. */
 export const batteryTip = (id: string, preview: boolean) => ({
@@ -94,8 +95,8 @@ export const batteryTip = (id: string, preview: boolean) => ({
   lines: () => {
     const b = battery(preview);
     return [
-      b.plugged ? `Bateria: ${b.percent}% (${b.percent >= 100 ? "carregada" : "carregando"}, na tomada)` : `Bateria: ${b.percent}% restante`,
-      "Clique: Configurações rápidas",
+      b.plugged ? t("widgets.hardware.shared.batteryPluggedIn", { percent: b.percent, p1: b.percent >= 100 ? t("widgets.hardware.shared.charged2") : t("widgets.hardware.shared.charging2") }) : t("widgets.hardware.shared.batteryRemaining", { percent: b.percent }),
+      t("widgets.hardware.shared.clickQuickSettings"),
     ];
   },
 });
@@ -106,8 +107,8 @@ export const openBatteryFlyout = () => openQuickSettings();
 export function batteryMenu(): DockMenuItem[][] {
   return [
     [
-      { label: "Energia e bateria", icon: "settings", onSelect: () => launch("ms-settings:powersleep") },
-      { label: "Economia de energia", icon: "settings", onSelect: () => launch("ms-settings:batterysaver") },
+      { label: t("widgets.hardware.shared.powerBattery"), icon: "settings", onSelect: () => launch("ms-settings:powersleep") },
+      { label: t("widgets.hardware.shared.energySaver"), icon: "settings", onSelect: () => launch("ms-settings:batterysaver") },
     ],
   ];
 }

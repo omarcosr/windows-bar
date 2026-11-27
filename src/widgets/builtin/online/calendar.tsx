@@ -8,6 +8,7 @@ import { errorText, refreshNow, registerRefresh } from "./common";
 import { nextBoundary, onClock, type ClockSubscription } from "../../../services/clock";
 import { refreshWidget, remoteGet } from "../../../services/remote";
 
+import { t as tr, language } from "../../../i18n";
 const DAY = 86_400_000;
 const line = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
 
@@ -23,14 +24,14 @@ function startOfDay(t: number) {
 
 /** "agora", "em 25 min", "em 2 h 10", "amanhã 09:00", "qua 14:30". */
 export function howSoon(event: CalendarEvent, now: number) {
-  if (event.start <= now) return event.allDay ? "hoje" : `agora · até ${hhmm(event.end)}`;
+  if (event.start <= now) return event.allDay ? tr("widgets.online.calendar.today") : tr("widgets.online.calendar.nowUntil", { p0: hhmm(event.end) });
   const mins = Math.round((event.start - now) / 60_000);
   const days = Math.round((startOfDay(event.start) - startOfDay(now)) / DAY);
-  if (event.allDay) return days === 1 ? "amanhã" : new Date(event.start).toLocaleDateString("pt-BR", { weekday: "short", day: "numeric" });
-  if (mins < 60) return `em ${Math.max(1, mins)} min`;
-  if (days === 0) return mins < 180 ? `em ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")}` : `hoje ${hhmm(event.start)}`;
-  if (days === 1) return `amanhã ${hhmm(event.start)}`;
-  const wd = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][new Date(event.start).getDay()];
+  if (event.allDay) return days === 1 ? tr("widgets.online.calendar.tomorrow") : new Date(event.start).toLocaleDateString(language, { weekday: "short", day: "numeric" });
+  if (mins < 60) return tr("widgets.online.calendar.inMin", { p0: Math.max(1, mins) });
+  if (days === 0) return mins < 180 ? tr("widgets.online.calendar.inH", { p0: Math.floor(mins / 60), p1: String(mins % 60).padStart(2, "0") }) : tr("widgets.online.calendar.today2", { p0: hhmm(event.start) });
+  if (days === 1) return tr("widgets.online.calendar.tomorrow2", { p0: hhmm(event.start) });
+  const wd = new Date(event.start).toLocaleDateString(language, { weekday: "short" }).replace(".", "");
   return `${wd} ${hhmm(event.start)}`;
 }
 
@@ -40,7 +41,7 @@ function demoEvents(): CalendarEvent[] {
     const start = Math.round((now + minsFromNow * 60_000) / 300_000) * 300_000;
     return { uid: title, title, location: "", start, end: start + length * 60_000, allDay: false };
   };
-  return [at(25, 30, "Daily do time"), at(150, 60, "Revisão de design"), at(60 * 22, 45, "1:1 com a gestora")];
+  return [at(25, 30, tr("widgets.online.calendar.teamDaily")), at(150, 60, tr("widgets.online.calendar.designReview")), at(60 * 22, 45, "1:1 com a gestora")];
 }
 
 function urlsOf(value: string) {
@@ -53,19 +54,19 @@ function urlsOf(value: string) {
 export default defineWidget({
   type: "online-calendar",
   name: "Agenda (iCal)",
-  description: "Próximo compromisso e em quanto tempo, de um ou mais links iCal secretos. Clique abre o Calendário.",
+  description: tr("widgets.online.calendar.nextEventAndHow"),
   category: "productivity",
   defaultConfig: { urls: "", showAllDay: false },
   settings: [
     {
       kind: "text",
       key: "urls",
-      label: "Links iCal secretos",
-      description: "Um ou mais endereços .ics (Google: endereço secreto no formato iCal; Outlook: publicar calendário → ICS), separados por espaço ou vírgula. Vazio mostra dados de exemplo.",
+      label: tr("widgets.online.calendar.secretIcalLinks"),
+      description: tr("widgets.online.calendar.oneOrMoreIcs"),
       placeholder: "https://calendar.google.com/calendar/ical/…/basic.ics",
       secret: true,
     },
-    { kind: "toggle", key: "showAllDay", label: "Mostrar eventos de dia inteiro como próximo" },
+    { kind: "toggle", key: "showAllDay", label: tr("widgets.online.calendar.showAllDayEvents") },
   ],
   setup(ctx) {
     let clock: ClockSubscription | undefined;
@@ -136,13 +137,13 @@ export default defineWidget({
     return [
       todays.length
         ? todays.map((e) => ({
-            label: `${e.allDay ? "Dia todo" : hhmm(e.start)} · ${e.title}${e.location ? ` (${e.location})` : ""}`,
+            label: `${e.allDay ? tr("widgets.online.calendar.allDay") : hhmm(e.start)} · ${e.title}${e.location ? ` (${e.location})` : ""}`,
             onSelect: () => launch("outlookcal:"),
           }))
-        : [{ label: "Nenhum evento hoje", onSelect: () => {} }],
+        : [{ label: tr("widgets.online.calendar.noEventsToday"), onSelect: () => {} }],
       [
-        { label: "Abrir Calendário", icon: "chevron-right", onSelect: () => launch("outlookcal:") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: tr("widgets.online.calendar.openCalendar"), icon: "chevron-right", onSelect: () => launch("outlookcal:") },
+        { label: tr("widgets.online.calendar.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
@@ -151,9 +152,9 @@ export default defineWidget({
     const tip = () => {
       const upcoming = state.events.filter((e) => e.end > now && (ctx.config.showAllDay || !e.allDay)).slice(0, 4);
       return [
-        ...(upcoming.length ? upcoming.map((e) => `${e.allDay ? "Dia todo" : hhmm(e.start)} · ${e.title}${e.location ? ` (${e.location})` : ""}`) : ["Nenhum compromisso nos próximos 7 dias"]),
-        state.demo ? "Dados de exemplo: informe o endereço iCal nas configurações" : state.error ? `Falha ao ler: ${state.error}` : "Fonte: seus calendários iCal",
-        "Clique para abrir o Calendário",
+        ...(upcoming.length ? upcoming.map((e) => `${e.allDay ? tr("widgets.online.calendar.allDay") : hhmm(e.start)} · ${e.title}${e.location ? ` (${e.location})` : ""}`) : [tr("widgets.online.calendar.noEventsInNext")]),
+        state.demo ? tr("widgets.online.calendar.sampleDataEnterIcal") : state.error ? tr("widgets.online.calendar.couldntRead", { error: state.error }) : tr("widgets.online.calendar.sourceYourIcalCalendars"),
+        tr("widgets.online.calendar.clickToOpenCalendar"),
       ];
     };
     const next = state.events.find((e) => e.end > now && (ctx.config.showAllDay || !e.allDay));
@@ -164,11 +165,11 @@ export default defineWidget({
         <Dot color={state.error ? ui.danger : soon ? ui.orange : ui.blue} size={8} />
         <Column style={{ flex: 1, gap: l.gap }}>
           <Text size={l.primary} weight={600} color={ui.text} style={{ ...line, lineHeight: l.lineHeight }}>
-            {next ? next.title : "Sem compromissos"}
+            {next ? next.title : tr("widgets.online.calendar.noEvents")}
           </Text>
           <Text size={l.secondary - 1} color={soon ? ui.orange : ui.muted} style={{ ...line, lineHeight: l.lineHeight }}>
-            {next ? howSoon(next, now) : "nos próximos 7 dias"}
-            {state.demo ? " · demo" : state.error ? " · erro" : ""}
+            {next ? howSoon(next, now) : tr("widgets.online.calendar.inNext7Days")}
+            {state.demo ? " · demo" : state.error ? tr("widgets.online.calendar.error") : ""}
           </Text>
         </Column>
       </Tile>

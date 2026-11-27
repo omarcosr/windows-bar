@@ -2,6 +2,7 @@ import { store } from "@tarve/core";
 import { remoteJson, sharedRefresh } from "./remote";
 import { sleep } from "../runtime/proc";
 
+import { t } from "../i18n";
 export const weather = store({
   ready: false,
   temperature: 0,
@@ -106,12 +107,12 @@ export function acquireForecast(listener: (data: MeteoData, city: string) => voi
 
 /** WMO weather code -> short Portuguese label. */
 export function weatherLabel(code: number) {
-  if (code === 0) return "Céu limpo";
-  if (code <= 2) return "Parcialmente nublado";
-  if (code === 3) return "Nublado";
-  if (code <= 48) return "Neblina";
-  if (code <= 67) return "Chuva";
-  if (code <= 77) return "Neve";
-  if (code <= 82) return "Pancadas";
-  return "Tempestade";
+  if (code === 0) return t("services.weather.clearSky");
+  if (code <= 2) return t("services.weather.partlyCloudy");
+  if (code === 3) return t("services.weather.cloudy");
+  if (code <= 48) return t("services.weather.fog");
+  if (code <= 67) return t("services.weather.rain");
+  if (code <= 77) return t("services.weather.snow");
+  if (code <= 82) return t("services.weather.showers");
+  return t("services.weather.thunderstorm");
 }

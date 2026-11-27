@@ -7,6 +7,7 @@ import { Tile } from "../../ui";
 import { FluentGlyph } from "../../../menu/dock-menu";
 import { defineWidget } from "../../types";
 
+import { t } from "../../../i18n";
 /** The day in 20-minute cells, each colored by the kind of app used most in it. */
 const CELLS = 72;
 const CELL_S = 86_400 / CELLS;
@@ -55,8 +56,8 @@ function kindTotals(day: DayUsage) {
 
 export default defineWidget({
   type: "launcher-day-timeline",
-  name: "Linha do dia",
-  description: "O dia de hoje numa linha, colorida pelo tipo de app em uso (dados do Tempo de tela).",
+  name: t("widgets.launcher.dayTimeline.dayTimeline"),
+  description: t("widgets.launcher.dayTimeline.todayInOneLine"),
   category: "productivity",
   defaultConfig: {},
   setup(ctx) {
@@ -70,7 +71,7 @@ export default defineWidget({
       icon: [["circle", { cx: 12, cy: 12, r: 6, fill: kindInfo[kind].color, stroke: "none" }]],
       onSelect: () => {},
     }));
-    return [items.length ? items : [{ label: "Nada contado hoje", onSelect: () => {} }]];
+    return [items.length ? items : [{ label: t("widgets.launcher.dayTimeline.nothingCountedToday"), onSelect: () => {} }]];
   },
   View({ ctx, preview }) {
     const real = usageOf();
@@ -83,10 +84,10 @@ export default defineWidget({
       // scale is in the tooltip (three lines in a 28-36 px tile were cut at the top).
       const scale = ui.tile.height >= 44;
       const tip = () => [
-        `Hoje: ${formatDuration(usageOf().total)} com o PC em uso`,
+        t("widgets.launcher.dayTimeline.todayWithPcIn", { p0: formatDuration(usageOf().total) }),
         ...kindTotals(usageOf()).map(([kind, seconds]) => `${kindInfo[kind].label}: ${formatDuration(seconds)}`),
-        "Cada trecho é 20 min, colorido pelo tipo de app mais usado nele",
-        "De 0h a 24h; ausências de mais de 5 min não contam",
+        t("widgets.launcher.dayTimeline.eachSegmentIs20"),
+        t("widgets.launcher.dayTimeline.from0hTo24h"),
       ];
       return (
         <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
@@ -94,7 +95,7 @@ export default defineWidget({
         <Column style={{ gap: scale ? Math.max(4, lines.gap + 3) : ui.tile.height < 32 ? 3 : 5, flex: 1, justify: "center" }}>
           <Row style={{ align: "center" }}>
             <Text size={lines.secondary} color={ui.muted} style={{ flex: 1, lineHeight: 1.2 }}>
-              Hoje
+              {t("widgets.launcher.dayTimeline.today")}
             </Text>
             <Text size={lines.secondary} weight={700} color={ui.text} style={{ ...numeric, lineHeight: 1.2 }}>
               {formatDuration(day.total)}

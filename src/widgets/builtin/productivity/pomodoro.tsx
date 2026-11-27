@@ -7,8 +7,9 @@ import { Stack, buttonSize, clock, endsAt, flashBackground, minuteOptions, ring,
 import { onConfigSaved } from "../../../config";
 import { onClock } from "../../../services/clock";
 
+import { t } from "../../../i18n";
 type Phase = "focus" | "short" | "long";
-const PHASE_LABEL: Record<Phase, string> = { focus: "Foco", short: "Pausa", long: "Pausa longa" };
+const PHASE_LABEL: Record<Phase, string> = { focus: t("widgets.productivity.pomodoro.focus"), short: t("widgets.productivity.pomodoro.break"), long: t("widgets.productivity.pomodoro.longBreak") };
 const PHASE_COLOR: Record<Phase, string> = { focus: ui.red, short: ui.green, long: ui.blue };
 
 interface Config {
@@ -29,21 +30,21 @@ function minutes(ctx: WidgetContext<Config>, phase: Phase) {
 export default defineWidget<Config, ReturnType<typeof makeState>>({
   type: "productivity-pomodoro",
   name: "Pomodoro",
-  description: "Rodadas de foco e pausas. Clique para iniciar ou pausar; pule a fase pelo botão ou pelo menu.",
+  description: t("widgets.productivity.pomodoro.roundsOfFocusAnd"),
   category: "productivity",
   defaultConfig: { focus: "25", short: "5", long: "15", rounds: "4", autoStart: false, sound: true },
   settings: [
-    { kind: "choice", key: "focus", label: "Foco", options: minuteOptions([15, 20, 25, 30, 45, 50, 60, 90]) },
-    { kind: "choice", key: "short", label: "Pausa", options: minuteOptions([3, 5, 10, 15]) },
-    { kind: "choice", key: "long", label: "Pausa longa", options: minuteOptions([10, 15, 20, 30]) },
+    { kind: "choice", key: "focus", label: t("widgets.productivity.pomodoro.focus"), options: minuteOptions([15, 20, 25, 30, 45, 50, 60, 90]) },
+    { kind: "choice", key: "short", label: t("widgets.productivity.pomodoro.break"), options: minuteOptions([3, 5, 10, 15]) },
+    { kind: "choice", key: "long", label: t("widgets.productivity.pomodoro.longBreak"), options: minuteOptions([10, 15, 20, 30]) },
     {
       kind: "choice",
       key: "rounds",
-      label: "Pausa longa a cada",
+      label: t("widgets.productivity.pomodoro.longBreakEvery"),
       options: [2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} rodadas` })),
     },
-    { kind: "toggle", key: "autoStart", label: "Emendar a próxima fase automaticamente" },
-    { kind: "toggle", key: "sound", label: "Som ao terminar uma fase" },
+    { kind: "toggle", key: "autoStart", label: t("widgets.productivity.pomodoro.startNextPhaseAutomatically") },
+    { kind: "toggle", key: "sound", label: t("widgets.productivity.pomodoro.soundWhenPhaseEnds") },
   ],
   setup(ctx) {
     const state = makeState(minutes(ctx, "focus"));
@@ -127,9 +128,9 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
     const a = actions.get(toRaw(state))!;
     return [
       [
-        { label: state.running ? "Pausar" : "Iniciar", icon: state.running ? "pause" : "play", onSelect: a.toggle },
-        { label: `Pular para ${state.phase === "focus" ? "a pausa" : "o foco"}`, icon: "skip-forward", onSelect: a.skip },
-        { label: "Reiniciar o ciclo", icon: "skip-back", onSelect: a.reset },
+        { label: state.running ? t("widgets.productivity.pomodoro.pause") : t("widgets.productivity.pomodoro.start"), icon: state.running ? "pause" : "play", onSelect: a.toggle },
+        { label: t("widgets.productivity.pomodoro.skipTo", { p0: state.phase === "focus" ? t("widgets.productivity.pomodoro.break2") : t("widgets.productivity.pomodoro.focus2") }), icon: "skip-forward", onSelect: a.skip },
+        { label: t("widgets.productivity.pomodoro.restartCycle"), icon: "skip-back", onSelect: a.reset },
       ],
     ];
   },
@@ -140,16 +141,16 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
     const size = Math.min(30, ui.tile.control);
     const round = (state.round % 100) + (state.phase === "focus" ? 1 : 0);
       const tip = () => [
-        `${PHASE_LABEL[state.phase]} · rodada ${round} de ${ctx.config.rounds}`,
-        state.running ? `Faltam ${clock(state.endsAt - Date.now())} · termina às ${endsAt(state.endsAt - Date.now())}` : `${clock(state.left)} · ${state.left === state.total ? "pronto para iniciar" : "pausado"}`,
-        state.running ? "Clique para pausar" : "Clique para iniciar",
+        t("widgets.productivity.pomodoro.roundOf", { p0: PHASE_LABEL[state.phase], round, rounds: ctx.config.rounds }),
+        state.running ? t("widgets.productivity.pomodoro.leftEndsAt", { p0: clock(state.endsAt - Date.now()), p1: endsAt(state.endsAt - Date.now()) }) : `${clock(state.left)} · ${state.left === state.total ? t("widgets.productivity.pomodoro.readyToStart") : t("widgets.productivity.pomodoro.paused")}`,
+        state.running ? t("widgets.productivity.pomodoro.clickToPause") : t("widgets.productivity.pomodoro.clickToStart"),
       ];
       const button = buttonSize();
       return (
         <HoverTip id={`tip:${ctx.instanceId}`} tip={tip} disabled={preview}>
           <Tile width={ui.tile.height >= 46 ? 160 : 150} onClick={a?.toggle} background={flashBackground(state)} padding={{ left: 8, right: 8 }}>
             <Ring value={progress} size={size} color={PHASE_COLOR[state.phase]} label={String(round)} />
-            <Stack label={state.running || state.left !== state.total ? PHASE_LABEL[state.phase] : `${PHASE_LABEL[state.phase]} · pronto`} value={clock(left)} />
+            <Stack label={state.running || state.left !== state.total ? PHASE_LABEL[state.phase] : t("widgets.productivity.pomodoro.ready", { p0: PHASE_LABEL[state.phase] })} value={clock(left)} />
           <RoundButton size={button} onClick={() => a?.skip()}>
             {glyphs.next(Math.round(button / 2))}
           </RoundButton>

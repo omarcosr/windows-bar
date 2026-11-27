@@ -9,7 +9,13 @@ import { decodeWide, encodeWide } from "./wide";
 const kernel32 = dlopen("kernel32.dll", {
   GetTimeFormatEx: { args: ["ptr", "u32", "ptr", "ptr", "ptr", "i32"], returns: "i32" },
   GetDateFormatEx: { args: ["ptr", "u32", "ptr", "ptr", "ptr", "i32", "ptr"], returns: "i32" },
+  GetUserDefaultUILanguage: { args: [], returns: "u16" },
 });
+
+/** Windows' display language (Settings > Time & language > Language & region) is Portuguese. */
+export function windowsDisplayIsPortuguese(): boolean {
+  return (kernel32.symbols.GetUserDefaultUILanguage() & 0x3ff) === 0x16 /* LANG_PORTUGUESE */;
+}
 const advapi32 = dlopen("advapi32.dll", {
   RegGetValueW: { args: ["u64", "ptr", "ptr", "u32", "ptr", "ptr", "ptr"], returns: "i32" },
 });

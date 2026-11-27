@@ -2,6 +2,7 @@ import { dlopen } from "./ffi";
 import { additionalClocks } from "./clocks";
 import { decodeWide } from "./wide";
 
+import { t } from "../i18n";
 /**
  * Time zones for the clock widgets, resolved like Windows' own "Additional clocks": the zone is a
  * Windows time zone key ("Tokyo Standard Time") from the system's database
@@ -32,31 +33,31 @@ export interface ZoneOption {
 
 /** IANA zones offered by the widgets, with their CLDR Windows key and a pt-BR city label. */
 export const zoneOptions: readonly ZoneOption[] = [
-  { value: "windows:0", label: "Relógio adicional 1 do Windows" },
-  { value: "windows:1", label: "Relógio adicional 2 do Windows" },
+  { value: "windows:0", label: t("native.clocksZones.windowsAdditionalClock1") },
+  { value: "windows:1", label: t("native.clocksZones.windowsAdditionalClock2") },
   { value: "UTC", label: "UTC", windows: "UTC" },
   { value: "America/Sao_Paulo", label: "São Paulo", windows: "E. South America Standard Time" },
   { value: "America/Manaus", label: "Manaus", windows: "SA Western Standard Time" },
   { value: "America/Argentina/Buenos_Aires", label: "Buenos Aires", windows: "Argentina Standard Time" },
   { value: "America/Santiago", label: "Santiago", windows: "Pacific SA Standard Time" },
-  { value: "America/Bogota", label: "Bogotá", windows: "SA Pacific Standard Time" },
-  { value: "America/Mexico_City", label: "Cidade do México", windows: "Central Standard Time (Mexico)" },
-  { value: "America/New_York", label: "Nova York", windows: "Eastern Standard Time" },
+  { value: "America/Bogota", label: t("native.clocksZones.bogota"), windows: "SA Pacific Standard Time" },
+  { value: "America/Mexico_City", label: t("native.clocksZones.mexicoCity"), windows: "Central Standard Time (Mexico)" },
+  { value: "America/New_York", label: t("native.clocksZones.newYork"), windows: "Eastern Standard Time" },
   { value: "America/Chicago", label: "Chicago", windows: "Central Standard Time" },
   { value: "America/Denver", label: "Denver", windows: "Mountain Standard Time" },
   { value: "America/Los_Angeles", label: "Los Angeles", windows: "Pacific Standard Time" },
-  { value: "Europe/London", label: "Londres", windows: "GMT Standard Time" },
-  { value: "Europe/Lisbon", label: "Lisboa", windows: "GMT Standard Time" },
+  { value: "Europe/London", label: t("native.clocksZones.london"), windows: "GMT Standard Time" },
+  { value: "Europe/Lisbon", label: t("native.clocksZones.lisbon"), windows: "GMT Standard Time" },
   { value: "Europe/Paris", label: "Paris", windows: "Romance Standard Time" },
-  { value: "Europe/Madrid", label: "Madri", windows: "Romance Standard Time" },
-  { value: "Europe/Berlin", label: "Berlim", windows: "W. Europe Standard Time" },
-  { value: "Europe/Moscow", label: "Moscou", windows: "Russian Standard Time" },
-  { value: "Africa/Johannesburg", label: "Joanesburgo", windows: "South Africa Standard Time" },
+  { value: "Europe/Madrid", label: t("native.clocksZones.madrid"), windows: "Romance Standard Time" },
+  { value: "Europe/Berlin", label: t("native.clocksZones.berlin"), windows: "W. Europe Standard Time" },
+  { value: "Europe/Moscow", label: t("native.clocksZones.moscow"), windows: "Russian Standard Time" },
+  { value: "Africa/Johannesburg", label: t("native.clocksZones.johannesburg"), windows: "South Africa Standard Time" },
   { value: "Asia/Dubai", label: "Dubai", windows: "Arabian Standard Time" },
   { value: "Asia/Kolkata", label: "Mumbai", windows: "India Standard Time" },
-  { value: "Asia/Shanghai", label: "Xangai", windows: "China Standard Time" },
-  { value: "Asia/Singapore", label: "Singapura", windows: "Singapore Standard Time" },
-  { value: "Asia/Tokyo", label: "Tóquio", windows: "Tokyo Standard Time" },
+  { value: "Asia/Shanghai", label: t("native.clocksZones.shanghai"), windows: "China Standard Time" },
+  { value: "Asia/Singapore", label: t("native.clocksZones.singapore"), windows: "Singapore Standard Time" },
+  { value: "Asia/Tokyo", label: t("native.clocksZones.tokyo"), windows: "Tokyo Standard Time" },
   { value: "Australia/Sydney", label: "Sydney", windows: "AUS Eastern Standard Time" },
   { value: "Pacific/Auckland", label: "Auckland", windows: "New Zealand Standard Time" },
 ];

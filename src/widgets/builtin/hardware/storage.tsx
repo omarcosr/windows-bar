@@ -6,10 +6,11 @@ import { Meter, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { amber } from "./shared";
 
+import { t } from "../../../i18n";
 export const storageSpace = defineWidget({
   type: "hardware-storage",
-  name: "Armazenamento",
-  description: "Espaço livre na unidade do sistema com barra de uso. Clique abre o Sensor de Armazenamento.",
+  name: t("widgets.hardware.storage.storage"),
+  description: t("widgets.hardware.storage.freeSpaceOnSystem"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -19,9 +20,9 @@ export const storageSpace = defineWidget({
   menu() {
     return [
       [
-        { label: "Sensor de Armazenamento", icon: "settings", onSelect: () => launch("ms-settings:storagesense") },
-        { label: "Abrir unidade", icon: "search", onSelect: () => launch(storage.root) },
-        { label: "Limpeza de Disco", icon: "settings", onSelect: () => launch("cleanmgr.exe") },
+        { label: t("widgets.hardware.storage.storageSense"), icon: "settings", onSelect: () => launch("ms-settings:storagesense") },
+        { label: t("widgets.hardware.storage.openDrive"), icon: "search", onSelect: () => launch(storage.root) },
+        { label: t("widgets.hardware.storage.diskCleanup"), icon: "settings", onSelect: () => launch("cleanmgr.exe") },
       ],
     ];
   },
@@ -40,7 +41,7 @@ export const storageSpace = defineWidget({
         preview={preview}
         tip={{
           id: `tip:${ctx.instanceId}`,
-          lines: () => [`Disco ${drive}: ${formatBytes(free, 0)} livres de ${formatBytes(total, 0)}`, `${Math.round(used * 100)}% usado`, "Clique: Configurações de armazenamento"],
+          lines: () => [t("widgets.hardware.storage.driveFreeOf", { drive, p1: formatBytes(free, 0), p2: formatBytes(total, 0) }), t("widgets.hardware.storage.used", { p0: Math.round(used * 100) }), t("widgets.hardware.storage.clickStorageSettings")],
         }}
       >
         <Row style={{ direction: "column", justify: "center", gap: l.gap + 3, flex: 1 }}>

@@ -10,6 +10,7 @@ import {
 } from "../native/thermal";
 import { createPoller } from "./poller";
 
+import { t } from "../i18n";
 /**
  * Sampled temperatures (Windows sends no change notification for sensors): every 2 s while a
  * widget uses them and the dock can be seen (createPoller rests while covered or away).
@@ -129,6 +130,6 @@ export function hottestSensor(): Hottest | null {
   const gpu = thermal.gpus[0];
   const zone = thermal.zone;
   if (gpu && (zone === null || gpu.celsius >= zone)) return { celsius: gpu.celsius, source: "GPU", maxC: gpu.maxC || 100 };
-  if (zone !== null) return { celsius: zone, source: "Zona térmica (ACPI)", maxC: 100 };
+  if (zone !== null) return { celsius: zone, source: t("services.thermal.thermalZoneAcpi"), maxC: 100 };
   return null;
 }

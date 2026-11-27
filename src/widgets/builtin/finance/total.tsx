@@ -44,8 +44,9 @@ import {
 } from "./shared";
 import { asCompareTo } from "../../../services/finance-providers";
 
+import { t } from "../../../i18n";
 const defaults = {
-  label: "Receita total",
+  label: t("widgets.finance.total.totalRevenue"),
   ...revenueDefaults,
   currency: "USD",
   goal: "",
@@ -111,9 +112,9 @@ function totalSource(ctx: { instanceId: string; config: Config; save(): void }) 
   return revenueSource({
     key: ctx.instanceId,
     anchor: tileAnchor(ctx),
-    title: String(c.label || "Receita total"),
+    title: String(c.label || t("widgets.finance.total.totalRevenue")),
     brand: { color: ui.green, letter: "$" },
-    source: sources(c, 31).length ? `soma de ${sources(c, 31).map(([n]) => n).join(", ")}` : "nenhum provedor com chave",
+    source: sources(c, 31).length ? t("widgets.finance.total.sumOf", { p0: sources(c, 31).map(([n]) => n).join(", ") }) : t("widgets.finance.total.noProviderWithKey"),
     config: c,
     save: () => ctx.save(),
     loadDaily: async (days) => {
@@ -136,28 +137,28 @@ const secret = (key: keyof Config & string, label: string, placeholder?: string)
 const count = (key: keyof Config & string, label: string, has: (c: Config) => boolean): WidgetSetting<Config> => ({
   kind: "toggle",
   key: key as "useStripe",
-  label: `Contar ${label}`,
+  label: t("widgets.finance.total.count", { label }),
   when: has,
 });
 
 export default defineWidget<Config, { daily: number[]; demo: boolean; error: string; failed: string[] }>({
   type: "finance-total",
-  name: "Receita total",
-  description: "Soma a receita do período de todos os provedores escolhidos, na moeda escolhida, com meta mensal e ritmo.",
+  name: t("widgets.finance.total.totalRevenue"),
+  description: t("widgets.finance.total.sumsPeriodsRevenueFrom"),
   category: "finance",
   defaultConfig: defaults,
   settings: [
-    { kind: "text", key: "label", label: "Título", placeholder: "Receita total" },
+    { kind: "text", key: "label", label: t("widgets.finance.total.title"), placeholder: t("widgets.finance.total.totalRevenue") },
     ...(revenueSettings({ original: false, gross: false }) as unknown as WidgetSetting<Config>[]),
-    { kind: "text", key: "goal", label: "Meta mensal", description: "Valor na moeda de exibição. Vazia esconde a barra de ritmo.", placeholder: "10000" },
-    secret("stripe", "Stripe: chave restrita", "rk_live_…"),
-    secret("polar", "Polar: token da organização", "polar_oat_…"),
-    secret("lemon", "Lemon Squeezy: chave de API"),
-    secret("paddle", "Paddle: chave de API", "pdl_live_apikey_…"),
+    { kind: "text", key: "goal", label: t("widgets.finance.total.monthlyGoal"), description: t("widgets.finance.total.amountInDisplayCurrency"), placeholder: "10000" },
+    secret("stripe", t("widgets.finance.total.stripeRestrictedKey"), "rk_live_…"),
+    secret("polar", t("widgets.finance.total.polarOrganizationToken"), "polar_oat_…"),
+    secret("lemon", t("widgets.finance.total.lemonSqueezyApiKey")),
+    secret("paddle", t("widgets.finance.total.paddleApiKey"), "pdl_live_apikey_…"),
     secret("gumroad", "Gumroad: access token"),
-    { kind: "text", key: "shopifyDomain", label: "Shopify: domínio", placeholder: "minhaloja.myshopify.com" },
-    secret("shopify", "Shopify: token da Admin API", "shpat_…"),
-    secret("dodo", "Dodo Payments: chave de API"),
+    { kind: "text", key: "shopifyDomain", label: t("widgets.finance.total.shopifyDomain"), placeholder: t("widgets.finance.total.mystoreMyshopifyCom") },
+    secret("shopify", t("widgets.finance.total.shopifyAdminApiToken"), "shpat_…"),
+    secret("dodo", t("widgets.finance.total.dodoPaymentsApiKey")),
     count("useStripe", "Stripe", (c) => !!c.stripe),
     count("usePolar", "Polar", (c) => !!c.polar),
     count("useLemon", "Lemon Squeezy", (c) => !!c.lemon),
@@ -192,7 +193,7 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
     return state;
   },
   menu({ state, ctx }) {
-    const failed = state.failed.map((name) => ({ label: `${name}: falha ao ler`, danger: true, onSelect: () => {} }));
+    const failed = state.failed.map((name) => ({ label: t("widgets.finance.total.couldntRead", { name }), danger: true, onSelect: () => {} }));
     const first = [refreshItem(state), ...chartMenu(() => totalSource(ctx))];
       return failed.length ? [first, failed] : [first];
   },
@@ -206,18 +207,18 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
     const monthDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const expected = goal * ((now.getDate() - 1 + now.getHours() / 24) / monthDays);
     const ahead = mtd >= expected;
-    const label = String(c.label || "Receita total");
+    const label = String(c.label || t("widgets.finance.total.totalRevenue"));
     const tip = () => {
       const names = sources(c, 31).map(([name]) => name);
-      const source = names.length ? `soma de ${names.join(", ")}, convertida para ${currency} pelo câmbio do dia` : "nenhum provedor com chave";
-      if (!goal) return revenueTip({ label, daily: state.daily, currency, config: c, source, demo: state.demo, error: state.error, click: "Clique para abrir o gráfico" });
+      const source = names.length ? t("widgets.finance.total.sumOfConvertedTo", { p0: names.join(", "), currency }) : t("widgets.finance.total.noProviderWithKey");
+      if (!goal) return revenueTip({ label, daily: state.daily, currency, config: c, source, demo: state.demo, error: state.error, click: t("widgets.finance.total.clickToOpenChart") });
       return [
-        `${label}: ${money(mtd, currency, format)} no mês atual (desde o dia 1º)`,
-        `Meta do mês: ${money(goal, currency, format)} · ${Math.round((mtd / goal) * 100)}% atingido`,
-        `${ahead ? "No ritmo" : "Abaixo do ritmo"}: até agora o esperado era ${money(expected, currency, format)} (meta × fração do mês já passada)`,
-        ...(state.failed.length ? [`Falha ao ler: ${state.failed.join(", ")}`] : []),
-        state.demo ? "Dados de exemplo: informe as chaves nas configurações" : `Fonte: ${source}`,
-          "Clique para abrir o gráfico",
+        t("widgets.finance.total.thisMonthSince1st", { label, p1: money(mtd, currency, format) }),
+        t("widgets.finance.total.goalForMonthReached", { p0: money(goal, currency, format), p1: Math.round((mtd / goal) * 100) }),
+        t("widgets.finance.total.soFarExpectedAmount", { p0: ahead ? t("widgets.finance.total.onPace") : t("widgets.finance.total.behindPace"), p1: money(expected, currency, format) }),
+        ...(state.failed.length ? [t("widgets.finance.total.couldntRead2", { p0: state.failed.join(", ") })] : []),
+        state.demo ? t("widgets.finance.total.sampleDataEnterKeys") : t("widgets.finance.total.source", { source }),
+          t("widgets.finance.total.clickToOpenChart"),
       ];
     };
     return (
@@ -243,7 +244,7 @@ export default defineWidget<Config, { daily: number[]; demo: boolean; error: str
               <Meter value={mtd / goal} width={96} color={ahead ? ui.green : ui.orange} />
               <View style={{ flex: 1, align: "end" }}>
                 <Text size={10} weight={700} color={ahead ? ui.green : ui.orange} style={numeric}>
-                  {`${Math.round((mtd / goal) * 100)}% ${ahead ? "no ritmo" : "abaixo"}`}
+                  {`${Math.round((mtd / goal) * 100)}% ${ahead ? t("widgets.finance.total.onPace2") : "abaixo"}`}
                 </Text>
               </View>
             </Row>

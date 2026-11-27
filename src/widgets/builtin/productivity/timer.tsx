@@ -7,6 +7,7 @@ import type { DockMenuItem } from "../../../menu/dock-menu";
 import { Stack, buttonSize, clock, endsAt, flashBackground, minuteOptions, ring, Ring } from "./shared";
 import { onClock } from "../../../services/clock";
 
+import { t } from "../../../i18n";
 const PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 45, 60];
 
 interface Config {
@@ -19,12 +20,12 @@ const actions = new WeakMap<object, { click(): void; startFor(min: number): void
 export default defineWidget<Config, ReturnType<typeof makeState>>({
   type: "productivity-timer",
   name: "Timer",
-  description: "Contagem regressiva com um clique. Outros tempos e +1 min no menu.",
+  description: t("widgets.productivity.timer.oneClickCountdownOther"),
   category: "productivity",
   defaultConfig: { preset: "5", sound: true },
   settings: [
-    { kind: "choice", key: "preset", label: "Tempo do clique", options: minuteOptions(PRESETS) },
-    { kind: "toggle", key: "sound", label: "Som ao terminar" },
+    { kind: "choice", key: "preset", label: t("widgets.productivity.timer.clickTime"), options: minuteOptions(PRESETS) },
+    { kind: "toggle", key: "sound", label: t("widgets.productivity.timer.soundWhenDone") },
   ],
   setup(ctx) {
     const state = makeState();
@@ -102,13 +103,13 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
     const a = actions.get(toRaw(state))!;
     const control: DockMenuItem[] = state.active
       ? [
-          { label: state.running ? "Pausar" : "Continuar", icon: state.running ? "pause" : "play", onSelect: a.toggle },
+          { label: state.running ? t("widgets.productivity.timer.pause") : t("widgets.productivity.timer.resume"), icon: state.running ? "pause" : "play", onSelect: a.toggle },
           { label: "+1 min", icon: "plus", onSelect: () => a.add(1) },
           { label: "+5 min", icon: "plus", onSelect: () => a.add(5) },
-          { label: "Cancelar", icon: "x", danger: true, onSelect: a.cancel },
+          { label: t("widgets.productivity.timer.cancel"), icon: "x", danger: true, onSelect: a.cancel },
         ]
       : [];
-    return [control, PRESETS.map((m) => ({ label: `Iniciar ${m} min`, icon: "play" as const, onSelect: () => a.startFor(m) }))].filter((s) => s.length);
+    return [control, PRESETS.map((m) => ({ label: t("widgets.productivity.timer.startMin", { m }), icon: "play" as const, onSelect: () => a.startFor(m) }))].filter((s) => s.length);
   },
   View({ state, ctx, preview }) {
     const a = actions.get(toRaw(state));
@@ -119,13 +120,13 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
     const b = buttonSize();
       const tip = () => {
         const preset = Number(ctx.config.preset) || 5;
-        if (Date.now() < state.flashUntil) return ["Tempo esgotado", "Clique para silenciar"];
-        if (!state.active) return [`Timer de ${preset} min`, "Clique para iniciar · outros tempos no menu"];
+        if (Date.now() < state.flashUntil) return [t("widgets.productivity.timer.timesUp"), t("widgets.productivity.timer.clickToMute")];
+        if (!state.active) return [t("widgets.productivity.timer.minTimer", { preset }), t("widgets.productivity.timer.clickToStartOther")];
         const rest = state.running ? state.endsAt - Date.now() : state.left;
         return [
-          `Faltam ${clock(rest)} de ${clock(state.total)} (${Math.floor(Math.max(0, Math.min(1, 1 - rest / state.total)) * 100)}% feito)`,
-          state.running ? `Termina às ${endsAt(rest)}` : "Pausado",
-          state.running ? "Clique para pausar" : "Clique para continuar",
+          t("widgets.productivity.timer.leftOfDone", { p0: clock(rest), p1: clock(state.total), p2: Math.floor(Math.max(0, Math.min(1, 1 - rest / state.total)) * 100) }),
+          state.running ? t("widgets.productivity.timer.endsAt", { p0: endsAt(rest) }) : t("widgets.productivity.timer.paused"),
+          state.running ? t("widgets.productivity.timer.clickToPause") : t("widgets.productivity.timer.clickToResume"),
         ];
       };
       return (
@@ -133,7 +134,7 @@ export default defineWidget<Config, ReturnType<typeof makeState>>({
           <Tile width={124} onClick={a?.click} background={flashBackground(state)}>
             <Ring value={flashing ? 1 : progress} size={Math.min(26, ui.tile.control)} color={flashing ? "#ff9f0a" : ui.blue} />
             <Stack
-              label={flashing ? "Tempo esgotado" : idle && !preview ? "Timer" : state.running || preview ? "Restam" : "Pausado"}
+              label={flashing ? t("widgets.productivity.timer.timesUp") : idle && !preview ? "Timer" : state.running || preview ? t("widgets.productivity.timer.left") : t("widgets.productivity.timer.paused")}
             value={flashing ? "0:00" : clock(left)}
             valueColor={idle && !preview ? ui.muted : ui.text}
           />

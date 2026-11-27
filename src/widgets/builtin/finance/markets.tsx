@@ -52,6 +52,7 @@ import {
   type QuoteState,
 } from "./shared";
 
+import { t as tr, formatDecimal } from "../../../i18n";
 /** The symbols other tiles of these types show, for "Comparar com" (up to 3, without `self`). */
 function otherSymbols(types: readonly string[], self: string, of: (config: Record<string, unknown>) => string[]) {
   const out: string[] = [];
@@ -75,7 +76,7 @@ const amountText = (value: number, currency?: string, digits?: number) => (curre
 
 /** The source line of a market tip: where the numbers come from, or why they are samples. */
 const sourceLine = (state: QuoteState, source: string) =>
-  state.demo ? `Dados de exemplo (${source.split(",")[0]} ainda não respondeu)` : state.error ? `${source.split(",")[0]}: ${state.error}` : `Fonte: ${source}`;
+  state.demo ? tr("widgets.finance.markets.sampleDataHasntResponded", { p0: source.split(",")[0] }) : state.error ? `${source.split(",")[0]}: ${state.error}` : tr("widgets.finance.markets.source", { source });
 
 // ---------- crypto ----------
 
@@ -86,13 +87,13 @@ const baseOf = (symbol: string) => String(symbol || "BTC").toUpperCase().replace
 const pairOf = (c: { symbol: string; quote: string }) => `${baseOf(c.symbol)}${String(c.quote || "USDT").toUpperCase()}`;
 
 const CRYPTO_WINDOWS: Record<string, string> = {
-  "24h": "últimas 24 h (velas de 1 h)",
-  "7d": "últimos 7 dias (velas de 4 h)",
-  "30d": "últimos 30 dias (velas de 12 h)",
-  "90d": "últimos 3 meses (velas de 1 dia)",
-  "180d": "últimos 6 meses (velas de 1 dia)",
-  "1y": "último ano (velas de 3 dias)",
-  "5y": "últimos 5 anos (velas semanais)",
+  "24h": tr("widgets.finance.markets.last24H1"),
+  "7d": tr("widgets.finance.markets.last7Days4"),
+  "30d": tr("widgets.finance.markets.last30Days12"),
+  "90d": tr("widgets.finance.markets.last3Months1"),
+  "180d": tr("widgets.finance.markets.last6Months1"),
+  "1y": tr("widgets.finance.markets.lastYear3Day"),
+  "5y": tr("widgets.finance.markets.last5YearsWeekly"),
 };
 
 /** The chart panel's ranges for crypto (Binance trades every day: 7 days rather than 5 business days). */
@@ -131,14 +132,14 @@ export function cryptoSource(ctx: { instanceId: string; config: CryptoConfig; sa
     mode: "price",
     ranges: CRYPTO_RANGES,
     range: asCryptoWindow(c.window),
-    compares: [{ value: "none", label: "Nenhum" }, ...others.map((p) => ({ value: `sym:${p}`, label: p.endsWith(quote) ? p.slice(0, -quote.length) : p }))],
+    compares: [{ value: "none", label: tr("widgets.finance.markets.none") }, ...others.map((p) => ({ value: `sym:${p}`, label: p.endsWith(quote) ? p.slice(0, -quote.length) : p }))],
     compare: "none",
     symbolInput: "Outra: SOL",
     intraday: (r) => r === "24h" || r === "7d" || r === "30d",
     load: (r) => cryptoHistory(pair, asCryptoWindow(r)),
     loadCompare: async (r, compare) => (compare.startsWith("sym:") ? cryptoHistory(pairFrom(compare.slice(4), quote), asCryptoWindow(r)) : null),
     format: (v) => `${price(v)} ${quote}`,
-    source: "Binance, fechamento de cada vela",
+    source: tr("widgets.finance.markets.binanceCloseOfEach"),
     url: binanceUrl(c),
     apply: (r) => {
       c.window = r;
@@ -155,34 +156,34 @@ function binanceUrl(c: { symbol: string; quote: string }) {
 
 export const crypto = defineWidget<CryptoConfig, QuoteState>({
   type: "finance-crypto",
-  name: "Cripto",
-  description: "Preço de uma cripto na Binance, na moeda de cotação escolhida, com variação e gráfico. Sem chave.",
+  name: tr("widgets.finance.markets.crypto"),
+  description: tr("widgets.finance.markets.priceOfCryptoOn"),
   category: "finance",
   defaultConfig: { symbol: "BTC", quote: "USDT", window: "24h", change: "24h", chart: "line", click: "panel", refresh: "5" },
   settings: [
-    { kind: "text", key: "symbol", label: "Cripto", description: "Código da moeda: BTC, ETH, SOL…", placeholder: "BTC" },
+    { kind: "text", key: "symbol", label: tr("widgets.finance.markets.crypto"), description: tr("widgets.finance.markets.coinCodeBtcEth"), placeholder: "BTC" },
     {
       kind: "choice",
       key: "quote",
-      label: "Moeda de cotação",
-      description: "Forma o par da Binance (BTC + USDT = BTCUSDT).",
+      label: tr("widgets.finance.markets.quoteCurrency"),
+      description: tr("widgets.finance.markets.formsBinancePairBtc"),
       options: QUOTE_ASSETS.map((q) => ({ value: q, label: q })),
     },
     {
       kind: "choice",
       key: "change",
-      label: "Variação",
+      label: tr("widgets.finance.markets.change"),
       options: [
-        { value: "24h", label: "Últimas 24 h" },
-        { value: "window", label: "Desde o início do gráfico" },
-        { value: "none", label: "Nenhuma" },
+        { value: "24h", label: tr("widgets.finance.markets.last24H") },
+        { value: "window", label: tr("widgets.finance.markets.sinceStartOfChart") },
+        { value: "none", label: tr("widgets.finance.markets.none2") },
       ],
     },
     chartSetting,
     {
       kind: "choice",
       key: "window",
-      label: "Janela do gráfico",
+      label: tr("widgets.finance.markets.chartWindow"),
       options: CRYPTO_RANGES.map((r) => ({ value: r.value, label: CRYPTO_SPAN[r.value]! })),
         when: (c) => c.chart !== "none" || c.change === "window",
       },
@@ -215,10 +216,10 @@ export const crypto = defineWidget<CryptoConfig, QuoteState>({
       const lines = [`${base}/${quote}: ${price(state.price)} ${quote}`];
       if (change !== "none" && state.reference)
         lines.push(
-          `${changeText(state.change)} ${change === "24h" ? "nas últimas 24 h" : `desde o início do gráfico (${window.split(" (")[0]})`}, de ${price(state.reference)}${state.referenceAt ? ` (${momentLabel(state.referenceAt)})` : ""}`,
+          `${changeText(state.change)} ${change === "24h" ? tr("widgets.finance.markets.inLast24H") : tr("widgets.finance.markets.sinceStartOfChart2", { p0: window.split(" (")[0] })}${tr("widgets.finance.markets.from", { p0: price(state.reference) })}${state.referenceAt ? ` (${momentLabel(state.referenceAt)})` : ""}`,
         );
-      if (c.chart !== "none") lines.push(`Gráfico: ${window}`);
-      lines.push(sourceLine(state, "Binance, preço da última negociação"), c.click === "site" ? "Clique para abrir na Binance" : "Clique para abrir o gráfico");
+      if (c.chart !== "none") lines.push(tr("widgets.finance.markets.chart", { window }));
+      lines.push(sourceLine(state, tr("widgets.finance.markets.binanceLastTradePrice")), c.click === "site" ? tr("widgets.finance.markets.clickToOpenOn") : tr("widgets.finance.markets.clickToOpenChart"));
       return lines;
     };
     return (
@@ -229,7 +230,7 @@ export const crypto = defineWidget<CryptoConfig, QuoteState>({
         letter={base.slice(0, 1)}
         chart={asChart(c.chart)}
         delta={change !== "none"}
-        caption={change === "24h" ? "em 24 h" : `em ${CRYPTO_SPAN[asCryptoWindow(c.window)]}`}
+        caption={change === "24h" ? tr("widgets.finance.markets.in24H") : tr("widgets.finance.markets.in", { p0: CRYPTO_SPAN[asCryptoWindow(c.window)] })}
         tip={tip}
         tipId={`tip:${ctx.instanceId}`}
         preview={preview}
@@ -241,7 +242,7 @@ export const crypto = defineWidget<CryptoConfig, QuoteState>({
 
 // ---------- stocks ----------
 
-const RANGE_LABELS: Record<string, string> = { "1d": "o pregão de hoje", "5d": "5 dias", "1mo": "1 mês", "3mo": "3 meses", "6mo": "6 meses", "1y": "1 ano", "5y": "5 anos" };
+const RANGE_LABELS: Record<string, string> = { "1d": tr("widgets.finance.markets.todaysSession"), "5d": "5 dias", "1mo": tr("widgets.finance.markets.n1Month"), "3mo": "3 meses", "6mo": "6 meses", "1y": "1 ano", "5y": "5 anos" };
 
 /** The chart panel's ranges for stocks (Yahoo's own ranges). */
 const STOCK_RANGES: readonly PanelOption[] = [
@@ -266,14 +267,14 @@ function stockSource(o: { key: string; anchor: string; ticker: string; range: st
     mode: "price",
     ranges: STOCK_RANGES,
     range: asStockRange(o.range),
-    compares: [{ value: "none", label: "Nenhum" }, ...others.map((s) => ({ value: `sym:${s}`, label: s.replace(/\.SA$/, "") }))],
+    compares: [{ value: "none", label: tr("widgets.finance.markets.none") }, ...others.map((s) => ({ value: `sym:${s}`, label: s.replace(/\.SA$/, "") }))],
     compare: "none",
     symbolInput: "Outro: MSFT",
     intraday: (r) => r === "1d" || r === "5d" || r === "1mo",
     load: (r) => stockHistory(t, asStockRange(r)),
     loadCompare: async (r, compare) => (compare.startsWith("sym:") ? stockHistory(compare.slice(4), asStockRange(r)) : null),
     format: (v, currency) => amountText(v, currency),
-    source: "Yahoo Finance, pode atrasar até 15 min",
+    source: tr("widgets.finance.markets.yahooFinanceMayBe"),
     url: yahooUrl(t),
     apply: o.apply,
     applied: o.applied,
@@ -283,11 +284,11 @@ function stockSource(o: { key: string; anchor: string; ticker: string; range: st
 const rangeSetting = {
   kind: "choice" as const,
   key: "range" as const,
-  label: "Janela",
+  label: tr("widgets.finance.markets.window"),
   options: [
     { value: "1d", label: "1 dia" },
     { value: "5d", label: "5 dias" },
-    { value: "1mo", label: "1 mês" },
+    { value: "1mo", label: tr("widgets.finance.markets.n1Month") },
     { value: "3mo", label: "3 meses" },
       { value: "6mo", label: "6 meses" },
       { value: "1y", label: "1 ano" },
@@ -298,20 +299,20 @@ const rangeSetting = {
 const changeSetting = {
   kind: "choice" as const,
   key: "change" as const,
-  label: "Variação",
+  label: tr("widgets.finance.markets.change"),
   options: [
-    { value: "day", label: "Desde o fechamento anterior" },
-    { value: "window", label: "Desde o início da janela" },
-    { value: "none", label: "Nenhuma" },
+    { value: "day", label: tr("widgets.finance.markets.sincePreviousClose") },
+    { value: "window", label: tr("widgets.finance.markets.sinceStartOfWindow") },
+    { value: "none", label: tr("widgets.finance.markets.none2") },
   ],
 };
 
 const displaySetting = {
   kind: "choice" as const,
   key: "display" as const,
-  label: "Moeda de exibição",
-  description: "Converte pelo câmbio do dia; sem câmbio mostra a moeda da bolsa.",
-  options: displayCurrencyOptions("Original da bolsa"),
+  label: tr("widgets.finance.markets.displayCurrency"),
+  description: tr("widgets.finance.markets.convertsAtTodaysExchange"),
+  options: displayCurrencyOptions(tr("widgets.finance.markets.exchangesOriginal")),
 };
 
 /** The Yahoo change mode; "none" still reads the day (the tile hides it). */
@@ -320,7 +321,7 @@ const stockChange = (value: string): StockChange => (value === "window" ? "windo
 /** "▼ 0,47% desde o fechamento anterior (US$ 352,79)". */
 function stockChangeLine(q: Quote, change: string, range: string, currency?: string) {
   if (change === "none" || !q.reference) return "";
-  const since = change === "window" && range !== "1d" ? `desde o início da janela de ${RANGE_LABELS[range] ?? range}` : "desde o fechamento anterior";
+  const since = change === "window" && range !== "1d" ? tr("widgets.finance.markets.sinceStartOfWindow2", { p0: RANGE_LABELS[range] ?? range }) : "desde o fechamento anterior";
   return `${changeText(q.change)} ${since} (${amountText(q.reference, currency)})`;
 }
 
@@ -328,12 +329,12 @@ const yahooUrl = (ticker: string) => `https://finance.yahoo.com/quote/${encodeUR
 
 export const stockChart = defineWidget<{ ticker: string; range: string; display: string; change: string; chart: string; click: string; refresh: string }, QuoteState>({
   type: "finance-stock",
-  name: "Ação (gráfico)",
-  description: "Cotação de uma ação ou ETF (Yahoo Finance) com variação e gráfico. Sem chave.",
+  name: tr("widgets.finance.markets.stockChart"),
+  description: tr("widgets.finance.markets.quoteOfStockOr"),
   category: "finance",
   defaultConfig: { ticker: "AAPL", range: "1d", display: "original", change: "day", chart: "line", click: "panel", refresh: "5" },
   settings: [
-    { kind: "text", key: "ticker", label: "Ticker", description: "Formato do Yahoo: AAPL, PETR4.SA, ^BVSP.", placeholder: "AAPL" },
+    { kind: "text", key: "ticker", label: "Ticker", description: tr("widgets.finance.markets.yahooFormatAaplPetr4"), placeholder: "AAPL" },
     displaySetting,
     changeSetting,
     chartSetting,
@@ -357,10 +358,10 @@ export const stockChart = defineWidget<{ ticker: string; range: string; display:
       const lines = [`${ticker}${state.name ? ` (${state.name})` : ""}: ${amountText(state.price, currency ?? state.currency)}`];
       const change = stockChangeLine(state, c.change, c.range, currency ?? state.currency);
       if (change) lines.push(change);
-      if (state.closed) lines.push("Mercado fechado: preço do último pregão");
-      if (c.chart !== "none") lines.push(`Gráfico: ${RANGE_LABELS[c.range] ?? "o pregão de hoje"}`);
-      if (currency) lines.push(`Convertido para ${currency} pelo câmbio do dia (open.er-api.com)`);
-      lines.push(sourceLine(state, "Yahoo Finance, pode atrasar até 15 min"), c.click === "site" ? "Clique para abrir no Yahoo Finance" : "Clique para abrir o gráfico");
+      if (state.closed) lines.push(tr("widgets.finance.markets.marketClosedPriceFrom"));
+      if (c.chart !== "none") lines.push(tr("widgets.finance.markets.chart2", { p0: RANGE_LABELS[c.range] ?? tr("widgets.finance.markets.todaysSession") }));
+      if (currency) lines.push(tr("widgets.finance.markets.convertedToAtTodays", { currency }));
+      lines.push(sourceLine(state, tr("widgets.finance.markets.yahooFinanceMayBe")), c.click === "site" ? tr("widgets.finance.markets.clickToOpenOnYahoo") : tr("widgets.finance.markets.clickToOpenChart"));
       return lines;
     };
     return (
@@ -372,7 +373,7 @@ export const stockChart = defineWidget<{ ticker: string; range: string; display:
         currency={currency}
         chart={asChart(c.chart)}
         delta={c.change !== "none"}
-        caption={c.change === "window" && c.range !== "1d" ? `em ${RANGE_LABELS[c.range] ?? c.range}` : "desde o fechamento"}
+        caption={c.change === "window" && c.range !== "1d" ? tr("widgets.finance.markets.in", { p0: RANGE_LABELS[c.range] ?? c.range }) : "desde o fechamento"}
         tip={tip}
         tipId={`tip:${ctx.instanceId}`}
         preview={preview}
@@ -440,15 +441,15 @@ const toggleWatch = (ctx: { instanceId: string; config: WatchConfig; save(): voi
 
 export const watchlist = defineWidget<WatchConfig, WatchState>({
   type: "finance-watchlist",
-  name: "Lista de ações",
-  description: "Até 4 tickers lado a lado com preço e variação (Yahoo Finance). Sem chave.",
+  name: tr("widgets.finance.markets.stockList"),
+  description: tr("widgets.finance.markets.upTo4Tickers"),
   category: "finance",
   defaultConfig: { tickers: "AAPL, MSFT, NVDA", display: "original", change: "day", range: "5d", click: "panel", refresh: "5" },
   settings: [
-    { kind: "text", key: "tickers", label: "Tickers", description: "Separados por vírgula, até 4 (ex.: PETR4.SA, VALE3.SA).", placeholder: "AAPL, MSFT, NVDA" },
+    { kind: "text", key: "tickers", label: "Tickers", description: tr("widgets.finance.markets.commaSeparatedUpTo"), placeholder: "AAPL, MSFT, NVDA" },
     displaySetting,
     changeSetting,
-    { ...rangeSetting, label: "Janela da variação", when: (c) => c.change === "window" },
+    { ...rangeSetting, label: tr("widgets.finance.markets.changeWindow"), when: (c) => c.change === "window" },
     clickSetting,
     refreshSetting,
   ],
@@ -485,8 +486,8 @@ export const watchlist = defineWidget<WatchConfig, WatchState>({
   },
   menu: ({ state, ctx }) => [
     tickersOf(String(ctx.config.tickers || "")).flatMap((t) => [
-        { label: `Abrir gráfico de ${t}`, icon: { fluent: 0xe9d2 }, onSelect: () => toggleWatch(ctx, t) },
-        { label: `Abrir site da fonte (${t})`, icon: "star", onSelect: () => launch(yahooUrl(t)) },
+        { label: tr("widgets.finance.markets.openChart", { t }), icon: { fluent: 0xe9d2 }, onSelect: () => toggleWatch(ctx, t) },
+        { label: tr("widgets.finance.markets.openSourceWebsite", { t }), icon: "star", onSelect: () => launch(yahooUrl(t)) },
     ]),
     [refreshItem(state)],
   ],
@@ -502,15 +503,15 @@ export const watchlist = defineWidget<WatchConfig, WatchState>({
         const change = stockChangeLine(q, c.change, c.range, currency);
         return `${t}: ${amountText(q.price, currency)}${change ? ` · ${change}` : ""}${q.closed ? " · mercado fechado" : ""}`;
       }),
-      state.demo ? "Dados de exemplo (Yahoo Finance ainda não respondeu)" : "Fonte: Yahoo Finance, pode atrasar até 15 min",
-      c.click === "site" ? "Clique num ticker para abrir no Yahoo Finance" : "Clique num ticker para abrir o gráfico dele",
+      state.demo ? tr("widgets.finance.markets.sampleDataYahooFinance") : tr("widgets.finance.markets.sourceYahooFinanceMay"),
+      c.click === "site" ? tr("widgets.finance.markets.clickTickerToOpen") : tr("widgets.finance.markets.clickTickerToOpenIts"),
     ];
     // Minimal tile: the first ticker's change.
     const lead = tickers[0] ? state.quotes[tickers[0]] : undefined;
     return (
       <Tile
         icon={<FluentGlyph code={0xe9d2} size={ui.app.icon - 4} color={ui.blue} />}
-        value={lead ? `${lead.change >= 0 ? "+" : "−"}${Math.abs(lead.change).toFixed(1).replace(".", ",")}%` : undefined}
+        value={lead ? `${lead.change >= 0 ? "+" : "−"}${formatDecimal(Math.abs(lead.change), 1)}%` : undefined}
         valueColor={lead ? (lead.change >= 0 ? ui.green : ui.danger) : undefined} gap={4} tip={{ id: tileAnchor(ctx), lines: tip }} preview={preview}>
         {tickers.map((t) => {
           const q = state.quotes[t]!;
@@ -537,7 +538,7 @@ export const watchlist = defineWidget<WatchConfig, WatchState>({
                 </Text>
                 {showChange ? (
                   <Text size={10} weight={700} color={up ? ui.green : ui.danger} style={{ ...numeric, lineHeight: 1.15 }}>
-                    {`${up ? "+" : "−"}${Math.abs(q.change).toFixed(1).replace(".", ",")}%`}
+                    {`${up ? "+" : "−"}${formatDecimal(Math.abs(q.change), 1)}%`}
                   </Text>
                 ) : null}
               </Row>
@@ -563,8 +564,8 @@ const amountOf = (text: string) => {
   return Number.isFinite(n) && n > 0 ? n : 1;
 };
 
-const FX_CHANGE_TEXT: Record<FxChange, string> = { close: "desde o fechamento anterior", "7d": "em 7 dias", "30d": "em 30 dias", window: "desde o início do gráfico", none: "" };
-const FX_WINDOW_TEXT: Record<FxWindow, string> = { "1w": "1 semana", "1m": "1 mês", "3m": "3 meses", "6m": "6 meses", "1y": "1 ano", "5y": "5 anos" };
+const FX_CHANGE_TEXT: Record<FxChange, string> = { close: "desde o fechamento anterior", "7d": tr("widgets.finance.markets.in7Days"), "30d": tr("widgets.finance.markets.in30Days"), window: tr("widgets.finance.markets.sinceStartOfChart3"), none: "" };
+const FX_WINDOW_TEXT: Record<FxWindow, string> = { "1w": "1 semana", "1m": tr("widgets.finance.markets.n1Month"), "3m": "3 meses", "6m": "6 meses", "1y": "1 ano", "5y": "5 anos" };
 
 const asFxChange = (v: unknown): FxChange => (v === "7d" || v === "30d" || v === "window" || v === "none" ? v : "close");
 const asFxWindow = (v: unknown): FxWindow => (typeof v === "string" && v in FX_WINDOW_TEXT ? (v as FxWindow) : "1m");
@@ -580,9 +581,9 @@ const FX_RANGES: readonly PanelOption[] = [
 ];
 
 const FX_COMPARES: readonly PanelOption[] = [
-  { value: "none", label: "Nenhum" },
-  { value: "previous", label: "Período anterior" },
-  { value: "year", label: "Ano passado" },
+  { value: "none", label: tr("widgets.finance.markets.none") },
+  { value: "previous", label: tr("widgets.finance.markets.previousPeriod") },
+  { value: "year", label: tr("widgets.finance.markets.lastYear") },
 ];
 
 export function currencySource(ctx: { instanceId: string; config: CurrencyConfig; save(): void }): ChartSource {
@@ -602,7 +603,7 @@ export function currencySource(ctx: { instanceId: string; config: CurrencyConfig
     load: (r) => fxHistory(from, to, asFxWindow(r)),
     loadCompare: async (r, compare) => (compare === "none" ? null : fxHistoryBefore(from, to, asFxWindow(r), compare === "year" ? "year" : "previous")),
     format: (v) => priceIn(v, to, digits ?? (Math.abs(v) < 10 ? 4 : 2)),
-    source: "BCE via Frankfurter, 1 ponto por dia útil",
+    source: tr("widgets.finance.markets.ecbViaFrankfurter1"),
     url: googleFxUrl(c),
     apply: (r) => {
       c.window = r;
@@ -643,51 +644,51 @@ const DAY = 86_400_000;
 
 export const currency = defineWidget<CurrencyConfig, QuoteState>({
   type: "finance-currency",
-  name: "Câmbio",
-  description: "Cotação de referência do Banco Central Europeu entre duas moedas, com variação e gráfico. Sem chave.",
+  name: tr("widgets.finance.markets.exchangeRate"),
+  description: tr("widgets.finance.markets.europeanCentralBankReference"),
   category: "finance",
   defaultConfig: { from: "USD", to: "BRL", amount: "1", show: "", invert: false, change: "close", chart: "line", window: "1m", decimals: "auto", click: "panel", refresh: "60" },
   settings: [
-    { kind: "choice", key: "from", label: "De", options: currencyOptions(FX_CODES) },
-    { kind: "choice", key: "to", label: "Para", options: currencyOptions(FX_CODES) },
-    { kind: "toggle", key: "invert", label: "Inverter par", description: "Quanto vale 1 da segunda moeda na primeira (BRL/USD em vez de USD/BRL)." },
+    { kind: "choice", key: "from", label: tr("widgets.finance.markets.from2"), options: currencyOptions(FX_CODES) },
+    { kind: "choice", key: "to", label: tr("widgets.finance.markets.to"), options: currencyOptions(FX_CODES) },
+    { kind: "toggle", key: "invert", label: tr("widgets.finance.markets.invertPair"), description: tr("widgets.finance.markets.howMuch1Of") },
     {
       kind: "choice",
       key: "show",
-      label: "Mostrar",
+      label: tr("widgets.finance.markets.show"),
       options: [
-        { value: "rate", label: "Cotação" },
-        { value: "amount", label: "Valor convertido" },
+        { value: "rate", label: tr("widgets.finance.markets.rate") },
+        { value: "amount", label: tr("widgets.finance.markets.convertedAmount") },
       ],
     },
-    { kind: "text", key: "amount", label: "Valor", description: "Quanto converter.", placeholder: "100", when: (c) => c.show === "amount" },
+    { kind: "text", key: "amount", label: tr("widgets.finance.markets.amount"), description: tr("widgets.finance.markets.howMuchToConvert"), placeholder: "100", when: (c) => c.show === "amount" },
     {
       kind: "choice",
       key: "change",
-      label: "Variação",
-      description: "Tudo vem da cotação de referência do BCE, publicada uma vez por dia útil (por volta das 16h de Frankfurt).",
+      label: tr("widgets.finance.markets.change"),
+      description: tr("widgets.finance.markets.everythingComesFromEcb"),
       options: [
-        { value: "close", label: "Desde o fechamento anterior" },
+        { value: "close", label: tr("widgets.finance.markets.sincePreviousClose") },
         { value: "7d", label: "7 dias" },
         { value: "30d", label: "30 dias" },
-        { value: "window", label: "Desde o início do gráfico" },
-          { value: "none", label: "Nenhuma" },
+        { value: "window", label: tr("widgets.finance.markets.sinceStartOfChart") },
+          { value: "none", label: tr("widgets.finance.markets.none2") },
         ],
     },
     chartSetting,
       {
       kind: "choice",
       key: "window",
-      label: "Janela do gráfico",
+      label: tr("widgets.finance.markets.chartWindow"),
         options: FX_RANGES.map((r) => ({ value: r.value, label: FX_WINDOW_TEXT[r.value as FxWindow] })),
         when: (c) => c.chart !== "none" || c.change === "window",
       },
     {
       kind: "choice",
       key: "decimals",
-      label: "Casas decimais",
+      label: tr("widgets.finance.markets.decimalPlaces"),
       options: [
-        { value: "auto", label: "Automático" },
+        { value: "auto", label: tr("widgets.finance.markets.automatic") },
         { value: "0", label: "0" },
         { value: "2", label: "2" },
         { value: "4", label: "4" },
@@ -731,15 +732,15 @@ export const currency = defineWidget<CurrencyConfig, QuoteState>({
       const lines = [`1 ${from} = ${priceIn(state.price, to, 4)}`];
       if (amount !== 1) lines.push(`${amountLabel} ${from} = ${priceIn(state.price * amount, to, 2)}`);
       if (change !== "none" && state.reference)
-        lines.push(`${changeText(state.change)} ${FX_CHANGE_TEXT[change]}: era ${priceIn(state.reference, to, 4)}${state.referenceAt ? ` (${dayLabel(state.referenceAt)})` : ""}`);
-      if (c.chart !== "none") lines.push(`Gráfico: ${FX_WINDOW_TEXT[asFxWindow(c.window)]}, um ponto por dia útil`);
+        lines.push(`${changeText(state.change)} ${FX_CHANGE_TEXT[change]}${tr("widgets.finance.markets.was", { p0: priceIn(state.reference, to, 4) })}${state.referenceAt ? ` (${dayLabel(state.referenceAt)})` : ""}`);
+      if (c.chart !== "none") lines.push(tr("widgets.finance.markets.chartOnePointPer", { p0: FX_WINDOW_TEXT[asFxWindow(c.window)] }));
       lines.push(
         state.demo
-          ? "Dados de exemplo (o BCE ainda não respondeu)"
+          ? tr("widgets.finance.markets.sampleDataEcbHasnt")
           : state.error
-            ? `Banco Central Europeu: ${state.error}`
-            : `Fonte: Banco Central Europeu, cotação de referência de ${state.asOf ? dayLabel(state.asOf) : "hoje"} (via Frankfurter)`,
-        c.click === "site" ? "Clique para abrir no Google Finance" : "Clique para abrir o gráfico",
+            ? tr("widgets.finance.markets.europeanCentralBank", { error: state.error })
+            : tr("widgets.finance.markets.sourceEuropeanCentralBank", { p0: state.asOf ? dayLabel(state.asOf) : tr("widgets.finance.markets.today") }),
+        c.click === "site" ? tr("widgets.finance.markets.clickToOpenOnGoogle") : tr("widgets.finance.markets.clickToOpenChart"),
       );
       return lines;
     };

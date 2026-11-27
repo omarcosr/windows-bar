@@ -8,6 +8,7 @@ import { BrandIcon } from "../../brand-icons";
 import { defineWidget } from "../../types";
 import { Badge, Stat, Title, compact, errorText, refreshNow, registerRefresh, sourceLines } from "./common";
 
+import { t, language } from "../../../i18n";
 const API = "https://api.github.com";
 const headers = (token: string) => ({
   Authorization: `Bearer ${token}`,
@@ -18,9 +19,9 @@ const headers = (token: string) => ({
 const tokenSetting = {
   kind: "text" as const,
   key: "token" as const,
-  label: "Token do GitHub",
-  description: "Personal access token (classic com escopo notifications/repo, ou fine-grained). Vazio mostra dados de exemplo.",
-  placeholder: "ghp_… ou github_pat_…",
+  label: t("widgets.online.github.githubToken"),
+  description: t("widgets.online.github.personalAccessTokenClassic"),
+  placeholder: t("widgets.online.github.ghpOrGithubPat"),
   secret: true,
 };
 
@@ -45,7 +46,7 @@ function GithubMark(props: { size?: number }) {
 const github = defineWidget({
   type: "online-github",
   name: "GitHub",
-  description: "Notificações não lidas do GitHub. Clique abre github.com/notifications.",
+  description: t("widgets.online.github.unreadGithubNotificationsClick"),
   category: "productivity",
   defaultConfig: { token: "" },
   settings: [tokenSetting],
@@ -72,16 +73,16 @@ const github = defineWidget({
   menu({ state }) {
     return [
       [
-        { label: "Abrir notificações", icon: "bell", onSelect: () => launch("https://github.com/notifications") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: t("widgets.online.github.openNotifications"), icon: "bell", onSelect: () => launch("https://github.com/notifications") },
+        { label: t("widgets.online.github.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const l = ui.tile.lines;
     const tip = () => [
-      `Notificações não lidas: ${state.unread}`,
-      ...sourceLines(state, "API do GitHub (/notifications)", "Clique para abrir as notificações", "informe o token nas configurações"),
+      t("widgets.online.github.unreadNotifications", { unread: state.unread }),
+      ...sourceLines(state, t("widgets.online.github.githubApiNotifications"), t("widgets.online.github.clickToOpenNotifications"), t("widgets.online.github.enterTokenInSettings")),
     ];
     return (
       <Tile icon={<BrandIcon brand="github" />} width={112} value={state.unread > 499 ? "500+" : String(state.unread)} valueColor={state.unread ? ui.text : ui.muted} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
@@ -91,7 +92,7 @@ const github = defineWidget({
             {state.unread > 499 ? "500+" : String(state.unread)}
           </Text>
           <Text size={l.secondary - 2} color={state.error ? ui.danger : ui.muted}>
-            {state.error ? "erro" : state.demo ? "não lidas · demo" : "não lidas"}
+            {state.error ? t("widgets.online.github.error") : state.demo ? t("widgets.online.github.unreadDemo") : t("widgets.online.github.unread")}
           </Text>
         </Column>
       </Tile>
@@ -103,8 +104,8 @@ const github = defineWidget({
 
 const overview = defineWidget({
   type: "online-github-overview",
-  name: "GitHub: visão geral",
-  description: "Notificações não lidas, seus PRs abertos e o total de estrelas dos seus repositórios.",
+  name: t("widgets.online.github.githubOverview"),
+  description: t("widgets.online.github.unreadNotificationsYourOpen"),
   category: "productivity",
   defaultConfig: { token: "" },
   settings: [tokenSetting],
@@ -146,18 +147,18 @@ const overview = defineWidget({
   menu({ state }) {
     return [
       [
-        { label: "Abrir notificações", icon: "bell", onSelect: () => launch("https://github.com/notifications") },
-        { label: "Meus pull requests", icon: "chevron-right", onSelect: () => launch("https://github.com/pulls") },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: t("widgets.online.github.openNotifications"), icon: "bell", onSelect: () => launch("https://github.com/notifications") },
+        { label: t("widgets.online.github.myPullRequests"), icon: "chevron-right", onSelect: () => launch("https://github.com/pulls") },
+        { label: t("widgets.online.github.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
   View({ state, ctx, preview }) {
     const tip = () => [
-      `${state.login || "GitHub"}: ${state.unread} notificações não lidas`,
-      `${state.prs} pull requests seus abertos`,
-      `${state.stars.toLocaleString("pt-BR")} estrelas somadas nos seus repositórios`,
-      ...sourceLines(state, "API do GitHub", "Clique para abrir as notificações", "informe o token nas configurações"),
+      t("widgets.online.github.unreadNotifications2", { p0: state.login || "GitHub", unread: state.unread }),
+      t("widgets.online.github.ofYourPullRequests", { p0: state.prs }),
+      t("widgets.online.github.starsAcrossYourRepositories", { p0: state.stars.toLocaleString(language) }),
+      ...sourceLines(state, t("widgets.online.github.githubApi"), t("widgets.online.github.clickToOpenNotifications"), t("widgets.online.github.enterTokenInSettings")),
     ];
     return (
       <Tile icon={<BrandIcon brand="github" />} width={176} value={String(state.unread)} valueColor={state.unread ? ui.blue : ui.muted} onClick={() => launch("https://github.com/notifications")} tip={{ id: `tip:${ctx.instanceId}`, lines: tip }} preview={preview}>
@@ -222,7 +223,7 @@ function WeekGrid(props: { gap: number; children: Child }) {
 const activity = defineWidget({
   type: "online-github-activity",
   name: "GitHub: atividade",
-  description: "Grade de contribuições das últimas semanas e a sequência atual de dias (GraphQL contributionsCollection).",
+  description: t("widgets.online.github.contributionGridForLast"),
   category: "productivity",
   defaultConfig: { token: "", weeks: "16" },
   settings: [
@@ -230,7 +231,7 @@ const activity = defineWidget({
     {
       kind: "choice",
       key: "weeks",
-      label: "Semanas na grade",
+      label: t("widgets.online.github.weeksInGrid"),
       options: [
         { value: "8", label: "8" },
         { value: "16", label: "16" },
@@ -269,8 +270,8 @@ const activity = defineWidget({
   menu({ state }) {
     return [
       [
-        { label: "Abrir perfil", icon: "chevron-right", onSelect: () => launch(`https://github.com/${state.login}`) },
-        { label: "Atualizar agora", icon: "download", onSelect: () => refreshNow(state) },
+        { label: t("widgets.online.github.openProfile"), icon: "chevron-right", onSelect: () => launch(`https://github.com/${state.login}`) },
+        { label: t("widgets.online.github.refreshNow"), icon: "download", onSelect: () => refreshNow(state) },
       ],
     ];
   },
@@ -312,10 +313,10 @@ const activity = defineWidget({
         tip={{
           id: `tip:${ctx.instanceId}`,
           lines: () => [
-            `Sequência atual: ${streak} ${streak === 1 ? "dia seguido" : "dias seguidos"} com contribuições`,
-            `${state.total.toLocaleString("pt-BR")} contribuições nos últimos 12 meses`,
-            `Grade: últimas ${weeks} semanas, cor mais forte = mais contribuições no dia`,
-            ...sourceLines(state, "API do GitHub (contributionsCollection)", "Clique para abrir seu perfil", "informe o token nas configurações"),
+            t("widgets.online.github.currentStreakWithContributions", { count: streak }),
+            t("widgets.online.github.contributionsInLast12", { p0: state.total.toLocaleString(language) }),
+            t("widgets.online.github.gridLastWeeksStronger", { weeks }),
+            ...sourceLines(state, t("widgets.online.github.githubApiContributionscollection"), t("widgets.online.github.clickToOpenYour"), t("widgets.online.github.enterTokenInSettings")),
           ],
         }}
         preview={preview}
@@ -323,10 +324,10 @@ const activity = defineWidget({
         <WeekGrid gap={gap}>{columns}</WeekGrid>
         <Column style={{ gap: l.gap }}>
           <Text size={l.primary} weight={700} color={streak ? ui.green : ui.muted} style={numeric}>
-            {`${streak} ${streak === 1 ? "dia" : "dias"}`}
+            {t("widgets.online.github.days", { count: streak })}
           </Text>
           <Text size={l.secondary - 2} color={state.error ? ui.danger : ui.muted}>
-            {state.error ? "erro" : `${compact(state.total)} no ano${state.demo ? " · demo" : ""}`}
+            {state.error ? t("widgets.online.github.error") : t("widgets.online.github.thisYear", { p0: compact(state.total), p1: state.demo ? " · demo" : "" })}
           </Text>
         </Column>
       </Tile>

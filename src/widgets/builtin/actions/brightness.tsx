@@ -6,13 +6,14 @@ import { RoundButton, Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { fluent, G, Glyph, Percent } from "./shared";
 
+import { t } from "../../../i18n";
 const STEP = 10;
 
 /** Laptop panel brightness (display IOCTL) or, on desktops, the primary monitor's over DDC/CI. */
 export default defineWidget({
   type: "actions-brightness",
-  name: "Brilho",
-  description: "Brilho da tela do notebook ou do monitor (DDC/CI). Some quando a tela não permite ajuste.",
+  name: t("widgets.actions.brightness.brightness"),
+  description: t("widgets.actions.brightness.brightnessOfLaptopScreen"),
   category: "system",
   defaultConfig: {},
   setup(ctx) {
@@ -22,8 +23,8 @@ export default defineWidget({
   hidden: () => actions.brightnessSource === "none",
   menu() {
     return [
-      [0, 25, 50, 75, 100].map((v) => ({ label: `Brilho ${v}%`, icon: fluent(G.brightness), onSelect: () => changeBrightness(v) })),
-      [{ label: "Configurações de vídeo", icon: fluent(G.settings), onSelect: () => launch("ms-settings:display") }],
+      [0, 25, 50, 75, 100].map((v) => ({ label: t("widgets.actions.brightness.brightness2", { v }), icon: fluent(G.brightness), onSelect: () => changeBrightness(v) })),
+      [{ label: t("widgets.actions.brightness.displaySettings"), icon: fluent(G.settings), onSelect: () => launch("ms-settings:display") }],
     ];
   },
   View({ ctx, preview }) {
@@ -31,7 +32,7 @@ export default defineWidget({
     const level = demo ? 70 : actions.brightness;
     const size = ui.tile.control;
     const step = (delta: number) => () => !preview && changeBrightness(actions.brightness + delta);
-    const tip = () => [`Brilho: ${actions.brightness}%`, actions.brightnessSource === "ddc" ? "Monitor (DDC/CI)" : "Tela integrada"];
+    const tip = () => [t("widgets.actions.brightness.brightness3", { p0: actions.brightness }), actions.brightnessSource === "ddc" ? "Monitor (DDC/CI)" : t("widgets.actions.brightness.builtInDisplay")];
     return (
       <HoverTip id={`tip:${ctx.instanceId}:brightness`} tip={tip} disabled={preview}>
         <Tile padding={{ left: 6, right: 6 }} gap={6}>

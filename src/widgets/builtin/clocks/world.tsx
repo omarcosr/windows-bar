@@ -8,6 +8,7 @@ import { Tile } from "../../ui";
 import { defineWidget } from "../../types";
 import { AnalogFace, Caption, clockMenu, clockState, demoNow, hourFormatSetting, timeText, zoneChoices, type HourFormat } from "./shared";
 
+import { t } from "../../../i18n";
 /** A zone's time, or (gallery only) a demo one so the preview is never empty. */
 function zoneOrDemo(value: string, now: Date, preview: boolean, demo: { label: string; offset: number }): ZoneTime | null {
   const z = zoneTime(value, now);
@@ -19,25 +20,25 @@ function zoneOrDemo(value: string, now: Date, preview: boolean, demo: { label: s
 function dayShift(z: ZoneTime, now: Date) {
   const there = Date.UTC(z.wall.getUTCFullYear(), z.wall.getUTCMonth(), z.wall.getUTCDate());
   const here = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  return there > here ? "amanhã" : there < here ? "ontem" : "";
+  return there > here ? t("widgets.clocks.world.tomorrow") : there < here ? t("widgets.clocks.world.yesterday") : "";
 }
 
 /** Hands and hour ticks on a dark face. */
 export const analog = defineWidget({
   type: "clocks-analog",
-  name: "Analógico minimalista",
-  description: "Ponteiros e marcas das horas num mostrador escuro.",
+  name: t("widgets.clocks.world.minimalAnalog"),
+  description: t("widgets.clocks.world.handsAndHourMarks"),
   category: "clock",
   defaultConfig: { showSeconds: true, ticks: "all" },
   settings: [
-    { kind: "toggle", key: "showSeconds", label: "Ponteiro dos segundos" },
+    { kind: "toggle", key: "showSeconds", label: t("widgets.clocks.world.secondHand") },
     {
       kind: "choice",
       key: "ticks",
-      label: "Marcas",
+      label: t("widgets.clocks.world.marks"),
       options: [
-        { value: "all", label: "Todas as horas" },
-        { value: "quarters", label: "Só 12, 3, 6 e 9" },
+        { value: "all", label: t("widgets.clocks.world.everyHour") },
+        { value: "quarters", label: t("widgets.clocks.world.only1236") },
       ],
     },
   ],
@@ -58,16 +59,16 @@ export const analog = defineWidget({
 });
 
 const demos = [
-  { label: "Nova York", offset: -240 },
-  { label: "Londres", offset: 60 },
-  { label: "Tóquio", offset: 540 },
+  { label: t("widgets.clocks.world.newYork"), offset: -240 },
+  { label: t("widgets.clocks.world.london"), offset: 60 },
+  { label: t("widgets.clocks.world.tokyo"), offset: 540 },
 ];
 
 /** Three small analog faces for three zones. */
 export const worldClocks = defineWidget({
   type: "clocks-world",
-  name: "Relógios mundiais",
-  description: "Três mostradores analógicos para fusos horários à sua escolha.",
+  name: t("widgets.clocks.world.worldClocks"),
+  description: t("widgets.clocks.world.threeAnalogDialsFor"),
   category: "clock",
   defaultConfig: { zone1: "America/New_York", zone2: "Europe/London", zone3: "Asia/Tokyo" },
   settings: [
@@ -120,12 +121,12 @@ export const worldClocks = defineWidget({
 /** One extra city in big digits with its UTC offset. */
 export const worldTime = defineWidget({
   type: "clocks-world-time",
-  name: "Hora mundial",
-  description: "Uma cidade extra em dígitos grandes, com o deslocamento UTC.",
+  name: t("widgets.clocks.world.worldTime"),
+  description: t("widgets.clocks.world.oneExtraCityIn"),
   category: "clock",
   defaultConfig: { zone: "windows:0", hourFormat: "system" },
   settings: [
-    { kind: "choice", key: "zone", label: "Cidade", description: "Os relógios adicionais vêm de Configurações > Data e hora.", options: zoneChoices },
+    { kind: "choice", key: "zone", label: t("widgets.clocks.world.city"), description: t("widgets.clocks.world.additionalClocksComeFrom"), options: zoneChoices },
     hourFormatSetting,
   ],
   setup(ctx) {
@@ -149,7 +150,7 @@ export const worldTime = defineWidget({
               </Text>
               {shift ? <Caption color={ui.orange}>{shift}</Caption> : null}
             </Row>
-            <Caption>{z ? `${z.label} · ${utcLabel(z.offset)}` : "Fuso indisponível"}</Caption>
+            <Caption>{z ? `${z.label} · ${utcLabel(z.offset)}` : t("widgets.clocks.world.timeZoneUnavailable")}</Caption>
           </Column>
         </Tile>
       </HoverTip>

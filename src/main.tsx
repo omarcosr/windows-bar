@@ -5,6 +5,7 @@ import { DOCK_TITLE, DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
 import { setGalleryOpener } from "./dock/widget-menu";
 import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type GalleryPage } from "./gallery/Gallery";
+import { setRestarter, t } from "./i18n";
 import { initChartPanel } from "./menu/chart-panel";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { initDragGhost } from "./menu/drag-ghost";
@@ -120,15 +121,15 @@ function openBarMenu() {
   const full = config.mode === "full";
   showDockMenu({
     title: "WindowsBar",
-    subtitle: full ? "Barra inteira" : "Dock flutuante",
+    subtitle: full ? t("app.fullBar") : t("app.floatingDock"),
     sections: [
       [
-        { label: "Configurações da barra…", icon: "settings", onSelect: openSettings },
+        { label: t("app.barSettings"), icon: "settings", onSelect: openSettings },
         { label: "Widgets…", icon: glyph.grid, onSelect: () => openGallery() },
       ],
       [
         {
-          label: full ? "Usar dock flutuante" : "Usar barra inteira",
+          label: full ? t("app.useFloatingDock") : t("app.useFullBar"),
           icon: glyph.bar,
           onSelect: () => {
             config.mode = full ? "floating" : "full";
@@ -136,7 +137,7 @@ function openBarMenu() {
           },
         },
         {
-          label: config.hoverPreview ? "Desativar preview das janelas" : "Ativar preview das janelas",
+          label: config.hoverPreview ? t("app.turnOffWindowPreviews") : t("app.turnOnWindowPreviews"),
           icon: glyph.eye,
           onSelect: () => {
             config.hoverPreview = !config.hoverPreview;
@@ -145,10 +146,10 @@ function openBarMenu() {
         },
       ],
       [
-        { label: "Configurações da barra do Windows", icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
-        { label: "Gerenciador de Tarefas", icon: glyph.activity, onSelect: () => launch("taskmgr.exe") },
+        { label: t("app.windowsTaskbarSettings"), icon: "settings", onSelect: () => launch("ms-settings:taskbar") },
+        { label: t("app.taskManager"), icon: glyph.activity, onSelect: () => launch("taskmgr.exe") },
       ],
-      [{ label: "Sair do WindowsBar", icon: "x", danger: true, onSelect: quit }],
+      [{ label: t("app.quitWindowsbar"), icon: "x", danger: true, onSelect: quit }],
     ],
   });
 }
@@ -195,6 +196,10 @@ function relaunch(args: string[]) {
   const script = /\\(?:bun|node|tjs)(\.exe)?$/i.test(exe) && process.argv[1] ? [process.argv[1]] : [];
   run([exe, ...script, ...args.filter((arg, i) => arg !== "--after" && args[i - 1] !== "--after"), "--after", String(process.pid)]);
 }
+setRestarter(() => {
+  relaunch([]);
+  quit();
+});
 primary.onSecondInstance(({ args }) => {
   if (args.includes("--quit")) quit();
   else if (closing) relaunch(args);
@@ -341,11 +346,11 @@ app.tray({
   tooltip: "WindowsBar",
   onClick: () => openGallery(),
   menu: [
-    { id: "settings", label: "Configurações…", onSelect: openSettings },
+    { id: "settings", label: t("app.settings"), onSelect: openSettings },
     { id: "widgets", label: "Widgets…", onSelect: () => openGallery() },
-    { id: "update", label: "Procurar atualizações", onSelect: () => (updater.status === "ready" ? restartToUpdate() : void checkNow()) },
+    { id: "update", label: t("app.checkForUpdates"), onSelect: () => (updater.status === "ready" ? restartToUpdate() : void checkNow()) },
     { type: "separator" },
-    { id: "quit", label: "Sair", onSelect: quit },
+    { id: "quit", label: t("app.quit"), onSelect: quit },
   ],
 });
 

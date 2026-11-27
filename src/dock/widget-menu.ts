@@ -4,6 +4,7 @@ import type { MountedWidget } from "../widgets/host";
 import { moveWidget, removeWidget } from "./state";
 import { editWidgetSettings, settingsMenu } from "../widgets/settings";
 
+import { t } from "../i18n";
 let openGallery: () => void = () => {};
 
 /** main.tsx hands over how to open the widget gallery. */
@@ -24,16 +25,16 @@ export function openWidgetMenu(widget: MountedWidget) {
       const options = settingsMenu(widget);
       const index = config.widgets.findIndex((w) => w.id === instance.id);
       const placement: DockMenuItem[] = [];
-      if (index > 0) placement.push({ label: "Mover para a esquerda", icon: "chevron-left", onSelect: () => moveWidget(instance.id, -1) });
+      if (index > 0) placement.push({ label: t("dock.widgetMenu.moveLeft"), icon: "chevron-left", onSelect: () => moveWidget(instance.id, -1) });
       if (index >= 0 && index < config.widgets.length - 1)
-        placement.push({ label: "Mover para a direita", icon: "chevron-right", onSelect: () => moveWidget(instance.id, 1) });
+        placement.push({ label: t("dock.widgetMenu.moveRight"), icon: "chevron-right", onSelect: () => moveWidget(instance.id, 1) });
       const configure: DockMenuItem = definition.settings?.length
         ? {
-            label: options.more ? "Configurações do widget…" : "Todas as configurações do widget…",
+            label: options.more ? t("dock.widgetMenu.widgetSettings") : t("dock.widgetMenu.allWidgetSettings"),
             icon: glyph.settings,
             onSelect: () => openWidgetSettings(instance.id),
           }
-        : { label: "Widgets e personalização…", icon: glyph.grid, onSelect: openGallery };
+        : { label: t("dock.widgetMenu.widgetsAndPersonalization"), icon: glyph.grid, onSelect: openGallery };
       showDockMenu({
         title: definition.name,
         subtitle: definition.description,
@@ -42,7 +43,7 @@ export function openWidgetMenu(widget: MountedWidget) {
           ...options.sections,
           placement,
           [configure],
-          [{ label: "Remover do dock", icon: "x", danger: true, onSelect: () => removeWidget(instance.id) }],
+          [{ label: t("dock.widgetMenu.removeFromDock"), icon: "x", danger: true, onSelect: () => removeWidget(instance.id) }],
         ],
       });
 }
