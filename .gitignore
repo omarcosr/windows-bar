@@ -36,4 +36,5 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # update signing key (secret): keep a backup outside the repo
 *.key
 .empryo
+.mixdog
 /dist-*/
