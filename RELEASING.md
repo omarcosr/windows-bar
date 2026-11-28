@@ -27,9 +27,9 @@ O executável é gerado com `--packs`; `--trim` é aplicado somente ao Bun. Uma 
 
 Com Tarve 0.13.2, a confirmação do pack é responsabilidade do pack host: saída 0 durante a inicialização confirma o pack; crash ou saída não zero nos primeiros 3 s mantém o rollback. O app não manipula mais `tarve.packHost` nem arquivos `<version>.boot`. A troca de 0.13.0 para 0.13.2 requer executável compatível novo; os smokes de `--update` não homologam download, instalação, reinício ou migração de runtime.
 
-`--runtime txiki|bun|node` seleciona o runtime (padrão: `txiki`) no build, pack e instalador. Antes da publicação, o pack local chama-se `WindowsBar-<runtime>.tarve`; em `updates/`, recebe versão e plataforma conforme a tabela. Instalador, zip e exe têm os mesmos nomes nos três runtimes: use pastas `--out` separadas e publique apenas um runtime por versão/feed, para evitar sobrescrita.
+`--runtime txiki|bun|node` seleciona o runtime (padrão: `bun`, com renderer de GPU; motivo e medições em [docs/performance.md](docs/performance.md)) no build, pack e instalador. Antes da publicação, o pack local chama-se `WindowsBar-<runtime>.tarve`; em `updates/`, recebe versão e plataforma conforme a tabela. Instalador, zip e exe têm os mesmos nomes nos três runtimes: use pastas `--out` separadas e publique apenas um runtime por versão/feed, para evitar sobrescrita.
 
-No workflow manual, selecione o input **runtime**; tags usam `txiki`. O runner instala Bun, Node 26.10.0 e txiki 26.6.0. A troca de runtime descreve a seleção esperada do updater; instalação e migração reais ainda não foram homologadas. Consulte os resultados automatizados com Tarve 0.13.2 e as validações humanas pendentes em [STEP7-RUNTIME-TESTS.md](STEP7-RUNTIME-TESTS.md#tarve-0132) antes de distribuir qualquer runtime.
+No workflow manual, selecione o input **runtime**; tags usam `bun`. Cópias instaladas de versões txiki baixam o executável inteiro (~100 MB) na primeira atualização para Bun. O runner instala Bun, Node 26.10.0 e txiki 26.6.0. A troca de runtime descreve a seleção esperada do updater; instalação e migração reais ainda não foram homologadas. Consulte os resultados automatizados com Tarve 0.13.2 e as validações humanas pendentes em [STEP7-RUNTIME-TESTS.md](STEP7-RUNTIME-TESTS.md#tarve-0132) antes de distribuir qualquer runtime.
 
 Para testar contra um servidor local: `bun run release 0.2.0 --out <pasta> --base-url http://localhost:8765/`, sirva `<pasta>\updates` e rode a cópia instalada com `WINDOWSBAR_UPDATE_URL=http://localhost:8765/latest.json`; `WindowsBar.exe --update` procura, baixa e instala na hora.
 
@@ -53,7 +53,7 @@ Pré-requisitos: Windows x64, dependências instaladas com `bun install`, Bun 1.
 bun run release 0.2.0 --runtime txiki --out "$env:TEMP\WindowsBar-release\txiki"
 bun run release 0.2.0 --runtime bun --out "$env:TEMP\WindowsBar-release\bun"
 bun run release 0.2.0 --runtime node --out "$env:TEMP\WindowsBar-release\node"
-bun run release 0.2.0 --runtime txiki --publish # publica no GitHub com gh
+bun run release 0.2.0 --publish # publica no GitHub com gh (runtime padrão: bun)
 ```
 
 Sem `--publish`, nada é enviado ao GitHub. Sem `--out`, usa `dist`: `release/` contém instalador e zip, `updates/` contém exe, pack e `latest.json` assinado. Sem chave o script interrompe antes do build; não gere uma chave nova para atualizar instalações existentes.

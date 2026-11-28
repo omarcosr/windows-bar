@@ -1,4 +1,4 @@
-# Tags publish txiki; manual dispatch selects one runtime per release/feed.
+# Tags publish bun (see docs/performance.md); manual dispatch selects one runtime per release/feed.
 # Requires TARVE_UPDATE_PRIVATE_KEY (Ed25519; not Authenticode).
 name: release
 
@@ -11,10 +11,10 @@ on:
         description: "Version to release (e.g. 0.2.0); the tag v<version> is created"
         required: true
       runtime:
-        description: "App runtime (tags use txiki)"
+        description: "App runtime (tags use bun)"
         type: choice
         required: true
-        default: txiki
+        default: bun
         options: [txiki, bun, node]
 
 permissions:
@@ -87,6 +87,6 @@ jobs:
           TARVE_UPDATE_PRIVATE_KEY: ${{ secrets.TARVE_UPDATE_PRIVATE_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
-          RELEASE_RUNTIME: ${{ inputs.runtime || 'txiki' }}
+          RELEASE_RUNTIME: ${{ inputs.runtime || 'bun' }}
         shell: pwsh
         run: bun scripts/release.ts "$env:RELEASE_VERSION" --runtime "$env:RELEASE_RUNTIME" --publish --notes "WindowsBar $env:RELEASE_VERSION"

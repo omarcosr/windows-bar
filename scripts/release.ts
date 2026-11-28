@@ -8,7 +8,7 @@
 //   bun run release                  version from package.json, files in dist/
 //   bun run release 0.2.0            sets package.json to 0.2.0 first
 //   bun run release 0.2.0 --publish  also creates GitHub release v0.2.0 with gh and uploads it
-//   --runtime bun|node|txiki         runtime for build, pack and installer (default: txiki)
+//   --runtime bun|node|txiki         runtime for build, pack and installer (default: bun; see docs/performance.md)
 //   --notes "..."                    release notes (manifest and GitHub)
 //   --out dir                        output folder instead of dist (e.g. while dist\WindowsBar.exe runs)
 //   --base-url url                   where the files will be served (default: the GitHub release)
@@ -36,7 +36,7 @@ const option = (name: string) => {
 };
 const positional = args.filter((a, i) => !a.startsWith("--") && !VALUED.includes(args[i - 1] ?? ""));
 
-const runtime = option("--runtime") ?? "txiki";
+const runtime = option("--runtime") ?? "bun";
 if (!["bun", "node", "txiki"].includes(runtime)) throw new Error(`invalid runtime "${runtime}": expected bun, node or txiki`);
 checkRuntime(runtime);
 const keyArgs = process.env.TARVE_UPDATE_PRIVATE_KEY ? [] : existsSync(KEY_FILE) ? ["--key", KEY_FILE] : null;

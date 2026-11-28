@@ -9,12 +9,12 @@
     "dev": "bunx tarve dev src/main.tsx",
     "typecheck": "tsc --noEmit",
     "bench": "bun scripts/bench-ticks.ts",
-    "build": "bun run build:txiki",
+    "build": "bun run build:bun",
     "release": "bun scripts/release.ts",
     "dev:bun": "bunx tarve dev src/main.tsx",
     "dev:node": "bunx tarve dev src/main.tsx --runtime node",
     "build:txiki": "bunx tarve build src/main.tsx --runtime txiki --outfile dist/WindowsBar.exe",
-    "build:bun": "bunx tarve build src/main.tsx --runtime bun --outfile dist/bun/WindowsBar.exe",
+    "build:bun": "bunx tarve build src/main.tsx --runtime bun --trim --outfile dist/bun/WindowsBar.exe",
     "build:node": "bunx tarve build src/main.tsx --runtime node --outfile dist/node/WindowsBar.exe"
   },
   "devDependencies": {

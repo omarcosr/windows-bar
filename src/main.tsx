@@ -166,8 +166,8 @@ const app = createApp(
     />
   ),
   {
-    lowPower: true,
-    renderer: "cpu",
+    // GPU (D3D11): the CPU renderer cost ~4x more CPU while animating; see docs/performance.md.
+    renderer: "auto",
     // The button and Shift/Ctrl of each press: the taskbar's modified clicks on app buttons (apps.tsx).
     pointerEvents: true,
     appIdentity: { id: "WindowsBar.Dock", name: "WindowsBar", icon: appIcon },
