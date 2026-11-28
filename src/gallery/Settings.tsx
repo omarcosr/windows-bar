@@ -4,7 +4,7 @@ import { setAutostart } from "../services/autostart";
 import { APP_VERSION, checkNow, download, restartToUpdate, updater } from "../services/updater";
 import { launch } from "../services/windows";
 import { taskbarPrefs } from "../services/taskbar-prefs";
-import { BAR_HEIGHT_MAX, BAR_HEIGHT_MIN, dockBackground, numeric, ui } from "../theme";
+import { BAR_HEIGHT_MAX, BAR_HEIGHT_MIN, configuredHeight, dockBackground, numeric, ui } from "../theme";
 import { glowColors, hoverEffects, iconHover } from "../widgets/ui";
 import { magnifyRowProps, magnifyStyles, type MagnifyMetrics } from "../widgets/magnify";
 import { iconFor } from "../services/icons";
@@ -254,13 +254,13 @@ export function SettingsPage() {
           <Toggle
             checked={!config.barHeight}
             label={t("settings.sameAsWindowsTaskbar")}
-            onChange={(v) => set("barHeight", v ? 0 : ui.dock.height)}
+            onChange={(v) => set("barHeight", v ? 0 : configuredHeight())}
           />
         </Setting>
         <Setting label={t("settings.customHeight")} when={!!config.barHeight}>
           <Range
             label={t("settings.height")}
-            value={ui.dock.height}
+            value={configuredHeight()}
             min={BAR_HEIGHT_MIN}
             max={BAR_HEIGHT_MAX}
             step={2}

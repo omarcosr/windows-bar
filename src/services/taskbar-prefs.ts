@@ -92,13 +92,21 @@ function readSearchMode(): 0 | 1 | 2 | 3 {
  * sliver: then the last thickness stands.
  */
 function readTaskbarHeight(edge: TaskbarEdge): number | null {
+  // Hidden by the dock at the bottom, the taskbar is only measurable mid-relayout (a theme change
+  // shows it for a moment at a passing size): each new value would move the reserved strip, and
+  // every work-area change stalls the window manager. The size measured before it was hidden (at
+  // start, before the dock hides it) stands.
+  if (heightMeasured && edge === "bottom" && (config.hideNativeTaskbar || config.mode === "full")) return null;
   const tray = explorerTray();
   if (!tray || taskbarState() & ABS_AUTOHIDE) return null;
   const rect = windowRect(tray);
   const side = edge === "left" || edge === "right";
   const height = Math.round((side ? rect.right - rect.left : rect.bottom - rect.top) / systemScale());
-  return height >= 32 && height <= 120 ? height : null;
+  if (height < 32 || height > 120) return null;
+  heightMeasured = true;
+  return height;
 }
+let heightMeasured = false;
 
 function readAccent(): string | null {
   const v = readUserValue("Software\\Microsoft\\Windows\\DWM", "AccentColor", "dword");

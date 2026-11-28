@@ -287,6 +287,8 @@ export class DockWindow {
 
   update(options: Partial<DockWindowOptions>) {
     const before = this.#options;
+    // New settings may fix what made the reservation fail: allow re-registering again.
+    this.#lostChecks = 0;
     this.#options = { ...before, ...options };
     const hide = DockWindow.#hidesTaskbar(this.#options);
     if (DockWindow.#hidesTaskbar(before) !== hide) {
@@ -370,7 +372,27 @@ export class DockWindow {
     this.#reserved = thickness;
     this.#overlap = overlap;
     this.#reservedEdge = edge;
-    this.#app.appBar(edge, { size: thickness, overlap });
+    // A new work area holds the window manager (cursor included) for ~0.65 s whatever the app does
+    // (measured with a bare AppBar), so a burst of changes (the bar height or margin slider dragged)
+    // docks once now and once more with the last values when it settles.
+    if (this.#dockSettle) {
+      this.#dockPending = true;
+      return;
+    }
+    this.#applyDock();
+  }
+
+  #dockSettle: ReturnType<typeof setTimeout> | undefined;
+  #dockPending = false;
+
+  #applyDock() {
+    this.#app.appBar(this.#reservedEdge, { size: this.#reserved, overlap: this.#overlap });
+    this.#dockSettle = setTimeout(() => {
+      this.#dockSettle = undefined;
+      if (!this.#dockPending || this.#reserved <= 0 || this.#disposed) return;
+      this.#dockPending = false;
+      this.#applyDock();
+    }, 400);
   }
 
   #reservedEdge: TaskbarEdge = "bottom";
@@ -378,7 +400,7 @@ export class DockWindow {
   #unreserve() {
     if (this.#reserved <= 0) return;
     this.#reserved = -1;
-    this.#lostChecks = 0;
+    this.#dockPending = false;
     clearTimeout(this.#redock);
     this.#app.appBar(null);
   }
@@ -400,7 +422,8 @@ export class DockWindow {
     this.#startWatchdog(this.#taskbar.state);
     const want = this.#hiddenState();
     if (taskbarState() !== want) setTaskbarState(want);
-    showWindow(tray, SW_HIDE);
+    // Async: a plain ShowWindow on Explorer's window waits for its busy thread (up to ~300 ms).
+    showWindowAsync(tray, SW_HIDE);
   }
 
   /**
@@ -573,6 +596,7 @@ export class DockWindow {
     this.#offShell();
     this.#offScreens();
     clearTimeout(this.#redock);
+    clearTimeout(this.#dockSettle);
     try {
       this.#unreserve();
     } catch {

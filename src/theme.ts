@@ -10,18 +10,27 @@ export const BAR_HEIGHT_MIN = 40;
 export const BAR_HEIGHT_MAX = 80;
 
 /**
- * config.barHeight, or (0, the default) the height of the Windows taskbar. Off the bottom edge
+ * config.barHeight, or (0, the default) the height of the Windows taskbar, less a floating dock's
+ * strip margins when it reserves space. Off the bottom edge
  * the hidden taskbar keeps its strip reserved (Windows auto-hides it only at the bottom) and the
  * dock covers that strip, so there the bar is the taskbar's own thickness, less the strip margins.
  */
+/** The height set in Settings (config.barHeight, or the taskbar's), margins included. */
+export function configuredHeight() {
+  return Math.max(BAR_HEIGHT_MIN, Math.min(BAR_HEIGHT_MAX, Math.round((Number(config.barHeight) || taskbarPrefs.height) / 2) * 2));
+}
+
 function barHeight() {
   const hidden = config.hideNativeTaskbar || config.mode === "full";
   if (taskbarPrefs.edge !== "bottom" && hidden) {
     const margins = config.mode === "floating" && config.reserveSpace ? 2 * (Number(config.bottomMargin) || 0) : 0;
     return Math.max(32, Math.min(BAR_HEIGHT_MAX, Math.floor((taskbarPrefs.height - margins) / 2) * 2));
   }
-  const h = Number(config.barHeight) || taskbarPrefs.height;
-  return Math.max(BAR_HEIGHT_MIN, Math.min(BAR_HEIGHT_MAX, Math.round(h / 2) * 2));
+  const h = configuredHeight();
+  // A floating dock's strip (the bar plus its margins) is as thick as a full bar: switching modes
+  // then keeps the reserved strip, and a new work area holds the window manager for ~0.65 s.
+  if (config.mode === "floating" && config.reserveSpace) return Math.max(32, h - 2 * (Number(config.bottomMargin) || 0));
+  return h;
 }
 
 /**
