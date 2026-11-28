@@ -25,7 +25,7 @@
     "@tarve/core": "0.13.7",
     "i18next": "^27.2.9"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "tarve": {
     "name": "WindowsBar",
     "appId": "WindowsBar.Dock",
