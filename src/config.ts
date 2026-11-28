@@ -17,6 +17,8 @@ export type DockMode = "floating" | "full";
 
 export type DockAlign = "system" | "center" | "left";
 
+export type AutoHideAnimation = "slide" | "spring" | "fade" | "none";
+
 export interface DockConfig {
   version: 1;
   widgets: WidgetInstance[];
@@ -24,6 +26,8 @@ export interface DockConfig {
   reserveSpace: boolean;
   /** Floating dock with reserved space: paint the strip in the colour of the app in front. */
   stripFollowsApp: boolean;
+  /** Full bar with reserved space: its background takes the colour of the app in front. */
+  fullFollowsApp: boolean;
   /** Hide the Windows taskbar while the dock runs (restored on exit). */
   hideNativeTaskbar: boolean;
   /** "floating": a centred pill above the screen edge. "full": a bar across the whole screen, like the Windows taskbar. */
@@ -42,8 +46,18 @@ export interface DockConfig {
   iconScale: number;
   /** Height of the bar in logical px (40–80), or 0 for the Windows taskbar's height: tiles and icons scale with it. */
   barHeight: number;
-  /** Opacity of the bar's background, 0.2–1; icons and widgets stay opaque. */
+  /** Opacity of the bar's background, 0–1; icons and widgets stay opaque. */
   opacity: number;
+  /** The dock slides away when the pointer leaves and comes back at the screen edge; no space is reserved. */
+  autoHide: boolean;
+  /** How long the pointer stays at the screen edge before the hidden dock comes back, in ms. */
+  autoHideShowDelay: number;
+  /** How long the pointer stays off the dock before it hides, in ms. */
+  autoHideHideDelay: number;
+  /** How the dock leaves and comes back. */
+  autoHideAnimation: AutoHideAnimation;
+  /** Duration of that animation, in ms. */
+  autoHideDuration: number;
   /** Live window previews when the pointer rests on an app icon. */
   hoverPreview: boolean;
   /** Narrow desktop toggle at the right edge of the dock. */
@@ -84,10 +98,16 @@ export const defaultConfig = (): DockConfig => ({
   reserveSpace: true,
   hideNativeTaskbar: false,
   stripFollowsApp: true,
+  fullFollowsApp: false,
   mode: "floating",
   hoverPreview: true,
   showDesktop: true,
   opacity: 1,
+  autoHide: false,
+  autoHideShowDelay: 0,
+  autoHideHideDelay: 400,
+  autoHideAnimation: "slide",
+  autoHideDuration: 180,
   barHeight: 0,
   iconScale: 100,
   hoverEffect: "zoom",
@@ -160,6 +180,17 @@ export function saveConfig() {
       console.error("[config] could not save", error);
     }
   }, 250);
+}
+
+/** A dock that hides itself reserves nothing: the space would stay empty while it is away. */
+export function reservesSpace() {
+  return config.reserveSpace && !config.autoHide;
+}
+
+/** The dock paints the colour of the app in front: the floating dock's strip, or the full bar itself. */
+export function followsAppColor() {
+  if (!reservesSpace()) return false;
+  return config.mode === "full" ? config.fullFollowsApp : config.stripFollowsApp;
 }
 
 export function newInstanceId(type: string) {

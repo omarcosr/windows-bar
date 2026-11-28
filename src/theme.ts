@@ -1,4 +1,4 @@
-import { config } from "./config";
+import { config, reservesSpace } from "./config";
 import { systemScale } from "./native/shell-icon";
 import { taskbarPrefs } from "./services/taskbar-prefs";
 /**
@@ -23,13 +23,13 @@ export function configuredHeight() {
 function barHeight() {
   const hidden = config.hideNativeTaskbar || config.mode === "full";
   if (taskbarPrefs.edge !== "bottom" && hidden) {
-    const margins = config.mode === "floating" && config.reserveSpace ? 2 * (Number(config.bottomMargin) || 0) : 0;
+    const margins = config.mode === "floating" && reservesSpace() ?2 * (Number(config.bottomMargin) || 0) : 0;
     return Math.max(32, Math.min(BAR_HEIGHT_MAX, Math.floor((taskbarPrefs.height - margins) / 2) * 2));
   }
   const h = configuredHeight();
   // A floating dock's strip (the bar plus its margins) is as thick as a full bar: switching modes
   // then keeps the reserved strip, and a new work area holds the window manager for ~0.65 s.
-  if (config.mode === "floating" && config.reserveSpace) return Math.max(32, h - 2 * (Number(config.bottomMargin) || 0));
+  if (config.mode === "floating" && reservesSpace()) return Math.max(32, h - 2 * (Number(config.bottomMargin) || 0));
   return h;
 }
 
@@ -42,6 +42,22 @@ export function devicePx(logical: number, even = false) {
   const scale = systemScale();
   const px = even ? Math.round((logical * scale) / 2) * 2 : Math.round(logical * scale);
   return px / scale;
+}
+
+/**
+ * How far a strip that follows the app reaches up over it, hiding the app's bottom frame line: 2
+ * logical px or a little more, so the window (strip + overlap) is whole logical px that are also whole
+ * device px. The view lays out in whole logical px: at 125 % a 48 + 2 strip was a 63 px window
+ * holding 62.5 px of content, and the screen's last row showed the wallpaper half through.
+ */
+export function stripOverlapPx() {
+  // The full bar's strip is the bar alone; a floating dock's adds its margins.
+  const thickness = barHeight() + (config.mode === "full" ? 0 : 2 * (Number(config.bottomMargin) || 0));
+  const scale = systemScale();
+  for (let total = Math.ceil(thickness + 2); total <= thickness + 10; total++) {
+    if (Math.abs(total * scale - Math.round(total * scale)) < 0.01) return total - thickness;
+  }
+  return 2;
 }
 
 /** A side-edge column's padding across it, in logical px: its compact tiles get the room. */
@@ -134,7 +150,7 @@ export const ui = {
 
 /** The bar background at the user's opacity (the theme's #0c0c0e). */
 export function dockBackground(opacity: number) {
-  const a = Math.max(0.2, Math.min(1, opacity));
+  const a = Math.max(0, Math.min(1, opacity));
   return a >= 1 ? ui.dock.background : `rgba(12,12,14,${a.toFixed(2)})`;
 }
 

@@ -10,6 +10,8 @@ export const dockUi = store({
   editing: false,
   /** The dock has settled after starting (main.tsx): its first appearance fades and rises in. */
   shown: false,
+  /** Auto-hide has put the dock away (dock/auto-hide.ts): it animates out, then its window is cloaked. */
+  autoHidden: false,
 });
 
 /**

@@ -1,6 +1,6 @@
 import { Pressable, Row, Text, View, Window, darkTheme, store, type Child } from "@tarve/core";
-import { config, type WidgetInstance } from "../config";
-import { dockBackground, ui } from "../theme";
+import { config, followsAppColor, reservesSpace, type WidgetInstance } from "../config";
+import { dockBackground, stripOverlapPx, ui } from "../theme";
 import { mountWidget } from "../widgets/host";
 import { COMPACT_PAD } from "../widgets/ui";
 import { setFullForm } from "../widgets/form";
@@ -254,14 +254,22 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   // With reserveSpace the window is an AppBar spanning the whole strip. A floating dock then
   // sits inside it with its margins, over a strip painted in the colour of the app in front
   // (stripFollowsApp), so the app seems to continue under the dock.
-  const docked = config.reserveSpace;
+  const docked = reservesSpace();
   const inStrip = docked && !full;
   const strip = inStrip && config.stripFollowsApp;
+  // The full bar itself takes the app's colour (followsAppColor); its tiles stay dark.
+  const tintedBar = full && docked && followsAppColor();
   const stripMargin = config.bottomMargin;
   // Read during render, so a new colour renders the dock again.
-  const stripColor = strip ? appColor.color : null;
-  if (strip) queueMicrotask(() => followColor(stripColor));
-  const stripHeight = stripMargin * 2 + 2 + ui.dock.height + 4;
+  const stripColor = strip || tintedBar ? appColor.color : null;
+  if (strip || tintedBar) queueMicrotask(() => followColor(stripColor));
+  const stripHeight = stripMargin * 2 + stripOverlapPx() + ui.dock.height + 4;
+  const toEdge = (px: number) =>
+    ({ bottom: `translateY(${px}px)`, top: `translateY(${-px}px)`, left: `translateX(${-px}px)`, right: `translateX(${px}px)` })[edge];
+  const slides = config.autoHideAnimation === "slide" || config.autoHideAnimation === "spring";
+  // Past the window's far side: the bar, its margins and the edit room.
+  const slideBy = ui.dock.height + 2 * (Number(config.bottomMargin) || 0) + 24;
+  const hideMs = config.autoHideAnimation === "none" ? 0 : Math.max(0, Number(config.autoHideDuration) || 0);
   // Widgets with nothing to show step aside; edit mode shows them all so they can be reached.
   const shown = (w: WidgetInstance) => {
     if (editing) return true;
@@ -341,7 +349,8 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
   reserving = magnifying() && !editing && !docked && !full;
   if (reserving) maxExtra(1, dockMetrics());
   // Room past the widgets' edge facing away from the screen edge, for the edit controls.
-  const windowRoom = editing && !docked ? ({ bottom: 9, top: 0, left: full ? 0 : 2, right: full ? 0 : 9 })[edge] : 0;
+  // The full bar's window is exactly the bar's thickness (DockWindow.layout): no room past it, as when docked.
+  const windowRoom = editing && !docked && !full ? ({ bottom: 9, top: 0, left: full ? 0 : 2, right: full ? 0 : 9 })[edge] : 0;
   const barRoom = vertical ? COMPACT_PAD : ui.dock.padding;
   badgeOut = Math.max(0, Math.min(9, barRoom + (inStrip ? stripMargin : windowRoom) - 1));
   report = props.onSize;
@@ -365,6 +374,17 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
       {group.map(slot)}
     </View>
   ) : null;
+  const showDesktop = config.showDesktop && !editing;
+  const desktopButton = (place: Record<string, unknown>) => (
+    <Pressable
+      aria-label={t("dock.showDesktop")}
+      onClick={() => { toggleDesktop(); }}
+      onContextMenu={props.onContextMenu}
+      style={{ ...place, justify: "center", align: "center", cursor: "default", hover: { background: ui.tile.hover } }}
+    >
+      <View style={{ width: vertical ? 16 : 1, height: vertical ? 1 : 16, background: ui.text, opacity: 0.2 }} />
+    </Pressable>
+  );
   const content = !full
     ? [...(left ? [groupRow] : []), ...run(before), ...(left ? [] : [groupRow]), ...run(after)]
     : left
@@ -396,12 +416,13 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
         style={{
           // Invisible while the dock starts (sizes, place and icons still settling), then one
           // native fade and rise, run by the renderer: no intermediate frame is seen.
-          opacity: dockUi.shown ? 1 : 0,
+          // Auto-hide (dock/auto-hide.ts) slides it out past the screen edge or fades it.
+          opacity: dockUi.shown && !(dockUi.autoHidden && !slides) ? 1 : 0,
           // Rises in from the screen edge it sits on.
-          transform: dockUi.shown
-            ? vertical ? "translateX(0px)" : "translateY(0px)"
-            : { bottom: "translateY(12px)", top: "translateY(-12px)", left: "translateX(-12px)", right: "translateX(12px)" }[edge],
-          transition: { opacity: { duration: 180, easing: "easeOut" }, transform: { duration: 260, easing: "easeOut" } },
+          transform: !dockUi.shown ? toEdge(12) : dockUi.autoHidden && slides ? toEdge(slideBy) : toEdge(0),
+          transition: config.autoHide && dockUi.shown
+            ? { opacity: { duration: hideMs, easing: "easeOut" }, transform: { duration: hideMs, easing: config.autoHideAnimation === "spring" ? "spring" : "easeOut" } }
+            : { opacity: { duration: 180, easing: "easeOut" }, transform: { duration: 260, easing: "easeOut" } },
           ...(inStrip
             ? {
                 // Only right-click does something here: no hand cursor.
@@ -415,15 +436,27 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
                   left: stripMargin,
                   right: stripMargin,
                   bottom: stripMargin,
-                  top: stripMargin + (strip && edge === "bottom" ? 2 : 0),
+                  top: stripMargin + (strip && edge === "bottom" ? stripOverlapPx() : 0),
                 },
                 background: strip ? (sweep.base ?? "rgba(0,0,0,0)") : undefined,
                 overflow: "hidden",
+                // Square: a Pressable gets a default radius, which rounded the strip's corners at the screen edges.
+                radius: 0,
               }
-            : { flex: 1, align: "start", justify: reserving && !left ? "center" : "start", direction: dir, cursor: "default" }),
+            : {
+                flex: 1,
+                align: "start",
+                justify: reserving && !left ? "center" : "start",
+                direction: dir,
+                cursor: "default",
+                // The window reaches over the app above (stripOverlap) to hide its frame line; the bar stays below.
+                ...(tintedBar
+                  ? { background: sweep.base ?? "rgba(0,0,0,0)", overflow: "hidden", radius: 0, padding: { top: edge === "bottom" ? stripOverlapPx() : 0 } }
+                  : {}),
+              }),
         }}
       >
-        {strip && edge === "bottom" ? <Sweep height={stripHeight} /> : null}
+        {(strip || tintedBar) && edge === "bottom" ? <Sweep height={strip ? stripHeight : ui.dock.height + stripOverlapPx() + 4} /> : null}
         {/* A free dock's window hugs this box; the edit-mode room for the remove badges is its padding. */}
         <View
           onSize={({ borderBox }) => {
@@ -434,7 +467,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
           style={{
             ...(full ? { flex: 1, ...(vertical ? { width: "100%" } : {}) } : { shrink: 0 }),
             padding: {
-              top: editing && !docked ? 9 : 0,
+              top: editing && !docked && !full ? 9 : 0,
               left: editing && !full && !docked ? 9 : 0,
               right: editing && !full && !docked ? 2 : 0,
             },
@@ -452,7 +485,7 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
               gap: 0,
               padding: 0,
               radius: full ? 0 : ui.dock.radius,
-              background: dockBackground(config.opacity),
+              background: tintedBar && sweep.base ? "rgba(0,0,0,0)" : dockBackground(config.opacity),
               boxSizing: "border-box",
               shrink: 0,
             }}
@@ -471,26 +504,14 @@ export function DockView(props: { onSize: (width: number, height: number) => voi
             }}>
               {content}
             </View>
-            {config.showDesktop && !editing ? (
-              <Pressable
-                aria-label={t("dock.showDesktop")}
-                onClick={() => { toggleDesktop(); }}
-                onContextMenu={props.onContextMenu}
-                style={{
-                  width: vertical ? ui.dock.height : 8,
-                  height: vertical ? 8 : ui.dock.height,
-                  shrink: 0,
-                  justify: "center",
-                  align: "center",
-                  cursor: "default",
-                  hover: { background: ui.tile.hover },
-                }}
-              >
-                <View style={{ width: vertical ? 16 : 1, height: vertical ? 1 : 16, background: ui.text, opacity: 0.2 }} />
-              </Pressable>
-            ) : null}
+            {showDesktop && !inStrip ? desktopButton({ width: vertical ? ui.dock.height : 8, height: vertical ? 8 : ui.dock.height, shrink: 0 }) : null}
           </Pressable>
         </View>
+        {/* A floating dock in its strip keeps the button at the screen's corner, where the full bar
+            and the Windows taskbar have it, not at the end of the pill. */}
+        {showDesktop && inStrip
+          ? desktopButton(vertical ? { position: "absolute", left: 0, right: 0, bottom: 0, height: 8 } : { position: "absolute", top: 0, bottom: 0, right: 0, width: 8 })
+          : null}
       </Pressable>
     </Window>
   );

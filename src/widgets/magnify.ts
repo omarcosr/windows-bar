@@ -1,5 +1,5 @@
 import { store, type Style } from "@tarve/core";
-import { config, type WidgetInstance } from "../config";
+import { config, reservesSpace, type WidgetInstance } from "../config";
 import { dockEdge, dockVertical, taskbarPrefs } from "../services/taskbar-prefs";
 import { COMPACT_PAD, ui } from "../theme";
 import { cursorPos, topWindowAt } from "../native/win32";
@@ -321,7 +321,7 @@ export function dockIndex(instanceId: string, local: number) {
 
 /** The dock's slots: the icon may grow over the dock padding and, in the strip, its margin. */
 export function dockMetrics(): MagnifyMetrics {
-  const strip = config.reserveSpace && config.mode !== "full" ? Number(config.bottomMargin) || 0 : 0;
+  const strip = reservesSpace() && config.mode !== "full" ? Number(config.bottomMargin) || 0 : 0;
   // Across a side-edge column the bar pads its tiles by COMPACT_PAD only.
   return { slot: ui.app.slot, icon: ui.app.icon, height: ui.tile.height, headroom: (dockVertical() ? COMPACT_PAD : ui.dock.padding) + strip };
 }

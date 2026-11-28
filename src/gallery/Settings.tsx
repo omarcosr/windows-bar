@@ -1,5 +1,5 @@
 import { Column, Image, Pressable, Row, Slider, Switch, Text, View, type Child } from "@tarve/core";
-import { config, defaultConfig, saveConfig, type DockConfig } from "../config";
+import { config, defaultConfig, followsAppColor, reservesSpace, saveConfig, type DockConfig } from "../config";
 import { setAutostart } from "../services/autostart";
 import { APP_VERSION, checkNow, download, restartToUpdate, updater } from "../services/updater";
 import { launch } from "../services/windows";
@@ -224,7 +224,7 @@ function UpdateSetting() {
 export function SettingsPage() {
   const floating = config.mode === "floating";
   const full = config.mode === "full";
-  const strip = floating && config.reserveSpace;
+  const strip = floating && reservesSpace();
   return (
     <Column style={{ padding: 24, gap: 24, maxWidth: 760 }}>
       <Column style={{ gap: 4 }}>
@@ -283,7 +283,7 @@ export function SettingsPage() {
           <Range
             label={t("settings.opacity")}
             value={Math.round(config.opacity * 100)}
-            min={20}
+            min={0}
             max={100}
             step={5}
             unit="%"
@@ -332,8 +332,16 @@ export function SettingsPage() {
             onChange={(v) => floating && set("bottomMargin", Math.round(v))}
           />
         </Setting>
-        <Setting label={t("settings.reserveScreenSpace")} description={t("settings.maximizedWindowsStopAbove")}>
-          <Toggle label={t("settings.reserveSpace")} checked={config.reserveSpace} onChange={(v) => set("reserveSpace", v)} />
+        <Setting
+          label={t("settings.reserveScreenSpace")}
+          description={config.autoHide ? t("settings.autoHideReservesNothing") : t("settings.maximizedWindowsStopAbove")}
+        >
+          <Toggle
+            label={t("settings.reserveSpace")}
+            checked={reservesSpace()}
+            disabled={config.autoHide}
+            onChange={(v) => !config.autoHide && set("reserveSpace", v)}
+          />
         </Setting>
         <Setting label={t("settings.spaceBackgroundFollowsScreen")} description={t("settings.paintsStripUnderDock")} when={strip}>
           <Toggle
@@ -343,15 +351,18 @@ export function SettingsPage() {
             onChange={(v) => set("stripFollowsApp", v)}
           />
         </Setting>
+        <Setting label={t("settings.barBackgroundFollowsScreen")} description={t("settings.paintsFullBar")} when={full && reservesSpace()}>
+          <Toggle label={t("settings.backgroundFollowsScreen")} checked={config.fullFollowsApp} onChange={(v) => set("fullFollowsApp", v)} />
+        </Setting>
         <Setting
           label={t("settings.colorChangeAnimation")}
           description={t("settings.newColorSlidesDown")}
-          when={strip && config.stripFollowsApp}
+          when={followsAppColor()}
         >
           <Toggle
             label={t("settings.animation")}
             checked={config.colorTransition}
-            disabled={!strip || !config.stripFollowsApp}
+            disabled={!followsAppColor()}
             onChange={(v) => set("colorTransition", v)}
           />
         </Setting>
@@ -367,6 +378,57 @@ export function SettingsPage() {
             checked={config.hideNativeTaskbar || full}
             disabled={full}
             onChange={(v) => !full && set("hideNativeTaskbar", v)}
+          />
+        </Setting>
+      </Section>
+
+      <Section title={t("settings.autoHide")} description={t("settings.autoHideDescription")}>
+        <Setting label={t("settings.autoHide")}>
+          <Toggle label={t("settings.autoHide")} checked={config.autoHide} onChange={(v) => set("autoHide", v)} />
+        </Setting>
+        <Setting label={t("settings.autoHideShowDelay")} description={t("settings.autoHideShowDelayDescription")} when={config.autoHide}>
+          <Range
+            label={t("settings.autoHideShowDelay")}
+            value={config.autoHideShowDelay}
+            min={0}
+            max={1000}
+            step={25}
+            unit=" ms"
+            onChange={(v) => set("autoHideShowDelay", Math.round(v))}
+          />
+        </Setting>
+        <Setting label={t("settings.autoHideHideDelay")} description={t("settings.autoHideHideDelayDescription")} when={config.autoHide}>
+          <Range
+            label={t("settings.autoHideHideDelay")}
+            value={config.autoHideHideDelay}
+            min={0}
+            max={3000}
+            step={50}
+            unit=" ms"
+            onChange={(v) => set("autoHideHideDelay", Math.round(v))}
+          />
+        </Setting>
+        <Setting label={t("settings.autoHideAnimation")} when={config.autoHide}>
+          <Choice
+            value={config.autoHideAnimation}
+            options={[
+              { value: "slide", label: t("settings.autoHideSlide") },
+              { value: "spring", label: t("settings.autoHideSpring") },
+              { value: "fade", label: t("settings.autoHideFade") },
+              { value: "none", label: t("settings.autoHideNone") },
+            ]}
+            onChange={(v) => set("autoHideAnimation", v)}
+          />
+        </Setting>
+        <Setting label={t("settings.autoHideDuration")} when={config.autoHide && config.autoHideAnimation !== "none"}>
+          <Range
+            label={t("settings.autoHideDuration")}
+            value={config.autoHideDuration}
+            min={50}
+            max={600}
+            step={10}
+            unit=" ms"
+            onChange={(v) => set("autoHideDuration", Math.round(v))}
           />
         </Setting>
       </Section>

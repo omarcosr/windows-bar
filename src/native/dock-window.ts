@@ -344,8 +344,11 @@ export class DockWindow {
 
     const scale = screen.scale;
     const vertical = edge === "left" || edge === "right";
-    const width = full && !vertical ? screen.width : Math.ceil(this.#size.width * scale);
-    const height = full && vertical ? screen.height : Math.ceil(this.#size.height * scale);
+    // The full bar is as thick as the bar height, not its measured content: that fills the window
+    // across, so a taller window (the floating dock's edit room, kept on a switch to full) never shrank back.
+    const thick = Math.ceil(this.#options.barHeight * scale);
+    const width = full ? (vertical ? thick : screen.width) : Math.ceil(this.#size.width * scale);
+    const height = full ? (vertical ? screen.height : thick) : Math.ceil(this.#size.height * scale);
     const margin = full ? 0 : Math.round(this.#options.bottomMargin * scale);
     // With the taskbar hidden the dock takes its place; otherwise it stays beside what it reserves.
     const outer = this.#taskbar ? screen : screen.workArea;
@@ -502,12 +505,25 @@ export class DockWindow {
       this.#hiddenForFullscreen = fullscreen;
       // Nothing the dock draws can be seen now: pollers and timers rest until it returns.
       setDockCovered(fullscreen);
-      cloak(this.#hwnd, fullscreen);
+      this.#applyCloak();
       // With the dock still on top, Explorer does not take the app for full screen and shows its
       // own taskbar over it: it stays hidden in full screen too.
       this.#rehideTaskbar();
     }
     return fullscreen;
+  }
+
+  #autoHidden = false;
+
+  /** Auto-hide (dock/auto-hide.ts) has put the dock away: cloaked like in full screen, pointer goes through. */
+  setAutoHidden(on: boolean) {
+    if (this.#disposed || on === this.#autoHidden) return;
+    this.#autoHidden = on;
+    this.#applyCloak();
+  }
+
+  #applyCloak() {
+    cloak(this.#hwnd, this.#hiddenForFullscreen || this.#autoHidden);
   }
 
   /** ABN_FULLSCREENAPP does not say which monitor: only the dock's own screen counts. */

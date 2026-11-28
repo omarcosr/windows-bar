@@ -42,7 +42,8 @@ Legenda: `[ ]` pendente · `[~]` implementado, não testado · `[x]` implementad
 - Observação: mudança grande; se não couber, entregar a análise e o primeiro passo.
 
 ## 6. Ocultar automaticamente (agente: auto-hide)
-- [!] Dock se esconde/revela como a barra (`ABS_AUTOHIDE` em `StuckRects3`, revelação na borda)
+- [x] Dock se esconde/revela pela própria lógica (`src/dock/auto-hide.ts`): o cursor é verificado a cada 16 ms, o dock volta ao tocar a borda e sai após o atraso configurado; escondido, a janela fica em cloak (sem desenho nem entrada) e não reserva espaço. Atrasos, animação e duração são ajustáveis em Configurações. Medido: revelação em 17–26 ms. Não usa o slot de AppBar auto-oculta abaixo, que continua bloqueado.
+- [!] Auto-ocultar pelo slot do Windows (`ABS_AUTOHIDE` em `StuckRects3`)
   - Bloqueio (medido com o dock rodando): para esconder a barra do Explorer na borda inferior sem que ela reserve a faixa, o dock a põe em `ABS_AUTOHIDE` (`#hiddenState`). Com isso o `Shell_TrayWnd` do Explorer ocupa o único slot de AppBar auto-oculta da borda inferior (`ABM_GETAUTOHIDEBAREX` devolve o HWND dele), então `ABM_SETAUTOHIDEBAREX` do dock falha; e `ABM_GETSTATE`/`StuckRects3` (byte 8 = 3) passam a refletir o estado forçado pelo dock, não a preferência do usuário (desligar em Configurações é desfeito pelo `#rehideTaskbar`). A preferência real só existe no snapshot `taskbar-state.json`.
   - Precisa de decisão antes de implementar: como esconder a barra do Explorer na borda inferior sem tomar o slot de auto-ocultar dela (ex.: cobrir a faixa como já é feito nas bordas laterais/topo).
 - Arquivos: `src/native/dock-window.ts`, `src/services/taskbar-prefs.ts`

@@ -1,17 +1,18 @@
 import { createApp, requestSingleInstance, type AppHandle } from "@tarve/core";
 import appIcon from "../assets/icon.png";
-import { config, onConfigSaved, saveConfig } from "./config";
+import { config, followsAppColor, onConfigSaved, reservesSpace, saveConfig } from "./config";
+import { startAutoHide } from "./dock/auto-hide";
 import { DOCK_TITLE, DockView } from "./dock/Dock";
 import { dockUi } from "./dock/state";
 import { setGalleryOpener } from "./dock/widget-menu";
 import { GALLERY_TITLE, GalleryView, PREVIEW_PREFIX, setGalleryPage, type GalleryPage } from "./gallery/Gallery";
 import { setRestarter, t } from "./i18n";
-import { initChartPanel } from "./menu/chart-panel";
+import { chartPanelOpen, initChartPanel } from "./menu/chart-panel";
 import { glyph, initDockMenu, menuOpen, showDockMenu } from "./menu/dock-menu";
 import { initDragGhost } from "./menu/drag-ghost";
 import { initHoverTip } from "./menu/hover-tip";
 import { initMediaFlyout, mediaFlyoutOpen } from "./menu/media-flyout";
-import { hidePeek, initWidgetPeek } from "./menu/widget-peek";
+import { hidePeek, initWidgetPeek, peekOpen } from "./menu/widget-peek";
 import { hidePreview, initWindowPreview, previewOpen } from "./menu/window-preview";
 import { DockWindow } from "./native/dock-window";
 import { waitForProcessExit } from "./native/process-wait";
@@ -26,7 +27,7 @@ import { pauseExplorerButtonsWhile } from "./services/explorer-buttons";
 import { dockAlign, dockEdge, dockVertical, onTaskbarPrefsChange, watchTaskbarPrefs } from "./services/taskbar-prefs";
 import { checkNow, restartToUpdate, startUpdater, updateNow, updater } from "./services/updater";
 import { clearFlashing, launch, markFlashing, noteForeground, scheduleRefresh, windowGone, windowShown } from "./services/windows";
-import { ui } from "./theme";
+import { stripOverlapPx, ui } from "./theme";
 import "./widgets/builtin";
 import { disposeWidget, setWidgetApp } from "./widgets/host";
 import { dockRoom } from "./widgets/magnify";
@@ -221,12 +222,12 @@ watchTaskbarPrefs();
  * Covers the 1–2 px frame line of the app above the strip. Constant while the strip is on, also
  * while no colour is known yet, so the dock never shifts when the colour comes and goes.
  */
-export const stripOverlap = () => (config.mode === "floating" && config.reserveSpace && config.stripFollowsApp && dockEdge() === "bottom" ? 2 : 0);
+export const stripOverlap = () => (followsAppColor() && dockEdge() === "bottom" ? stripOverlapPx() : 0);
 
 const nativeOptions = () => ({
   mode: config.mode,
   align: dockAlign(),
-  reserveSpace: config.reserveSpace,
+  reserveSpace: reservesSpace(),
   hideNativeTaskbar: config.hideNativeTaskbar,
   bottomMargin: config.bottomMargin,
   barHeight: ui.dock.height,
@@ -315,9 +316,10 @@ settleEntrance();
 setTimeout(() => (dockUi.shown = true), 1500);
 watchAppColor(
   () => DockWindow.handle(),
-  () => config.mode === "floating" && config.reserveSpace && config.stripFollowsApp,
+  followsAppColor,
   () => previewOpen() || menuOpen() || mediaFlyoutOpen(),
 );
+startAutoHide(() => dockWindow,() => previewOpen() || menuOpen() || mediaFlyoutOpen() || peekOpen() || chartPanelOpen());
 // Reading Explorer's buttons blocks the loop for a moment (UIA): not while a flyout is open.
 pauseExplorerButtonsWhile(() => previewOpen() || menuOpen() || mediaFlyoutOpen());
 await initDockMenu(app);
