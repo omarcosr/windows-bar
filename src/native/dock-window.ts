@@ -39,7 +39,7 @@ const dwmapi = dlopen("dwmapi.dll", {
  * Hides the window through DWM (DWMWA_CLOAK) or shows it again: it is not drawn and takes no
  * pointer input, but stays where it is in the z-order and keeps its AppBar.
  */
-function cloak(hwnd: HWND, on: boolean) {
+export function cloak(hwnd: HWND, on: boolean) {
   const DWMWA_CLOAK = 13;
   dwmapi.symbols.DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, new Uint8Array(new Uint32Array([on ? 1 : 0]).buffer), 4);
 }

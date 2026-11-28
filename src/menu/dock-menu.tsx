@@ -15,7 +15,7 @@ import {
   type ScreenInfo,
   type SvgNode,
 } from "@tarve/core";
-import { DockWindow } from "../native/dock-window";
+import { DockWindow, cloak } from "../native/dock-window";
 import { raiseDragGhost } from "./drag-ghost";
 import { activateDesktop, activateWindow, foregroundWindow, isWindowVisible, popupMenuVisible, windowPid, type HWND } from "../native/win32";
 import { ui } from "../theme";
@@ -402,14 +402,24 @@ function screenAt(screens: ScreenInfo[], p: { x: number; y: number } | null) {
 }
 
 /**
- * The menu window stays shown for Tarve all along and is put away by moving it off every screen:
+ * The menu window stays shown for Tarve all along and is put away by cloaking it (DWMWA_CLOAK):
  * Tarve's show also activates it, which ends a drag in progress (the tray's flyout opens under
  * one), and a window hidden by any means is no longer painted, so showing it again without Tarve
- * drew nothing. place() brings it back; activation is asked for separately.
+ * drew nothing. A cloaked window is still painted but neither drawn nor hit-tested, wherever
+ * Windows puts it: moved off every screen only, it was sometimes brought back to the monitor's
+ * corner, where it swallowed clicks on the desktop. It is also moved off-screen, so uncloaking it
+ * before place()'s move lands shows nothing at its old place; activation is asked for separately.
  */
 function setShown(visible: boolean) {
-  if (!handle || visible) return;
+  if (!handle) return;
+  const native = handle.nativeHandle();
+  const hwnd = native ? (Number(native) as HWND) : null;
+  if (visible) {
+    if (hwnd) cloak(hwnd, false);
+    return;
+  }
   const focused = handle.isFocused();
+  if (hwnd) cloak(hwnd, true);
   handle.setBounds({ x: -32000, y: -32000, width: Math.ceil(size.width * scale), height: Math.ceil(size.height * scale), physical: true });
   // Closed while it has the keyboard (Esc, a choice): the window that had it before the menu
   // opened gets it back, as when a taskbar flyout closes; a window moved away would keep it.
